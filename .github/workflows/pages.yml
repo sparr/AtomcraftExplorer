@@ -1,0 +1,42 @@
+# Publish the standalone build to GitHub Pages.
+#
+# dist/atomcraft-explorer.html is committed and self-contained, so there is
+# nothing to build here: the job copies it into place as the site root and
+# leaves a copy under its own name for a stable link.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp dist/atomcraft-explorer.html _site/index.html
+          cp dist/atomcraft-explorer.html _site/atomcraft-explorer.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
