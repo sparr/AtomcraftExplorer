@@ -51,11 +51,13 @@ Both produce byte-identical bakes. `npm run pck-tools` shows which are visible;
 | | |
 | --- | --- |
 | explicit | `--pck <file>`, `--game-dir <dir>`, or `ATOMCRAFT_PCK` / `ATOMCRAFT_GAME_DIR` |
-| Steam | via [`@ciberus/find-steam-app`](https://www.npmjs.com/package/@ciberus/find-steam-app), matching on name or `--steam-appid` |
+| Steam | [`@ciberus/find-steam-app`](https://www.npmjs.com/package/@ciberus/find-steam-app)'s own lookup — by name, or by `--steam-appid` |
 | itch | **not implemented yet** — a stub in `tools/locate-game.mjs` awaiting the itch locator |
 
-`npm run locate` prints what it found and how. Extraction goes to a temp
-directory that is removed afterwards; `--keep-extracted` leaves it and says where.
+`npm run locate` prints what it found and how. If a store locator comes up empty
+— or gets it wrong — pass the path explicitly; nothing tries to outsmart the
+library. Extraction goes to a temp directory that is removed afterwards;
+`--keep-extracted` leaves it and says where.
 
 If you already have the `.pck` unpacked, `--data-dir <dir>` skips locating and
 extracting entirely.

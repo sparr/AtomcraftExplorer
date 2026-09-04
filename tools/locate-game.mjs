@@ -29,34 +29,23 @@ async function locateExplicit({ pck, gameDir } = {}) {
 }
 
 async function locateSteam({ steamAppId } = {}) {
-  let steam;
+  let api;
   try {
-    ({ findSteam: steam } = await import('@ciberus/find-steam-app'));
+    api = await import('@ciberus/find-steam-app');
   } catch {
     return null;                       // dependency not installed -- skip quietly
   }
-  let libraries;
   try {
-    ({ libraries } = await steam());
+    const dir = steamAppId
+      ? await api.findSteamAppById(Number(steamAppId))
+      : await api.findSteamAppByName(GAME_NAME);
+    if (!dir) return null;
+    return { dir, source: `Steam (${steamAppId ? `appid ${steamAppId}` : GAME_NAME})` };
   } catch {
-    return null;                       // Steam itself is not installed
+    // Steam is not installed, or the game is not in any library.  Either way
+    // this locator has nothing to offer; --pck and --game-dir still work.
+    return null;
   }
-  for (const lib of libraries) {
-    for (const app of lib.apps) {
-      const name = app.manifest?.name ?? '';
-      const installdir = app.manifest?.installdir ?? '';
-      const hit = steamAppId
-        ? app.appId === Number(steamAppId)
-        : name.toLowerCase() === GAME_NAME.toLowerCase() ||
-          installdir.toLowerCase() === GAME_NAME.toLowerCase();
-      if (!hit) continue;
-      return {
-        dir: app.path,
-        source: `Steam (appid ${app.appId}, ${lib.path})`,
-      };
-    }
-  }
-  return null;
 }
 
 /**
