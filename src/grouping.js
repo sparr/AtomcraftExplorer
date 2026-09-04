@@ -381,6 +381,7 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
   const zOf = (m) => db.elementBySymbol.get(m.raw.Formula)?.z ?? 999;
 
   for (const g of groups.values()) {
+    g.keyOf = keyOf;                 // kept so a filtered view can re-pick a head
     g.head = pickHead(g.members, (m) => keyOf.get(m));
     g.key = keyOf.get(g.head);       // name the group after the form that heads it
     g.category = categoryOf(g, classify);
@@ -399,6 +400,40 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
     CATEGORY_RANK.get(a.category) - CATEGORY_RANK.get(b.category) ||
     (a.category === 'element' && sortBy === 'z' ? zOf(a.head) - zOf(b.head) : 0) ||
     a.key.localeCompare(b.key));
+}
+
+/**
+ * Narrow already-built groups to a subset of materials.
+ *
+ * Grouping must run over the whole catalogue, because what joins two materials
+ * can be a third one: Water and +H2O are one substance only by way of Ice and
+ * Steam. Grouping the results of a search for "water" would drop those bridges
+ * and split the group, showing two rows both reading "Water". So group
+ * everything once, then filter.
+ *
+ * The head is re-picked from the survivors, so a search for "molten iron" still
+ * shows Molten Iron rather than the Iron it files under.
+ *
+ * @param {object[]} groups     output of buildGroups over every material
+ * @param {object[]} materials  the subset to keep, in relevance order
+ */
+export function filterGroups(groups, materials, { sortBy = 'name' } = {}) {
+  const rank = new Map(materials.map((m, i) => [m, i]));
+  const kept = [];
+
+  for (const g of groups) {
+    const members = g.members.filter((m) => rank.has(m));
+    if (!members.length) continue;
+    kept.push({
+      ...g,
+      members,
+      head: pickHead(members, (m) => g.keyOf.get(m)),
+      rank: Math.min(...members.map((m) => rank.get(m))),
+    });
+  }
+
+  if (sortBy === 'relevance') return kept.sort((a, b) => a.rank - b.rank);
+  return kept;                       // buildGroups already ordered these
 }
 
 /** The same order, flattened -- for callers that just want a sorted list. */

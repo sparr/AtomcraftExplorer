@@ -154,8 +154,7 @@ button.ghost[aria-pressed="true"] { color: var(--accent); border-color: var(--ac
 .pcell[data-empty] { opacity: 0.28; cursor: default; }
 .pcell[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
 
-/* The game's element tile fills the cell; the bar under it is ours, showing
-   how many materials contain the element. */
+/* The game's element tile fills the cell. */
 .ptile {
   width: 100%;
   height: 100%;
@@ -165,13 +164,6 @@ button.ghost[aria-pressed="true"] { color: var(--accent); border-color: var(--ac
 .pcell:not([aria-pressed="true"]) .ptile { filter: saturate(0.72) brightness(0.86); }
 .pcell:hover .ptile, .pcell[aria-pressed="true"] .ptile { filter: none; }
 .psym { color: var(--fg-dim); }
-.pbar {
-  position: absolute;
-  left: 0; bottom: 0;
-  height: 2px;
-  background: var(--accent);
-  opacity: 0.85;
-}
 
 .tex-grid {
   display: grid;

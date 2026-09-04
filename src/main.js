@@ -1,7 +1,7 @@
 /** Search UI: query box, element filter, result list, material detail. */
 import { loadData, REFERENCE_ORDER, referencePhrase } from './data.js';
 import { collapseKey, packCollapsed, unpackCollapsed } from './collapse.js';
-import { buildGroups, CATEGORIES } from './grouping.js';
+import { buildGroups, filterGroups, CATEGORIES } from './grouping.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
 import { formulaHtml } from './formula.js';
 
@@ -182,9 +182,17 @@ function runSearch() {
 const GROUP_LIMIT = 400;
 
 /** Grouped view: a heading per category, one row per group, variants on demand. */
+// Grouping the whole catalogue does not depend on the query, so it is done once
+// per sort order and reused for every keystroke.
+const allGroups = new Map();
+function groupsFor(sortBy) {
+  if (!allGroups.has(sortBy)) allGroups.set(sortBy, buildGroups(db.materials, db, { sortBy }));
+  return allGroups.get(sortBy);
+}
+
 function groupedResults(materials) {
   const frag = document.createDocumentFragment();
-  const groups = buildGroups(materials, db, { sortBy: state.sort });
+  const groups = filterGroups(groupsFor(state.sort), materials, { sortBy: state.sort });
   // Relevance interleaves categories by score, so headings would be meaningless.
   const headings = state.sort !== 'relevance';
   let lastCategory = null;
@@ -763,13 +771,11 @@ function renderPeriodicTable() {
     .map((t) => t.value));
 
   if (!grid.children.length) {
-    const max = Math.max(...db.elements.map((e) => e.count));
     for (const e of db.elements) {
       const cell = el('button', 'pcell');
-      const share = e.count ? Math.log2(1 + e.count) / Math.log2(1 + max) : 0;
       cell.style.setProperty('--row', e.row);
       cell.style.setProperty('--col', e.col);
-      cell.style.setProperty('--w', share.toFixed(3));
+      // The material count lives in the tooltip; the tile carries the colour.
       cell.title = `${e.name} — Z=${e.z} — ${e.count} material${e.count === 1 ? '' : 's'}`;
       cell.dataset.sym = e.sym;
 
@@ -783,11 +789,6 @@ function renderPeriodicTable() {
       } else {
         cell.append(el('span', 'psym', e.sym));
       }
-      // How many materials contain it, which the tile does not say.
-      const bar = el('span', 'pbar');
-      bar.style.width = `${Math.round(share * 100)}%`;
-      cell.append(bar);
-
       if (!e.count) cell.dataset.empty = '';
       else cell.addEventListener('click', () => toggleTerm('el', e.sym));
       grid.append(cell);

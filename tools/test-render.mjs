@@ -366,6 +366,24 @@ else console.log('ok    collapse state persists across material selection');
 globalThis.location.hash = '';
 app.reload();
 
+// --- one row per substance, however the results are filtered ---------------
+{
+  // Water and +H2O are one substance only by way of Ice and Steam. A search
+  // that excludes those must not split them back into two rows.
+  app.setQuery('water');
+  const shown = results.children.filter((r) => r.className === 'row')
+    .map((r) => db.byName.get(r.dataset.name).display);
+  const dupes = shown.filter((d, i) => shown.indexOf(d) !== i);
+  if (dupes.length) { console.log(`FAIL duplicate rows: ${[...new Set(dupes)].join(', ')}`); fail++; }
+  else console.log(`ok    "water" shows ${shown.length} rows, no two the same`);
+
+  // The head is still re-picked from what survived the filter.
+  app.setQuery('molten iron');
+  const first = results.children.find((r) => r.className === 'row')?.dataset.name;
+  if (first !== 'Molten Iron') { console.log(`FAIL "molten iron" heads with ${first}`); fail++; }
+  else console.log('ok    a filtered group is headed by a survivor, not by its absent base');
+}
+
 // --- the game's art ---------------------------------------------------------
 {
   const art = db.art;
@@ -398,9 +416,9 @@ app.reload();
   const grid = document.querySelector('#ptable-grid');
   const cell = grid.children[0];
   const kids = cell.children.map((c) => c.className);
-  if (!kids.includes('ptile') || !kids.includes('pbar')) {
+  if (!kids.includes('ptile')) {
     console.log(`FAIL periodic cell holds ${kids.join(', ')}`); fail++;
-  } else console.log('ok    periodic-table cells use the game tile, with a material-count bar');
+  } else console.log('ok    periodic-table cells use the game tile');
 
   const texCells = document.querySelector('#textures-grid').children.length;
   if (texCells !== 64) { console.log(`FAIL texture panel has ${texCells} cells`); fail++; }

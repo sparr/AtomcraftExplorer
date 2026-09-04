@@ -168,7 +168,7 @@ goes straight into a `data:` URI without being decoded.
 | | what | cost |
 | --- | --- | --- |
 | Swatch shapes | filled square, droplet, puff — white masks tinted with each material's colour, the way the game draws them. Static and Plasma fall back to the square. | 0.3 KB |
-| Element tiles | the game's 16×16 periodic-table tile per element, carrying its symbol and family colour. Used in the periodic table, over a bar showing how many materials contain it. | 21.6 KB |
+| Element tiles | the game's 16×16 periodic-table tile per element, carrying its symbol and family colour. Used in the periodic table; the material count is in the cell's tooltip. | 21.6 KB |
 | Symbol glyphs | the bare 14×14 symbol, transparent. **Baked but not yet used anywhere.** | 12.5 KB |
 | Pattern sheet | 64 tileable 32×32 greyscale textures on one 256×256 sheet, shown in the **Textures** panel. | 68.1 KB |
 
