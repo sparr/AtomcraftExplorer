@@ -144,8 +144,14 @@ function paintPattern(node, m) {
   node.style.backgroundImage = `url("${strip.uri}")`;
   if (strip.frames > 1) {
     node.style.backgroundSize = `${strip.frames * 100}% 100%`;
-    node.style.animation =
-      `pattern-frames ${(strip.frames * SECONDS_PER_FRAME).toFixed(2)}s steps(${strip.frames}) infinite`;
+    // jump-none, not the default jump-end. A percentage background-position
+    // moves the image by (container - image), which is frames-1 icon widths,
+    // so the default sampling of k/frames lands each frame a fraction short and
+    // slices pixels at the edges. jump-none samples k/(frames-1), which is
+    // exactly one icon width per step.
+    node.style.animation = `pattern-frames ` +
+      `${(strip.frames * SECONDS_PER_FRAME).toFixed(2)}s ` +
+      `steps(${strip.frames}, jump-none) infinite`;
   } else {
     node.style.backgroundSize = 'cover';
   }
