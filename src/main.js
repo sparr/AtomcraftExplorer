@@ -1,5 +1,6 @@
 /** Search UI: query box, element filter, result list, material detail. */
 import { loadData, REFERENCE_ORDER } from './data.js';
+import { collapseKey, packCollapsed, unpackCollapsed } from './collapse.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
 import { formulaHtml } from './formula.js';
 
@@ -21,19 +22,39 @@ let selected = null;
 
 const state = { q: '', sel: null };
 
+/** Sections the reader has collapsed. Mirrored into the URL. */
+const collapsed = new Set();
+
+// Set while we rewrite location.hash ourselves, so the resulting hashchange
+// does not bounce back through readHash and re-render everything.
+let selfHashWrite = false;
+
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   state.q = p.get('q') || '';
   state.sel = p.get('m') || null;
+  collapsed.clear();
+  for (const key of unpackCollapsed(p.get('c'))) collapsed.add(key);
 }
 
 function writeHash({ replace = false } = {}) {
   const p = new URLSearchParams();
   if (state.q) p.set('q', state.q);
   if (state.sel) p.set('m', state.sel);
+  const packed = packCollapsed(collapsed);
+  if (packed) p.set('c', packed);
   const hash = p.toString() ? '#' + p.toString() : ' ';
-  if (replace) history.replaceState(null, '', hash);
-  else history.pushState(null, '', hash);
+  try {
+    if (replace) history.replaceState(null, '', hash);
+    else history.pushState(null, '', hash);
+  } catch {
+    // Some browsers refuse history manipulation on a file:// document. Writing
+    // the fragment directly always works; suppress the hashchange it causes.
+    if (location.hash !== hash) {
+      selfHashWrite = true;
+      location.hash = hash;
+    }
+  }
 }
 
 function setQuery(q, { fromInput = false } = {}) {
@@ -213,11 +234,6 @@ function mount(parent, ...nodes) {
   for (const n of nodes) if (n) parent.append(n);
 }
 
-// Which sections the reader has collapsed.  Keyed by title with any trailing
-// "(12)" stripped, so the choice survives moving between materials.
-const collapsed = new Set();
-const collapseKey = (title) => title.replace(/\s*\(\d+\)\s*$/, '');
-
 /**
  * A <details> disclosure -- native keyboard handling and toggle behaviour, with
  * the twisty drawn on the left of the heading.
@@ -226,9 +242,10 @@ function disclosure(cls, headingTag, title, nodes) {
   const kept = nodes.filter(Boolean);
   if (!kept.length) return null;
 
-  const key = cls + ':' + collapseKey(title);
+  const key = collapseKey(cls, title);
+  const wantOpen = !collapsed.has(key);
   const d = el('details', cls);
-  d.open = !collapsed.has(key);
+  d.open = wantOpen;
 
   const summary = el('summary');
   const twisty = el('span', 'twisty');
@@ -241,8 +258,11 @@ function disclosure(cls, headingTag, title, nodes) {
   d.append(body);
 
   d.addEventListener('toggle', () => {
+    // Setting .open while building also queues a toggle event; ignore that one.
+    if (!d.open === collapsed.has(key)) return;
     if (d.open) collapsed.delete(key);
     else collapsed.add(key);
+    writeHash({ replace: true });
   });
   return d;
 }
@@ -608,6 +628,7 @@ function bindChrome() {
     });
   }
   window.addEventListener('hashchange', () => {
+    if (selfHashWrite) { selfHashWrite = false; return; }
     readHash();
     $('#q').value = state.q;
     $('#clear').hidden = !state.q;
@@ -622,7 +643,18 @@ function bindChrome() {
   try {
     db = await loadData();
     // Exposed for the console and for tools/test_render.mjs.
-    window.explorer = { db, select, setQuery, renderDetail, runSearch };
+    window.explorer = {
+      db, select, setQuery, renderDetail, runSearch,
+      // What a page load does: re-read the fragment and rebuild from it.
+      reload: () => {
+        readHash();
+        $('#q').value = state.q;
+        runSearch();
+        renderChips();
+        renderPeriodicTable();
+        select(state.sel ? db.byName.get(state.sel) : null);
+      },
+    };
     window.db = db;
     readHash();
     renderHelp();

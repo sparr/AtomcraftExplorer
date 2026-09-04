@@ -850,6 +850,67 @@ async function loadData(url = './data/atomcraft.json') {
 return { REFERENCE_ORDER, loadData };
 })();
 
+const __mod_collapse = (() => {
+/**
+ * Which detail sections the reader has collapsed, packed small enough to live
+ * in the URL so the choice survives a reload (and can be linked).
+ *
+ * Every collapsible section has a fixed slot in COLLAPSIBLE; the collapsed set
+ * is that list read as a bitmask, written in base 36.  Collapsing "Referenced
+ * by" alone is `c=74`.
+ */
+const {REFERENCE_ORDER} = __mod_data;
+
+// Order is the wire format.  Append freely; never reorder or remove, or old
+// URLs will decode to the wrong sections.
+const SECTIONS = [
+  'Composition', 'Nuclear', 'Thermal & fire', 'Consumed by', 'Produced by',
+  'Catalyses', 'Transitions', 'Physical', 'Referenced by',
+];
+const SUBSECTIONS = ['Constituent materials', 'Drops', ...REFERENCE_ORDER];
+
+const COLLAPSIBLE = [
+  ...SECTIONS.map((t) => `sec:${t}`),
+  ...SUBSECTIONS.map((t) => `subsec:${t}`),
+];
+
+const SLOT = new Map(COLLAPSIBLE.map((key, i) => [key, i]));
+
+/** Section title -> storage key. Counts vary per material, so drop them. */
+const collapseKey = (cls, title) => `${cls}:${title.replace(/\s*\(\d+\)\s*$/, '')}`;
+
+/**
+ * @param {Iterable<string>} keys collapsed section keys
+ * @returns {string} base-36 bitmask, or '' when nothing is collapsed
+ */
+function packCollapsed(keys) {
+  let bits = 0n;
+  for (const key of keys) {
+    const slot = SLOT.get(key);
+    if (slot !== undefined) bits |= 1n << BigInt(slot);   // unknown keys: session-only
+  }
+  return bits ? bits.toString(36) : '';
+}
+
+/** @returns {Set<string>} */
+function unpackCollapsed(text) {
+  const out = new Set();
+  if (!text) return out;
+  let bits = 0n;
+  for (const ch of text.toLowerCase()) {
+    const digit = parseInt(ch, 36);
+    if (Number.isNaN(digit)) return out;                 // junk in the URL: ignore
+    bits = bits * 36n + BigInt(digit);
+  }
+  for (let i = 0; i < COLLAPSIBLE.length; i++) {
+    if ((bits >> BigInt(i)) & 1n) out.add(COLLAPSIBLE[i]);
+  }
+  return out;
+}
+
+return { COLLAPSIBLE, collapseKey, packCollapsed, unpackCollapsed };
+})();
+
 const __mod_search = (() => {
 /**
  * Query parsing and ranking for material search.
@@ -1055,6 +1116,7 @@ return { FIELDS, TERM_RE, parseQuery, search };
 const __mod_main = (() => {
 /** Search UI: query box, element filter, result list, material detail. */
 const {loadData, REFERENCE_ORDER} = __mod_data;
+const {collapseKey, packCollapsed, unpackCollapsed} = __mod_collapse;
 const {search, parseQuery, FIELDS, TERM_RE} = __mod_search;
 const {formulaHtml} = __mod_formula;
 
@@ -1076,19 +1138,39 @@ let selected = null;
 
 const state = { q: '', sel: null };
 
+/** Sections the reader has collapsed. Mirrored into the URL. */
+const collapsed = new Set();
+
+// Set while we rewrite location.hash ourselves, so the resulting hashchange
+// does not bounce back through readHash and re-render everything.
+let selfHashWrite = false;
+
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   state.q = p.get('q') || '';
   state.sel = p.get('m') || null;
+  collapsed.clear();
+  for (const key of unpackCollapsed(p.get('c'))) collapsed.add(key);
 }
 
 function writeHash({ replace = false } = {}) {
   const p = new URLSearchParams();
   if (state.q) p.set('q', state.q);
   if (state.sel) p.set('m', state.sel);
+  const packed = packCollapsed(collapsed);
+  if (packed) p.set('c', packed);
   const hash = p.toString() ? '#' + p.toString() : ' ';
-  if (replace) history.replaceState(null, '', hash);
-  else history.pushState(null, '', hash);
+  try {
+    if (replace) history.replaceState(null, '', hash);
+    else history.pushState(null, '', hash);
+  } catch {
+    // Some browsers refuse history manipulation on a file:// document. Writing
+    // the fragment directly always works; suppress the hashchange it causes.
+    if (location.hash !== hash) {
+      selfHashWrite = true;
+      location.hash = hash;
+    }
+  }
 }
 
 function setQuery(q, { fromInput = false } = {}) {
@@ -1268,11 +1350,6 @@ function mount(parent, ...nodes) {
   for (const n of nodes) if (n) parent.append(n);
 }
 
-// Which sections the reader has collapsed.  Keyed by title with any trailing
-// "(12)" stripped, so the choice survives moving between materials.
-const collapsed = new Set();
-const collapseKey = (title) => title.replace(/\s*\(\d+\)\s*$/, '');
-
 /**
  * A <details> disclosure -- native keyboard handling and toggle behaviour, with
  * the twisty drawn on the left of the heading.
@@ -1281,9 +1358,10 @@ function disclosure(cls, headingTag, title, nodes) {
   const kept = nodes.filter(Boolean);
   if (!kept.length) return null;
 
-  const key = cls + ':' + collapseKey(title);
+  const key = collapseKey(cls, title);
+  const wantOpen = !collapsed.has(key);
   const d = el('details', cls);
-  d.open = !collapsed.has(key);
+  d.open = wantOpen;
 
   const summary = el('summary');
   const twisty = el('span', 'twisty');
@@ -1296,8 +1374,11 @@ function disclosure(cls, headingTag, title, nodes) {
   d.append(body);
 
   d.addEventListener('toggle', () => {
+    // Setting .open while building also queues a toggle event; ignore that one.
+    if (!d.open === collapsed.has(key)) return;
     if (d.open) collapsed.delete(key);
     else collapsed.add(key);
+    writeHash({ replace: true });
   });
   return d;
 }
@@ -1663,6 +1744,7 @@ function bindChrome() {
     });
   }
   window.addEventListener('hashchange', () => {
+    if (selfHashWrite) { selfHashWrite = false; return; }
     readHash();
     $('#q').value = state.q;
     $('#clear').hidden = !state.q;
@@ -1677,7 +1759,18 @@ function bindChrome() {
   try {
     db = await loadData();
     // Exposed for the console and for tools/test_render.mjs.
-    window.explorer = { db, select, setQuery, renderDetail, runSearch };
+    window.explorer = {
+      db, select, setQuery, renderDetail, runSearch,
+      // What a page load does: re-read the fragment and rebuild from it.
+      reload: () => {
+        readHash();
+        $('#q').value = state.q;
+        runSearch();
+        renderChips();
+        renderPeriodicTable();
+        select(state.sel ? db.byName.get(state.sel) : null);
+      },
+    };
     window.db = db;
     readHash();
     renderHelp();

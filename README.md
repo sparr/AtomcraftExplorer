@@ -124,8 +124,14 @@ Terms are ANDed. Prefix `-` to exclude, quote to group: `name:"Molten Iron"`.
 The **Periodic table** panel is the same filter with a click target — shading
 shows how many materials contain each element.
 
-Keys: `/` focus search, `↑`/`↓` or `j`/`k` move, `Esc` clear. The query and the
-selected material live in the URL hash, so any view is linkable.
+Keys: `/` focus search, `↑`/`↓` or `j`/`k` move, `Esc` clear.
+
+The whole view lives in the URL hash, so any state is linkable and survives a
+reload: the query (`q`), the selected material (`m`), and which detail sections
+are collapsed (`c`). That last one is a bitmask over the fixed slot list in
+`src/collapse.js`, written in base 36 — collapsing everything is six characters.
+Slots may be appended but never reordered, or old links decode to the wrong
+sections.
 
 ## Layout
 

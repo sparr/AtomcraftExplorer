@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { installDom } from './dom-shim.mjs';
 import { REFERENCE_ORDER } from '../src/data.js';
+import { COLLAPSIBLE, packCollapsed, unpackCollapsed, collapseKey } from '../src/collapse.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const ids = [...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
@@ -131,6 +132,90 @@ else {
     console.log(`ok    groups in frozen order: ${labels.join(', ')}`);
   }
   app.select(db.byName.get('Oxygen'));
+}
+
+// --- every key the UI produces has a slot in the wire format ---------------
+{
+  const seen = new Set();
+  for (const m of db.materials) {
+    app.select(m);
+    for (const n of detail.walk()) {
+      if (n.className !== 'sec' && n.className !== 'subsec') continue;
+      const title = n.children.find((c) => c.tagName === 'SUMMARY').textContent;
+      seen.add(collapseKey(n.className, title));
+    }
+  }
+  const missing = [...seen].filter((k) => !COLLAPSIBLE.includes(k)).sort();
+  if (missing.length) {
+    console.log(`FAIL COLLAPSIBLE has no slot for: ${missing.join(', ')}`); fail++;
+  } else {
+    console.log(`ok    all ${seen.size} section keys in use have a slot (of ${COLLAPSIBLE.length})`);
+  }
+}
+
+// --- codec round-trips, and stays small ------------------------------------
+{
+  const cases = [[], ['sec:Referenced by'], ['sec:Physical', 'subsec:made of'], COLLAPSIBLE];
+  for (const keys of cases) {
+    const back = [...unpackCollapsed(packCollapsed(keys))].sort();
+    if (back.join('|') !== [...keys].sort().join('|')) {
+      console.log(`FAIL codec round-trip for ${keys.length} keys`); fail++;
+    }
+  }
+  const all = packCollapsed(COLLAPSIBLE);
+  if (all.length > 12) { console.log(`FAIL packed payload is ${all.length} chars`); fail++; }
+  else console.log(`ok    codec round-trips; everything collapsed packs to "${all}" (${all.length} chars)`);
+  if (unpackCollapsed('!!!').size || unpackCollapsed(null).size) {
+    console.log('FAIL junk in the URL was not ignored'); fail++;
+  }
+}
+
+// --- collapsing writes the URL, and a reload restores it -------------------
+{
+  app.setQuery('water');
+  app.select(db.byName.get('Water'));
+  const before = globalThis.location.hash;
+  const sec = [...detail.walk()].find((n) => n.className === 'sec' &&
+                                             n.textContent.startsWith('Physical'));
+  sec.open = false;
+  sec.dispatch('toggle');
+  const after = globalThis.location.hash;
+  if (after === before || !/[#&]c=/.test(after)) {
+    console.log(`FAIL collapsing did not reach the URL: ${after}`); fail++;
+  } else {
+    console.log(`ok    collapsing writes the URL: ${after}`);
+  }
+  // A reload is readHash() over that same fragment, then a fresh render.
+  app.reload();
+  const reloaded = [...detail.walk()].find((n) => n.className === 'sec' &&
+                                                  n.textContent.startsWith('Physical'));
+  if (reloaded.open !== false) { console.log('FAIL section reopened after reload'); fail++; }
+  else console.log('ok    reload restores the collapsed section from the URL');
+  if (document.querySelector('#q').value !== 'water') {
+    console.log('FAIL reload lost the query'); fail++;
+  }
+}
+
+// --- building a pane must not look like a user toggle ----------------------
+{
+  // Browsers queue a toggle event when .open is set during construction. The
+  // shim does not, so replay it: dispatch toggle with the state unchanged and
+  // check nothing moved.
+  // The set mutation is a no-op either way, so watch the history writes: an
+  // unguarded handler calls replaceState once per section on every render.
+  app.select(db.byName.get('Water'));
+  const realReplace = globalThis.history.replaceState;
+  let writes = 0;
+  globalThis.history.replaceState = (...a) => { writes++; return realReplace(...a); };
+  const nodes = [...detail.walk()].filter((n) => n.className === 'sec' || n.className === 'subsec');
+  for (const n of nodes) n.dispatch('toggle');
+  globalThis.history.replaceState = realReplace;
+  if (writes) {
+    console.log(`FAIL ${nodes.length} construction-time toggles caused ${writes} history writes`);
+    fail++;
+  } else {
+    console.log(`ok    ${nodes.length} construction-time toggle events ignored, 0 history writes`);
+  }
 }
 
 // --- collapsing sticks when you move to another material -------------------
