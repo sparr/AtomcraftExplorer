@@ -189,12 +189,30 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
 
   // Union the name-derived keys that phase transitions say are one substance.
   const parent = new Map();
-  for (const k of keyOf.values()) if (!parent.has(k)) parent.set(k, k);
+  const formulas = new Map();          // component -> the formulas its members state
+  for (const [m, k] of keyOf) {
+    if (!parent.has(k)) { parent.set(k, k); formulas.set(k, new Set()); }
+    if (m.raw.Formula) formulas.get(k).add(m.raw.Formula);
+  }
   const find = (k) => {
     while (parent.get(k) !== k) { parent.set(k, parent.get(parent.get(k))); k = parent.get(k); }
     return k;
   };
-  const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent.set(a, b); };
+  /**
+   * Merge two components, unless between them they would state more than one
+   * formula. Checking whole components rather than the two linked materials
+   * matters when a formula-less material bridges them: Liquid Hydrogen states
+   * none, so it files under Hydrogen (H) by name and then links reciprocally to
+   * Hydrogen Gas (H2), which would drag H2 in behind it.
+   */
+  const union = (a, b) => {
+    a = find(a); b = find(b);
+    if (a === b) return;
+    const merged = new Set([...formulas.get(a), ...formulas.get(b)]);
+    if (merged.size > 1) return;
+    parent.set(a, b);
+    formulas.set(b, merged);
+  };
 
   // Phase transitions say two materials are one substance in different states.
   const byName = new Map(materials.map((m) => [m.name, m]));
@@ -211,11 +229,6 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
       // Molten Nichrome and freezes back out of it. Ice is Static too but is
       // not machinery, which is what lets it stay with Water.
       if (!!m.raw.IsMechanical !== !!target.raw.IsMechanical) continue;
-
-      // Never join two materials that state different formulas. Liquid
-      // Nitrogen is recorded as N while Nitrogen Gas is N2, so their
-      // reciprocal link would otherwise drag monatomic Nitrogen along too.
-      if (!sameSubstance(m.raw.Formula, target.raw.Formula)) continue;
 
       // A reciprocal pair is trusted outright: Water freezes to Ice and Ice
       // melts back to Water, and Ice states no formula at all.

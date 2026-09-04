@@ -73,7 +73,10 @@ ok('category assignment for 12 representative materials');
   // "Oxygen Gas" is O2 and "Oxygen" is O -- different substances that read like
   // phases of each other. The game gives them no transition between them.
   for (const [variant, element] of [['Oxygen Gas', 'Oxygen'], ['Bromine Gas', 'Bromine'],
-                                    ['Nitrogen Gas', 'Nitrogen'], ['Chlorine Gas', 'Chlorine']]) {
+                                    ['Nitrogen Gas', 'Nitrogen'], ['Chlorine Gas', 'Chlorine'],
+                                    // Reached through Liquid Hydrogen, which states no formula
+                                    // and so is compatible with both H and H2.
+                                    ['Hydrogen Gas', 'Hydrogen'], ['Iodine Gas', 'Iodine']]) {
     const g = groups.find((x) => x.members.some((m) => m.name === variant));
     if (g.members.some((m) => m.name === element)) {
       bad(`${variant} (${db.byName.get(variant).raw.Formula}) grouped with ` +
@@ -82,8 +85,18 @@ ok('category assignment for 12 representative materials');
   }
   ok('diatomic gases are not filed under their monatomic element');
 
+  // No group may state two different formulas.
+  for (const g of groups) {
+    const stated = new Set(g.members.map((m) => m.raw.Formula).filter(Boolean));
+    if (stated.size > 1) {
+      bad(`group "${g.key}" mixes formulas: ${[...stated].join(', ')}`);
+      break;
+    }
+  }
+  ok('no group mixes two formulas');
+
   const allotropes = groups.filter((g) => g.category === 'allotrope');
-  if (allotropes.length < 6) bad(`only ${allotropes.length} single-element compound groups`);
+  if (allotropes.length < 9) bad(`only ${allotropes.length} single-element compound groups`);
   else ok(`${allotropes.length} single-element compound groups: ${allotropes.map((g) => g.key).slice(0, 4).join(', ')}…`);
 
   // A machine melting into its metal must not join the metal.
