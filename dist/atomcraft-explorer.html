@@ -1688,10 +1688,14 @@ function resultRow(hit, { group = null, variant = false } = {}) {
   li.append(lead, swatch(m), main, right);
   li.addEventListener('click', () => {
     // First click selects and opens the group; clicking the selected row again
-    // works the group's twisty, so one row does both jobs.
+    // works the twisty of the group this row *heads*, so one row does both jobs.
+    // Keying on what the row heads rather than what it belongs to means a
+    // variant cannot collapse its parent out from under itself -- and if
+    // sub-groups are ever nested here, a variant will close its own children
+    // with no change to this rule.
     if (selected === m) {
       const g = groupIndex.get(m.name);
-      if (g && g.members.length > 1) toggleGroup(g.key);
+      if (g && g.head === m && g.members.length > 1) toggleGroup(g.key);
     } else {
       select(m, { push: true });
     }

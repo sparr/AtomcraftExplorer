@@ -137,7 +137,10 @@ variants of one thing fold under it. `Iron` carries `Molten Iron`; `Uranium`
 carries its isotopes; `And Gate` carries all eight direction/state permutations;
 `Bits of Blender` files under `Blender`. The twisty at the left of a row expands
 its group in place; selecting a row opens its group, and clicking the selected
-row again closes it without losing the selection.
+row again closes it without losing the selection. That second click acts on the
+group a row *heads*, not the one it sits in, so a variant cannot collapse its
+parent out from under itself — and would close its own children if groups are
+ever nested.
 
 `src/grouping.js` holds the mechanism, and keeps two ideas apart:
 

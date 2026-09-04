@@ -332,6 +332,18 @@ else console.log('ok    collapse state persists across material selection');
       results.children.find((r) => r.dataset.name === 'Uranium').dispatch('click');
       if (!isotopeRows()) { console.log('FAIL third click did not reopen the group'); fail++; }
       else console.log('ok    clicking again reopens it');
+
+      // A variant only ever closes what it heads, so it cannot collapse the
+      // group it is sitting in -- which would hide its own row.
+      const variantRow = results.children.find((r) => /^Uranium-/.test(r.dataset.name || ''));
+      const before = isotopeRows();
+      variantRow.dispatch('click');                       // selects it
+      variantRow.dispatch('click');                       // second click on the selected variant
+      if (isotopeRows() !== before) {
+        console.log(`FAIL clicking a variant collapsed its parent (${before} -> ${isotopeRows()})`); fail++;
+      } else if (!detail.textContent.startsWith('Uranium-')) {
+        console.log('FAIL clicking a variant did not select it'); fail++;
+      } else console.log(`ok    a selected variant does not collapse its parent (${isotopeRows()} rows kept)`);
     }
   }
 }
