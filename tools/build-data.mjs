@@ -35,6 +35,13 @@ const STATES = ['Solid', 'Liquid', 'Gas', 'Static', 'Plasma'];
 const DIRECTIONS = ['None', 'Right', 'DownRight', 'Down', 'DownLeft',
                     'Left', 'UpLeft', 'Up', 'UpRight'];
 const DECAY_MODES = { 0: 'Alpha', 1: 'Beta-minus', 2: 'Beta-plus', 6: 'Spontaneous fission' };
+// Recovered from the assembly, where the shipped .cs files are stubs.
+// WireSignalState and GrowthMediumType are enums; the audio ids follow the
+// registration order in MaterialAudioTypes, which AudioCueTypes confirms by
+// treating 2 as metal and 3 as rock.
+const WIRE_SIGNAL = ['Off', 'Falling 2', 'Falling 1', 'On'];
+const GROWTH_MEDIUM = ['Soil', 'Water', 'Air', 'Rock', 'Seawater'];
+const AUDIO_TYPES = ['Solid', 'Liquid', 'Metal', 'Rock'];
 
 // A 0 here is a real value, not "unset" -- these fields are either nullable
 // (so absent already means unset) or have a meaningful zero.
@@ -220,7 +227,10 @@ async function main() {
   const bundle = {
     meta: { source: 'Atomcraft.pck', locale: args.locale,
             materials: outMaterials.length, reactions: reactions.length },
-    enums: { State: STATES, Direction: DIRECTIONS, DecayMode: DECAY_MODES },
+    enums: {
+      State: STATES, Direction: DIRECTIONS, DecayMode: DECAY_MODES,
+      WireSignal: WIRE_SIGNAL, GrowthMedium: GROWTH_MEDIUM, AudioType: AUDIO_TYPES,
+    },
     elements,
     art: collected?.art ?? null,
     dangling: [...dangling].sort(),

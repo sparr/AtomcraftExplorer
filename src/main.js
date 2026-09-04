@@ -174,6 +174,18 @@ function patternPreview(m) {
   return box;
 }
 
+/** A small square of a Godot colour, for fields that carry one. */
+function colourChip(c, label) {
+  if (!c) return null;
+  const to255 = (v) => Math.round(Math.min(1, Math.max(0, v || 0)) * 255);
+  const rgb = `rgb(${to255(c.R)}, ${to255(c.G)}, ${to255(c.B)})`;
+  const wrap = el('span', 'colour-value');
+  const chip = el('span', 'colour-chip');
+  chip.style.background = rgb;
+  wrap.append(chip, el('span', 'mono', label ?? rgb));
+  return wrap;
+}
+
 function stateBadge(m) {
   const b = el('span', `badge ${m.state.toLowerCase()}`, m.state);
   return b;
@@ -434,7 +446,8 @@ const FLAG_FIELDS = [
   ['IsCarryingSignal', 'carries signal'], ['IsFoodIngredient', 'food ingredient'],
   ['CanBeCutByPlasma', 'cuttable by plasma'], ['CanPickUpStatic', 'pick up static'],
   ['DoNotBlockLaser', 'does not block laser'], ['IgnoreFogOfWar', 'ignores fog of war'],
-  ['IsOn', 'on'], ['SuppressInGuide', 'hidden from guide'],
+  ['IsOn', 'on'], ['IsPaintable', 'paintable'],
+  ['SuppressInGuide', 'hidden from guide'],
 ];
 
 const TRANSITION_FIELDS = [
@@ -737,6 +750,14 @@ function renderDetail(m) {
     }
     if (r.Fire.HeatOutput) thermal.push(['Heat output', String(r.Fire.HeatOutput)]);
     if (r.Fire.PercentChanceToSpread) thermal.push(['Spread chance', `${r.Fire.PercentChanceToSpread}%`]);
+    if (r.Fire.ProbabilityToCombust) thermal.push(['Combust chance', String(r.Fire.ProbabilityToCombust)]);
+    const flame = colourChip(r.Fire.FlameColor);
+    if (flame) thermal.push(['Flame colour', flame]);
+    // The sparks are colours the flame throws off, not materials.
+    for (const [f, label] of [['FlameSparkA', 'Flame spark A'], ['FlameSparkB', 'Flame spark B']]) {
+      const chip = colourChip(r.Fire[f]);
+      if (chip) thermal.push([label, chip]);
+    }
   }
   mount(pane, section('Thermal & fire', kv(thermal)));
 
@@ -763,7 +784,9 @@ function renderDetail(m) {
     for (const g of r.GrowthRules) {
       const w = el('span');
       w.append(matLink(g.GrowthMaterialName),
-               ` ${db.enums.Direction[g.Direction ?? 0]}, rate ${g.GrowthRate ?? 0}`);
+               ` ${db.enums.Direction[g.Direction ?? 0]}` +
+               ` on ${db.enums.GrowthMedium[g.MediumType ?? 0] ?? `medium ${g.MediumType}`}` +
+               `, rate ${g.GrowthRate ?? 0}`);
       trans.push(['Grows', w]);
     }
   }
@@ -788,6 +811,14 @@ function renderDetail(m) {
     nums.push(['Needs support', db.enums.Direction[r.RequiredSupportDirection]]);
   }
   if (r.WireIndex !== undefined) nums.push(['Wire index', String(r.WireIndex)]);
+  if (r.WireSignalState) {
+    nums.push(['Wire signal', db.enums.WireSignal[r.WireSignalState] ?? String(r.WireSignalState)]);
+  }
+  if (r.MaterialAudioTypeId) {
+    nums.push(['Audio', db.enums.AudioType[r.MaterialAudioTypeId] ?? String(r.MaterialAudioTypeId)]);
+  }
+  const light = colourChip(r.LightColor);
+  if (light) nums.push(['Light colour', light]);
   if (r.ColorDelegate) nums.push(['Colour delegate', r.ColorDelegate]);
   const flags = FLAG_FIELDS.filter(([f]) => r[f]);
   const flagBox = flags.length ? el('div', 'flags') : null;

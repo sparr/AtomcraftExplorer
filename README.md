@@ -387,6 +387,8 @@ Everything is JavaScript — source, build and tests all run on Node.
   of CSS. Layout and styling are checked by looking at the page.
 - **Enum labels are inferred.** Every `.cs` file in the `.pck` is a one-byte
   stub, so `State`, `Direction` and the decay modes were recovered from the data.
+  Three more — `WireSignal`, `GrowthMedium` and `AudioType` — were read out of
+  the assembly instead, so those are quoted rather than guessed.
   The compass directions are the weakest of these: `1/3/5/7` are pinned by
   materials named `(Right)`, `(Down)`, `(Left)` and `(Up)`, but the diagonals
   `2/4/6/8` are a pattern completed from those, not something the data confirms.
@@ -412,6 +414,7 @@ node tools/test-formula.mjs   # parses + round-trips all 437 distinct formulas
 node tools/test-search.mjs    # ranking assertions
 node tools/test-render.mjs    # renders all 1795 detail panes against a DOM shim
 node tools/test-styles.mjs    # every class used in markup or code has a rule
+node tools/test-coverage.mjs  # every material field with a value reaches the UI
 node tools/test-bundle.mjs    # runs the standalone build with fetch() disabled
 ```
 
