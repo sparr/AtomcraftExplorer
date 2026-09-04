@@ -346,10 +346,8 @@ data contains — counts, enum meanings, the phase links, the formula quirks —
 is describing values read out of `AllMaterials.json` and `AllReactions.json`,
 usually printed in the course of finding a bug.
 
-The interface was reviewed in a browser by the author, whose feedback caught
-things no test would have — a stray `null` between detail sections, an ignition
-temperature reading `undefined K`. What the automated checks do and do not cover
-is set out under [Limitations](#limitations).
+What the automated checks do and do not cover is set out under
+[Limitations](#limitations).
 
 ## License
 
