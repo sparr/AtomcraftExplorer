@@ -990,9 +990,12 @@ const CATEGORIES = [
   { id: 'compound',   label: 'Compounds' },
   { id: 'mixture',    label: 'Mixtures & solutions' },
   { id: 'deposit',    label: 'Deposits' },
+  { id: 'terrain',    label: 'Terrain & minerals' },
   { id: 'plant',      label: 'Plants' },
+  { id: 'biological', label: 'Biological' },
   { id: 'projectile', label: 'Projectiles & beams' },
-  { id: 'machine',    label: 'Machines & structures' },
+  { id: 'structure',  label: 'Placed blocks' },
+  { id: 'machine',    label: 'Machines' },
   { id: 'other',      label: 'Other' },
 ];
 
@@ -1000,7 +1003,59 @@ const CATEGORY_RANK = new Map(CATEGORIES.map((c, i) => [c.id, i]));
 
 // Categories that are made of, or hold, a material without being it. Melting
 // one yields the material, which is extraction rather than a change of state.
-const HOLDS_MATERIAL = new Set(['machine', 'deposit']);
+// Terrain is not among them: melting Apatite really does give Molten Apatite.
+const HOLDS_MATERIAL = new Set(['machine', 'structure', 'deposit']);
+
+/**
+ * Living things, their parts and their products.
+ *
+ * There is no flag for this. IsFoodIngredient catches the food but not the
+ * anatomy, MAT_BIO_ covers only the fireflies and mites, and an organic
+ * composition also describes a wooden wall. So this is a list, keyed on the
+ * LocIdName stem because the names carry indices -- Trunk1 through Trunk25,
+ * Left Branch1 through Right Branch5.
+ */
+const BIOLOGICAL_STEMS = new Set([
+  // anatomy
+  'ALVEOLAR_CELL', 'ARACHNOID_MATER', 'BLOOD', 'BONE', 'BONE_MARROW',
+  'CEREBROSPINAL_FLUID', 'DURA_MATER', 'ENDOTHELIAL_CELL', 'LYMPH', 'MUCUS',
+  'NEURON', 'PIA_MATER', 'SMOOTH_MUSCLE_CELL', 'STEM_CELL',
+  // fungi
+  'BITTEROYSTER', 'BITTEROYSTER_SPORE', 'BITTEROYSTER_STALK', 'BITTEROYSTER_STREAMER',
+  'DEATH_MOSS', 'DEATH_MOSS_SPORE', 'DEATH_MOSS_STALK', 'DEATH_MOSS_STREAMER',
+  'EMBERCROWN', 'EMBERCROWN_SPORE', 'EMBERCROWN_STALK', 'EMBERCROWN_STREAMER',
+  'FOXFIRE', 'FOXFIRE_SPORE', 'FOXFIRE_STALK', 'FOXFIRE_STREAMER', 'MOSS',
+  // plant tissue that carries no growth rules of its own
+  'BRANCH', 'FALLEN_LEAF', 'GRASS', 'GRASS_BURNING', 'GRASS_CUT', 'LEAF',
+  'LEAVES', 'LEAVES_BURNING', 'ROOT', 'TREE', 'TREE_BURNING', 'TRUNK',
+  'WOOD', 'WOOD_ASH', 'WOOD_BURNING',
+  'KELP', 'KELP_BURNING', 'KELP_STALK', 'KELP_STALK_END',
+  // seeds
+  'SEED', 'CORNFLOWER_SEED', 'GRASS_SEED', 'KELP_SEED', 'MARIGOLD_SEED',
+  'ROSE_SEED', 'SESAME_SEED', 'SUNFLOWER_SEED', 'VIOLET_SEED',
+  // produce that carries no food flag
+  'TOMATO',
+  // creatures and what comes off them
+  'CHICKEN_RAW', 'CHICKEN_COOKED', 'CHICKEN_FRIED', 'CHICKEN_MARINATED',
+  'CHICKEN_EGG', 'EGG_SHELL', 'EGG_YOLK', 'ECTOPLASM',
+  'FIREFLY_EGG', 'FIREFLY_FED', 'FIREFLY_HUNGRY', 'FIREFLY_OLD', 'FIREFLY_PREGNANT',
+  'MITE_FED', 'MITE_HUNGRY',
+  'SLIME_BLUE', 'SLIME_CYAN', 'SLIME_GREEN', 'SLIME_MAGNETA', 'SLIME_ORANGE',
+  'SLIME_PURPLE', 'SLIME_RED', 'SLIME_ULTIMATE', 'SLIME_WHITE', 'SLIME_YELLOW',
+]);
+
+const locStem = (m) => m.raw.LocIdName.replace(/^MAT_[A-Z]+_/, '');
+
+/**
+ * Food, minus the minerals the game also flags as edible.
+ * Salt (NaCl) and Snow (H2O) carry IsFoodIngredient, so require an organic
+ * formula or none at all.
+ */
+function isFood(m) {
+  if (!m.raw.IsFoodIngredient) return false;
+  const f = m.raw.Formula;
+  return !f || (/C/.test(f) && /H/.test(f));
+}
 
 // Trailing "(Off)", "(Up)", "(1500)" mark variants. Roman numerals must survive:
 // "Potassium Heptafluoroniobate(V)" is an oxidation state, not a variant.
@@ -1035,10 +1090,17 @@ function makeClassifier(materials) {
 
   return function classify(m) {
     if (plants.has(m.name)) return 'plant';
+    if (BIOLOGICAL_STEMS.has(locStem(m)) || isFood(m)) return 'biological';
     if (/(^|\s)(Bullet|Laser)(\s|$)/.test(m.name) || m.state === 'Plasma') return 'projectile';
     if (/ Deposit$/.test(m.name) || m.raw.DropRates) return 'deposit';
-    // Before the formula tests: a machine's formula is its build material.
-    if (m.state === 'Static' || m.raw.IsMechanical || m.name.startsWith(BITS_PREFIX)) return 'machine';
+
+    // Everything below is placed in the world, and their formula names what
+    // they are built from rather than what they are, so they come before the
+    // formula tests: an oscillator is Cu but it is not copper.
+    if (m.raw.IsMechanical || m.name.startsWith(BITS_PREFIX)) return 'machine';
+    if (m.raw.IsBuilt || / Wall$/.test(m.name)) return 'structure';
+    if (m.state === 'Static') return 'terrain';
+
     if (m.raw.ShowParenthesesWhenInFormula) return 'ion';
 
     if (m.formula && m.formula.counts.size === 1) {
@@ -1113,6 +1175,10 @@ function effectiveFormulas(materials) {
 function groupKeyOf(m, category, lookup, formulaOf = (x) => x.raw.Formula || null) {
   // Plants are named "<Plant> <Part> <Index>"; the plant is the first word.
   if (category === 'plant') return m.name.split(' ')[0];
+  // Biological parts carry indices the names cannot be stripped of -- Trunk1
+  // through Trunk25, Left Branch1 through Right Branch5 -- but the game gives
+  // every one of them the same LocIdName stem, so use that.
+  if (category === 'biological') return locStem(m);
 
   let name = m.name;
   for (let guard = 0; guard < 8; guard++) {
@@ -1322,11 +1388,20 @@ const SECTIONS = [
 ];
 const SUBSECTIONS = ['Constituent materials', 'Drops', ...REFERENCE_ORDER];
 
+// Append-only, like everything else here. CATEGORIES may be reordered freely.
+const CATEGORY_SLOTS = [
+  'element', 'allotrope', 'ion', 'compound', 'mixture', 'deposit', 'plant',
+  'projectile', 'machine', 'other',
+  'terrain', 'biological', 'structure',
+];
+
 const COLLAPSIBLE = [
   ...SECTIONS.map((t) => `sec:${t}`),
   ...SUBSECTIONS.map((t) => `subsec:${t}`),
   // Category headings in the result list collapse too, and share the format.
-  ...CATEGORIES.map((c) => `cat:${c.id}`),
+  // Listed explicitly rather than taken from CATEGORIES, whose order is a
+  // display choice: reordering it there must not renumber slots here.
+  ...CATEGORY_SLOTS.map((id) => `cat:${id}`),
 ];
 
 const SLOT = new Map(COLLAPSIBLE.map((key, i) => [key, i]));

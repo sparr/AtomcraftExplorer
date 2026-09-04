@@ -407,8 +407,9 @@ app.reload();
 
   // Category slots must not collide with the detail pane's section slots.
   const catSlots = COLLAPSIBLE.filter((k) => k.startsWith('cat:'));
-  if (catSlots.length !== CATEGORIES.length) {
-    console.log(`FAIL ${catSlots.length} category slots for ${CATEGORIES.length} categories`); fail++;
+  const unslotted = CATEGORIES.filter((c) => !catSlots.includes(`cat:${c.id}`));
+  if (unslotted.length) {
+    console.log(`FAIL categories with no collapse slot: ${unslotted.map((c) => c.id).join(', ')}`); fail++;
   } else if (new Set(COLLAPSIBLE).size !== COLLAPSIBLE.length) {
     console.log('FAIL slot collision after adding categories'); fail++;
   } else console.log(`ok    ${COLLAPSIBLE.length} slots total, ${catSlots.length} of them categories`);

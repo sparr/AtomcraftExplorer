@@ -123,6 +123,38 @@ ok('category assignment for 12 representative materials');
   } else ok('a formula-less material follows its phase partner, not its name');
 }
 
+// --- the placed-in-the-world categories ------------------------------------
+{
+  const catOfName = (n) => groups.find((g) => g.members.some((m) => m.name === n))?.category;
+  for (const [name, want] of [
+    ['2 Step Oscillator', 'machine'], ['And Gate', 'machine'],
+    ['Aluminum Wall', 'structure'], ['Ancient Corundum Wall', 'structure'],
+    ['Glass Wall', 'structure'], ['Compacted Dirt', 'structure'],
+    // A door is built, but it also opens and closes, and machinery wins.
+    ['Door', 'machine'],
+    ['Apatite', 'terrain'], ['Calcite', 'terrain'], ['Limestone', 'terrain'],
+    ['Bone', 'biological'], ['Neuron', 'biological'], ['Trunk1', 'biological'],
+    ['Bitter Oyster', 'biological'], ['Bun', 'biological'], ['Firefly (Fed)', 'biological'],
+    // Flagged edible, but minerals rather than anything that lived.
+    ['Salt', 'compound'], ['Snow', 'compound'],
+  ]) {
+    const got = catOfName(name);
+    if (got !== want) bad(`${name} is "${got}", want "${want}"`);
+  }
+  ok('machines, placed blocks, terrain and biological are told apart');
+
+  // The split exists because "Static" was standing in for "machine".
+  const machines = groups.filter((g) => g.category === 'machine');
+  const witless = machines.filter((g) => !g.members.some((m) => m.raw.IsMechanical));
+  if (witless.length) bad(`${witless.length} machine groups contain no machinery, e.g. ${witless[0].key}`);
+  else ok(`all ${machines.length} machine groups contain machinery`);
+
+  // Indexed parts share a LocIdName stem and belong in one group.
+  const trunk = groups.find((g) => g.members.some((m) => m.name === 'Trunk1'));
+  if (trunk.members.length < 20) bad(`Trunk1 group holds only ${trunk.members.length}`);
+  else ok(`indexed parts group by LocIdName stem (${trunk.key}: ${trunk.members.length} members)`);
+}
+
 // --- things that must NOT be stripped or merged ----------------------------
 {
   const classify = makeClassifier(db.materials);

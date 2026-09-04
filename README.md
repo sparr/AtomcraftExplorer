@@ -153,7 +153,17 @@ ever nested.
   oscillator's formula is `Cu` but it is a machine, not copper.
 
   | Elements | Single-element compounds | Polyatomic ions | Compounds | Mixtures & solutions |
-  | Deposits | Plants | Projectiles & beams | Machines & structures | Other |
+  | Deposits | Terrain & minerals | Plants | Biological | Projectiles & beams |
+  | Placed blocks | Machines | Other | |  |
+
+  The four placed-in-the-world categories are told apart by flags, tested in
+  that order: `IsMechanical` is machinery, `IsBuilt` (or a name ending in
+  `Wall`) is a placed block, and anything else still `Static` is terrain. A Door
+  is both built and mechanical, and machinery wins. Biological has no flag at
+  all — `IsFoodIngredient` also marks Salt and Snow, `MAT_BIO_` covers only the
+  fireflies and mites, and an organic composition equally describes a wooden
+  wall — so it is a list keyed on `LocIdName` stems, which is also how the
+  indexed parts group: `Trunk1` through `Trunk25` share the stem `TRUNK`.
 
 - **Group** — variants of one thing, found two ways, because neither alone is
   right.

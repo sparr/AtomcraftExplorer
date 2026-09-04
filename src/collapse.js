@@ -20,11 +20,20 @@ const SECTIONS = [
 ];
 const SUBSECTIONS = ['Constituent materials', 'Drops', ...REFERENCE_ORDER];
 
+// Append-only, like everything else here. CATEGORIES may be reordered freely.
+const CATEGORY_SLOTS = [
+  'element', 'allotrope', 'ion', 'compound', 'mixture', 'deposit', 'plant',
+  'projectile', 'machine', 'other',
+  'terrain', 'biological', 'structure',
+];
+
 export const COLLAPSIBLE = [
   ...SECTIONS.map((t) => `sec:${t}`),
   ...SUBSECTIONS.map((t) => `subsec:${t}`),
   // Category headings in the result list collapse too, and share the format.
-  ...CATEGORIES.map((c) => `cat:${c.id}`),
+  // Listed explicitly rather than taken from CATEGORIES, whose order is a
+  // display choice: reordering it there must not renumber slots here.
+  ...CATEGORY_SLOTS.map((id) => `cat:${id}`),
 ];
 
 const SLOT = new Map(COLLAPSIBLE.map((key, i) => [key, i]));
