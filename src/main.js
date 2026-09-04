@@ -443,7 +443,8 @@ function reactionCard(rx, role, self) {
     const frag = document.createDocumentFragment();
     pairs.forEach(([name, n], i) => {
       if (i) frag.append(' + ');
-      if (n !== 1) frag.append(Object.assign(el('span', 'coef', `${n} `)));
+      const count = n ?? 0;
+      if (count !== 1) frag.append(el('span', 'coef', `${count} `));
       const link = matLink(name);
       if (name === self) link.classList.add('rx-self');
       frag.append(link);
@@ -543,7 +544,7 @@ function renderDetail(m) {
     r.Composition.Elements.forEach((e, i) => {
       if (i) box.append(el('span', 'label', '+'));
       const w = el('span');
-      if (e.Item2 !== 1) w.append(el('span', 'coef', `${e.Item2} `));
+      if ((e.Item2 ?? 0) !== 1) w.append(el('span', 'coef', `${e.Item2 ?? 0} `));
       w.append(matLink(e.Item1));
       box.append(w);
     });
@@ -557,10 +558,11 @@ function renderDetail(m) {
   if (r.ProtonNumber) {
     nuclear.push(['Protons (Z)', String(r.ProtonNumber)]);
     nuclear.push(['Neutrons (N)', String(r.NeutronNumber || 0)]);
-    nuclear.push(['Mass number (A)', String(r.MassNumber)]);
+    nuclear.push(['Mass number (A)', String(r.ProtonNumber + (r.NeutronNumber || 0))]);
   }
   if (decay) {
-    nuclear.push(['Decay mode', db.enums.DecayMode[String(decay.Mode)] || `mode ${decay.Mode}`]);
+    const mode = decay.Mode ?? 0;
+    nuclear.push(['Decay mode', db.enums.DecayMode[String(mode)] || `mode ${mode}`]);
     if (decay.MaterialName) {
       const w = el('span');
       w.append(matLink(decay.MaterialName));
@@ -579,9 +581,16 @@ function renderDetail(m) {
   if (r.Condensation) thermal.push(['Condensation', phaseLine(r.Condensation, 'to')]);
   if (r.Evaporation) thermal.push(['Evaporation', phaseLine(r.Evaporation, 'to')]);
   if (r.Ignition) {
+    // Temperature 0 is no threshold at all rather than a cryogenic one, so say
+    // what actually sets it off instead of printing "at 0 K".
+    const t = r.Ignition.Temperature || 0;
+    const spark = r.Ignition.RequiresSpark;
     const w = el('span');
-    w.append('to ', matLink(r.Ignition.TargetMaterialName), ` at ${r.Ignition.Temperature} K`);
-    if (r.Ignition.RequiresSpark) w.append(' (needs spark)');
+    w.append('to ', matLink(r.Ignition.TargetMaterialName));
+    if (t && spark) w.append(` at ${t} K, with a spark`);
+    else if (t) w.append(` at ${t} K`);
+    else if (spark) w.append(' on a spark, at any temperature');
+    else w.append(' at any temperature');
     if (r.Ignition.Explodes) w.append(' (explodes)');
     thermal.push(['Ignition', w]);
   }
@@ -625,7 +634,7 @@ function renderDetail(m) {
     for (const g of r.GrowthRules) {
       const w = el('span');
       w.append(matLink(g.GrowthMaterialName),
-               ` ${db.enums.Direction[g.Direction] || g.Direction}, rate ${g.GrowthRate}`);
+               ` ${db.enums.Direction[g.Direction ?? 0]}, rate ${g.GrowthRate ?? 0}`);
       trans.push(['Grows', w]);
     }
   }
@@ -633,7 +642,7 @@ function renderDetail(m) {
     const box = el('div', 'reflist');
     for (const [name, rate] of Object.entries(r.DropRates)) {
       const w = el('span');
-      w.append(matLink(name), el('span', 'label', ` ${rate}`));
+      w.append(matLink(name), el('span', 'label', ` ${rate ?? 0}`));
       box.append(w);
     }
     mount(pane, section('Transitions', kv(trans), subsection('Drops', box)));

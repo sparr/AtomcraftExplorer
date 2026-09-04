@@ -229,8 +229,10 @@ Everything is JavaScript — source, build and tests all run on Node.
   products but never defined. The UI renders those as dead links rather than
   pretending they resolve.
 - The baking step drops nulls, falses and default zeroes, taking 2.9 MB of raw
-  JSON down to 824 KB. Fields where zero is a real value (`State`, `Density`,
-  `ThermalConductivity`, …) are kept.
+  JSON down to 826 KB. Fields where zero is a real value are kept — that means
+  the ones that are nullable (`Density`, `ThermalConductivity`, …) and the ones
+  that are enums, where 0 names a case: `State` 0 is Solid and
+  `DecaySettings.Mode` 0 is alpha decay, which 192 materials use.
 
 ## Tests
 

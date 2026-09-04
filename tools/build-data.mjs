@@ -38,7 +38,10 @@ const DECAY_MODES = { 0: 'Alpha', 1: 'Beta-minus', 2: 'Beta-plus', 6: 'Spontaneo
 // A 0 here is a real value, not "unset" -- these fields are either nullable
 // (so absent already means unset) or have a meaningful zero.
 const KEEP_ZERO = new Set(['State', 'Density', 'ThermalConductivity',
-                           'ConductanceDivisor', 'WireIndex', 'ActorFriction', 'LightRange']);
+                           'ConductanceDivisor', 'WireIndex', 'ActorFriction', 'LightRange',
+                           // Enum members, where 0 names a case: DecaySettings.Mode 0
+                           // is alpha decay, which 192 materials use.
+                           'Mode']);
 
 /** Drop nulls, falses and default zeroes; recurse into nested objects. */
 function stripDefaults(obj) {

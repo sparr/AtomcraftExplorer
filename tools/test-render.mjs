@@ -32,6 +32,7 @@ const results = document.querySelector('#results');
 
 // --- every material renders -------------------------------------------------
 let thin = 0, strayNull = 0;
+const brokenValues = new Map();
 for (const m of db.materials) {
   try {
     app.select(m);
@@ -53,8 +54,23 @@ for (const m of db.materials) {
       }
     }
   }
+  // A field the baker dropped as a default zero renders as "undefined" inside
+  // otherwise fine text -- "at undefined K", "mode undefined". \bNaN\b avoids
+  // matching NaNO3 and friends.
+  for (const frag of text.match(/.{0,30}(\bundefined\b|\bNaN\b).{0,16}/g) || []) {
+    if (!brokenValues.has(frag)) brokenValues.set(frag, m.name);
+  }
 }
 if (strayNull) { console.log(`     ...${strayNull} stray null/undefined text nodes in total`); fail++; }
+if (brokenValues.size) {
+  console.log(`FAIL ${brokenValues.size} detail panes render undefined/NaN values:`);
+  for (const [frag, name] of [...brokenValues].slice(0, 6)) {
+    console.log(`        ${name}: …${frag.replace(/\s+/g, ' ')}…`);
+  }
+  fail++;
+} else {
+  console.log('ok    no undefined or NaN values in any detail pane');
+}
 console.log(`ok    rendered ${db.materials.length} detail panes (${thin} minimal)`);
 
 // --- links resolve or are marked dead --------------------------------------
