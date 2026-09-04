@@ -5,6 +5,40 @@
  */
 import { parseFormula } from './formula.js';
 
+/**
+ * Fixed display order for back-reference relationships, so a material's
+ * "Referenced by" groups always appear in the same sequence rather than
+ * shuffling with each material's own counts.
+ *
+ * Ordered by how often each relationship occurs across the whole data set
+ * (4906 deduped references over 19 relationships), measured once rather than
+ * recomputed per build. "dissolves into" is defined but currently unused by any
+ * material. Anything not listed sorts to the end alphabetically; the render
+ * test asserts the list still covers every relationship in the data.
+ */
+export const REFERENCE_ORDER = [
+  'made of',            // 1692
+  'mines into',         //  490
+  'evaporates into',    //  402
+  'decays into',        //  258
+  'alpha impact',       //  234
+  'neutron impact',     //  228
+  'proton impact',      //  221
+  'ignites into',       //  210
+  'builds into',        //  188
+  'drops',              //  157
+  'rotates left into',  //  147
+  'rotates right into', //  147
+  'condenses into',     //  144
+  'grows into',         //  108
+  'combusts into',      //   88
+  'turns off into',     //   68
+  'turns on into',      //   56
+  'picked up into',     //   40
+  'extinguishes into',  //   28
+  'dissolves into',     //    0
+];
+
 /** Godot Color (0..1 floats) -> CSS. */
 function cssColor(c, alpha) {
   if (!c) return null;

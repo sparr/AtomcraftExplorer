@@ -4,6 +4,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { installDom } from './dom-shim.mjs';
+import { REFERENCE_ORDER } from '../src/data.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const ids = [...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
@@ -97,6 +98,39 @@ else {
       console.log('FAIL sub-section is not a collapsible <details>'); fail++; break;
     }
   }
+}
+
+// --- the frozen relationship order still covers the data -------------------
+{
+  const seen = new Set();
+  for (const list of db.referencedBy.values()) for (const r of list) seen.add(r.label);
+  const missing = [...seen].filter((l) => !REFERENCE_ORDER.includes(l)).sort();
+  if (missing.length) {
+    console.log(`FAIL REFERENCE_ORDER is missing: ${missing.join(', ')}`); fail++;
+  } else {
+    console.log(`ok    REFERENCE_ORDER covers all ${seen.size} relationships in the data`);
+  }
+  if (new Set(REFERENCE_ORDER).size !== REFERENCE_ORDER.length) {
+    console.log('FAIL REFERENCE_ORDER has duplicates'); fail++;
+  }
+}
+
+// --- groups appear in the frozen order, not by per-material size -----------
+{
+  // Carbon has the most varied back-references, so it exercises the ordering.
+  app.select(db.byName.get('Carbon'));
+  const sec = [...detail.walk()].find((n) => n.className === 'sec' &&
+                                             n.textContent.startsWith('Referenced by'));
+  const labels = [...sec.walk()].filter((n) => n.className === 'subsec')
+    .map((n) => n.children.find((c) => c.tagName === 'SUMMARY').textContent
+                 .replace(/\s*\(\d+\)$/, ''));
+  const expected = [...labels].sort((a, b) => REFERENCE_ORDER.indexOf(a) - REFERENCE_ORDER.indexOf(b));
+  if (labels.join(' | ') !== expected.join(' | ')) {
+    console.log(`FAIL group order ${labels.join(', ')}\n     want      ${expected.join(', ')}`); fail++;
+  } else {
+    console.log(`ok    groups in frozen order: ${labels.join(', ')}`);
+  }
+  app.select(db.byName.get('Oxygen'));
 }
 
 // --- collapsing sticks when you move to another material -------------------

@@ -1,5 +1,5 @@
 /** Search UI: query box, element filter, result list, material detail. */
-import { loadData } from './data.js';
+import { loadData, REFERENCE_ORDER } from './data.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
 import { formulaHtml } from './formula.js';
 
@@ -479,8 +479,12 @@ function renderDetail(m) {
       groups.get(label).push(source);
       total++;
     }
+    const rank = (label) => {
+      const i = REFERENCE_ORDER.indexOf(label);
+      return i < 0 ? REFERENCE_ORDER.length : i;
+    };
     const subs = [...groups]
-      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
       .map(([label, sources]) => {
         const box = el('div', 'reflist');
         for (const src of sources.sort((a, b) => a.display.localeCompare(b.display))) {
