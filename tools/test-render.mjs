@@ -69,6 +69,46 @@ for (const m of db.materials) {
 }
 console.log(`ok    ${live} live cross-links, ${dead} correctly marked dead`);
 
+// --- sections are collapsible disclosures ----------------------------------
+app.select(db.byName.get('Oxygen'));
+const sections = [...detail.walk()].filter((n) => n.className === 'sec');
+if (!sections.length) { console.log('FAIL no collapsible sections rendered'); fail++; }
+for (const sec of sections) {
+  if (sec.tagName !== 'DETAILS') { console.log(`FAIL section is <${sec.tagName}>, want <details>`); fail++; break; }
+  const summary = sec.children.find((c) => c.tagName === 'SUMMARY');
+  if (!summary) { console.log('FAIL section has no <summary>'); fail++; break; }
+  const kids = summary.children;
+  if (kids[0]?.className !== 'twisty') { console.log('FAIL twisty is not first in <summary>'); fail++; break; }
+  if (kids[1]?.tagName !== 'H3') { console.log('FAIL heading missing from <summary>'); fail++; break; }
+}
+console.log(`ok    ${sections.length} sections, each a <details> with a left twisty`);
+
+// --- "Referenced by" groups instead of repeating the label -----------------
+const refSec = sections.find((s) => s.textContent.startsWith('Referenced by'));
+if (!refSec) { console.log('FAIL Oxygen has no Referenced by section'); fail++; }
+else {
+  const subs = [...refSec.walk()].filter((n) => n.className === 'subsec');
+  if (!subs.length) { console.log('FAIL Referenced by has no sub-sections'); fail++; }
+  const madeOf = (refSec.textContent.match(/made of/g) || []).length;
+  if (madeOf !== 1) { console.log(`FAIL "made of" appears ${madeOf}x, want 1 (the group heading)`); fail++; }
+  else console.log(`ok    Referenced by -> ${subs.length} groups; "made of" written once, not 337x`);
+  for (const sub of subs) {
+    if (sub.tagName !== 'DETAILS' || !sub.children.some((c) => c.tagName === 'SUMMARY')) {
+      console.log('FAIL sub-section is not a collapsible <details>'); fail++; break;
+    }
+  }
+}
+
+// --- collapsing sticks when you move to another material -------------------
+const target = sections.find((s) => s.textContent.startsWith('Composition'));
+target.open = false;
+target.dispatch('toggle');
+app.select(db.byName.get('Water'));
+app.select(db.byName.get('Oxygen'));
+const reopened = [...detail.walk()].find((n) => n.className === 'sec' && n.textContent.startsWith('Composition'));
+if (reopened.open !== false) { console.log('FAIL collapsed section reopened after switching material'); fail++; }
+else console.log('ok    collapse state persists across material selection');
+
 // --- queries render a result list ------------------------------------------
 const queries = ['', 'water', 'Cu', 'H2O', 'el:Au', 'state:gas', 'is:radioactive',
                  'iron -is:hidden', 'z:80-92', 'el:Fe el:S', 'name:"Molten Iron"',

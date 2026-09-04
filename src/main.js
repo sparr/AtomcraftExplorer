@@ -195,11 +195,6 @@ const TRANSITION_FIELDS = [
   ['ProgrammableDelegate', 'Programmable delegate'],
 ];
 
-/** A labelled divider inside a section. */
-function subhead(text) {
-  return el('h4', 'subhead', text);
-}
-
 function kv(rows) {
   const dl = el('dl', 'kv');
   for (const [k, v] of rows) {
@@ -218,12 +213,46 @@ function mount(parent, ...nodes) {
   for (const n of nodes) if (n) parent.append(n);
 }
 
-function section(title, ...nodes) {
+// Which sections the reader has collapsed.  Keyed by title with any trailing
+// "(12)" stripped, so the choice survives moving between materials.
+const collapsed = new Set();
+const collapseKey = (title) => title.replace(/\s*\(\d+\)\s*$/, '');
+
+/**
+ * A <details> disclosure -- native keyboard handling and toggle behaviour, with
+ * the twisty drawn on the left of the heading.
+ */
+function disclosure(cls, headingTag, title, nodes) {
   const kept = nodes.filter(Boolean);
   if (!kept.length) return null;
-  const s = el('section');
-  mount(s, el('h3', null, title), ...kept);
-  return s;
+
+  const key = cls + ':' + collapseKey(title);
+  const d = el('details', cls);
+  d.open = !collapsed.has(key);
+
+  const summary = el('summary');
+  const twisty = el('span', 'twisty');
+  twisty.setAttribute('aria-hidden', 'true');
+  summary.append(twisty, el(headingTag, null, title));
+  d.append(summary);
+
+  const body = el('div', 'disclosure-body');
+  mount(body, ...kept);
+  d.append(body);
+
+  d.addEventListener('toggle', () => {
+    if (d.open) collapsed.delete(key);
+    else collapsed.add(key);
+  });
+  return d;
+}
+
+function section(title, ...nodes) {
+  return disclosure('sec', 'h3', title, nodes);
+}
+
+function subsection(title, ...nodes) {
+  return disclosure('subsec', 'h4', title, nodes);
 }
 
 function phaseLine(t, verb) {
@@ -325,7 +354,7 @@ function renderDetail(m) {
       w.append(matLink(e.Item1));
       box.append(w);
     });
-    compRows.push(subhead('Constituent materials'), box);
+    compRows.push(subsection('Constituent materials', box));
   }
   mount(pane, section('Composition', ...compRows));
 
@@ -414,7 +443,7 @@ function renderDetail(m) {
       w.append(matLink(name), el('span', 'label', ` ${rate}`));
       box.append(w);
     }
-    mount(pane, section('Transitions', kv(trans), subhead('Drops'), box));
+    mount(pane, section('Transitions', kv(trans), subsection('Drops', box)));
   } else {
     mount(pane, section('Transitions', kv(trans)));
   }
@@ -437,13 +466,29 @@ function renderDetail(m) {
   // --- referenced by -----------------------------------------------------
   const refs = db.referencedBy.get(m.name);
   if (refs?.length) {
-    const box = el('div', 'reflist');
+    // Group by relationship so the label is written once per group rather than
+    // once per entry -- Oxygen is "made of" 337 times.
+    const seen = new Set();
+    const groups = new Map();
+    let total = 0;
     for (const { source, label } of refs) {
-      const w = el('span');
-      w.append(matLink(source.name), el('span', 'label', ` ${label}`));
-      box.append(w);
+      const dedupe = `${source.name}|${label}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(source);
+      total++;
     }
-    mount(pane, section(`Referenced by (${refs.length})`, box));
+    const subs = [...groups]
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([label, sources]) => {
+        const box = el('div', 'reflist');
+        for (const src of sources.sort((a, b) => a.display.localeCompare(b.display))) {
+          box.append(matLink(src.name));
+        }
+        return subsection(`${label} (${sources.length})`, box);
+      });
+    mount(pane, section(`Referenced by (${total})`, ...subs));
   }
 
   pane.scrollTop = 0;
