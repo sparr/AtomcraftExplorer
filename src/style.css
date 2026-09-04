@@ -302,6 +302,7 @@ main {
   image-rendering: pixelated;
 }
 .swatch.shaped[data-none] { background: #2a3240; }
+.swatch { background-repeat: no-repeat; image-rendering: pixelated; }
 .swatch[data-none] { background: repeating-linear-gradient(45deg, #2a3240 0 3px, #1a1f28 3px 6px); }
 
 .row-main { min-width: 0; }

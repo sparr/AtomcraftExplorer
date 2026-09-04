@@ -2,6 +2,7 @@
 import { loadData, REFERENCE_ORDER, referencePhrase } from './data.js';
 import { collapseKey, packCollapsed, unpackCollapsed } from './collapse.js';
 import { buildGroups, filterGroups, CATEGORIES } from './grouping.js';
+import { patternStrip, recipeFor } from './pattern-render.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
 import { formulaHtml } from './formula.js';
 
@@ -110,9 +111,39 @@ function swatch(m) {
     s.classList.add('shaped');
     s.style.setProperty('--shape', `url("${shape}")`);
   }
-  if (m.color) s.style.background = m.color;
-  else s.dataset.none = '';
+  // Fill with the material's own shading where we can reproduce it, and fall
+  // back to the flat colour where we cannot (or where there is no canvas).
+  const strip = patternStrip(m, { size: 16, frames: 1 });
+  if (strip) {
+    s.style.backgroundImage = `url("${strip.uri}")`;
+    s.style.backgroundSize = 'cover';
+  } else if (m.color) {
+    s.style.background = m.color;
+  } else {
+    s.dataset.none = '';
+  }
   return s;
+}
+
+/** A bigger tile in the detail pane, running its animation if it has one. */
+function patternPreview(m) {
+  const strip = patternStrip(m, { size: 24, frames: 12 });
+  if (!strip) return null;
+  const box = el('span', 'pattern-preview');
+  box.style.backgroundImage = `url("${strip.uri}")`;
+  const { spec, animated } = recipeFor(m);
+  if (animated && strip.frames > 1) {
+    box.style.backgroundSize = `${strip.frames * 100}% 100%`;
+    box.style.animation = `pattern-frames ${(strip.frames * 0.11).toFixed(2)}s steps(${strip.frames}) infinite`;
+  } else {
+    box.style.backgroundSize = 'cover';
+  }
+  box.title = spec
+    ? `${m.raw.ColorDelegate}: ${spec.pattern ?? spec.builder}` +
+      (spec.amount ? ` blended ${spec.amount} toward ${spec.tint}` : '') +
+      (animated ? ' (animated)' : '')
+    : 'flat colour';
+  return box;
 }
 
 function stateBadge(m) {
@@ -525,7 +556,7 @@ function renderDetail(m) {
 
   const head = el('div', 'detail-head');
   const h1 = el('h1');
-  h1.append(swatch(m), document.createTextNode(m.display));
+  h1.append(patternPreview(m) ?? swatch(m), document.createTextNode(m.display));
   head.append(h1);
 
   const sub = el('div', 'subline');

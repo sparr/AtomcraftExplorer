@@ -186,9 +186,35 @@ computed per pixel, never sampled from a sheet. The world tilemap is likewise
 generated at run time: `Tilesets` builds a 512×512 atlas of 8×8 tiles, 64 to a
 row, indexed by material.
 
-So the only appearance data worth carrying is what is already in
-`AllMaterials.json` — `Color`, and the `ColorDelegate` name, which the detail
-pane shows.
+### Reproducing the shading
+
+The rules are in the binary rather than the pck, so `npm run extract-patterns`
+decompiles `Atomcraft.MaterialColorDelegates` and writes the numbers to
+`src/patterns.js`. That file is checked in, so neither the game nor `ilspycmd`
+is needed to build the page — only to refresh it against a new game build.
+
+A material's colour is its base `Color` blended toward a tint by
+`table[y % rows][x % cols] × amount`:
+
+| delegate | table | tint | amount |
+| --- | --- | --- | --- |
+| `Granite` | `GranitePattern` 6×6, 2 values | DarkGray | 0.5 |
+| `Crystal` | `CrystalPattern` 9×9, 5 values | White | 0.5 |
+| `MetalBits`, `SparklyMetal` | `MetallicShavings` 9×9, 3 values | White | 0.9 |
+| `Bark` | `BarkNoisePattern` 9×9, 10 values | DarkerOrange | 0.25 |
+| `Sand`, `Gravel`, `Dirt`, `Lava` | 64×64, filled with `GD.Randf()` at startup | White / Black / Yellow | 0.5–0.15 |
+
+Twelve delegates animate. The gems route to `Twinkle`, which sparkles white over
+a colour they each pass in — read the other way round, Ruby renders as a flat red
+square, since its base is red too. `SparklyMetal` twinkles over the metallic
+pattern; `Lava` walks its table; the conveyors scroll theirs one column a tick.
+`Limestone` has its own sampler and is approximated here from what it looks like
+in game: vertical stripes, light-mid-dark-mid.
+
+`src/pattern-render.js` draws this to a canvas, cached per delegate and colour,
+and falls back to the flat colour where there is no canvas. The random tables are
+regenerated from a fixed seed, so a material looks the same on every visit —
+the game re-rolls them each run.
 
 ## Sorting and grouping
 
