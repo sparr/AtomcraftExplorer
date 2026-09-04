@@ -161,28 +161,34 @@ shows how many materials contain each element.
 
 ## The game's art
 
-Three kinds of art are pulled out of the `.pck` and inlined into the page.
+Two kinds of art are pulled out of the `.pck` and inlined into the page.
 `tools/ctex.mjs` reads Godot's `GST2` container, whose payload is a WebP that
 goes straight into a `data:` URI without being decoded.
 
 | | what | cost |
 | --- | --- | --- |
 | Swatch shapes | filled square, droplet, puff — white masks tinted with each material's colour, the way the game draws them. Static and Plasma fall back to the square. | 0.3 KB |
-| Element tiles | the game's 16×16 periodic-table tile per element, carrying its symbol and family colour. Used in the periodic table; the material count is in the cell's tooltip. | 21.6 KB |
-| Symbol glyphs | the bare 14×14 symbol, transparent. **Baked but not yet used anywhere.** | 12.5 KB |
-| Pattern sheet | 64 tileable 32×32 greyscale textures on one 256×256 sheet, shown in the **Textures** panel. | 68.1 KB |
+| Element tiles | the game's 16×16 periodic-table tile per element, carrying its symbol and family colour. The material count is in the cell's tooltip. | 21.6 KB |
 
-The pattern sheet is a reference, not a per-material lookup. A material names a
-`ColorDelegate` — `Sand` (532 materials), `Granite` (81), `MetalBits` (40),
-down to the animated `LeftConveyor`, `RightConveyor` and `CheckerPulse` — which
-selects one of the 64 and, for a few, animates it. Nothing shipped says *which*:
-the sheet is referenced only from compiled C#, and every `.cs` in the pck is a
-one-byte stub. Searching every `.res`, `.scn`, `.tres` and `project.binary` for
-those delegate names finds them in `AllMaterials.json` and nowhere else.
+**There are no per-material images**, and no texture to map a material to. All
+1898 packed textures were checked against the 1795 material names, and
+`Tileset.res` is keyed by tile coordinates with no material names in it.
 
-There are no per-material images. All 1898 textures were checked against the
-1795 material names, and `Tileset.res` is keyed by tile coordinates with no
-material names in it at all.
+`Art/Materials/GrayscaleMaterialTextures.png` — a 256×256 sheet of tileable
+greyscale patterns — looks like it ought to be that mapping, and is not.
+Decompiling `Atomcraft.dll` with `ilspycmd` settles it: the 19 `ColorDelegate`
+names a material can carry (`Sand` on 532 materials, `Granite` on 81, down to
+the animated `LeftConveyor`, `RightConveyor` and `CheckerPulse`) are all
+implemented in `MaterialColorDelegates` as **procedural** functions — named
+noise patterns lerped over the material's base colour, with no image sampling
+anywhere in that class or in `MaterialColorIndex`. A material's appearance is
+computed per pixel, never sampled from a sheet. The world tilemap is likewise
+generated at run time: `Tilesets` builds a 512×512 atlas of 8×8 tiles, 64 to a
+row, indexed by material.
+
+So the only appearance data worth carrying is what is already in
+`AllMaterials.json` — `Color`, and the `ColorDelegate` name, which the detail
+pane shows.
 
 ## Sorting and grouping
 

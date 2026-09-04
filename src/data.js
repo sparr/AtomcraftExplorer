@@ -223,7 +223,7 @@ export async function loadData(url = './data/atomcraft.json') {
 
   return {
     meta: bundle.meta,
-    art: bundle.art ?? { swatches: {}, tiles: {}, symbols: {}, patterns: null },
+    art: bundle.art ?? { swatches: {}, tiles: {} },
     enums: bundle.enums,
     symbols,
     elements,

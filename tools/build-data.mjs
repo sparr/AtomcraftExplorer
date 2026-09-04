@@ -239,9 +239,7 @@ async function main() {
   if (collected) {
     const a = collected.art;
     console.log(`  art: ${Object.keys(a.swatches).length} swatches, ` +
-                `${Object.keys(a.tiles).length} element tiles, ` +
-                `${Object.keys(a.symbols).length} symbol glyphs` +
-                (a.patterns ? `, ${a.patterns.cols}x${a.patterns.rows} pattern sheet` : '') +
+                `${Object.keys(a.tiles).length} element tiles` +
                 (collected.missing ? ` (${collected.missing} elements had no tile)` : ''));
   }
 }

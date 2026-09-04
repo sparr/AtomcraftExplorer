@@ -799,40 +799,6 @@ function renderPeriodicTable() {
   }
 }
 
-/**
- * The pattern sheet, shown as a reference grid.
- *
- * A material names a ColorDelegate -- "Sand", "SparklyMetal", "CheckerPulse" --
- * which picks one of these and, for a few, animates it. Nothing in the shipped
- * data says which: the sheet is referenced only from compiled C#, and every
- * .cs file in the pck is a one-byte stub. So the tiles are shown unlabelled.
- */
-function renderTextures() {
-  const grid = $('#textures-grid');
-  const p = db.art.patterns;
-  if (!p || grid.children.length) return;
-
-  for (let row = 0; row < p.rows; row++) {
-    for (let col = 0; col < p.cols; col++) {
-      const cell = el('span', 'tex-cell');
-      cell.style.backgroundImage = `url("${p.uri}")`;
-      cell.style.backgroundSize = `${p.cols * 100}% ${p.rows * 100}%`;
-      cell.style.backgroundPosition = `${(col / (p.cols - 1)) * 100}% ${(row / (p.rows - 1)) * 100}%`;
-      cell.title = `tile ${col},${row}`;
-      grid.append(cell);
-    }
-  }
-
-  const used = new Map();
-  for (const m of db.materials) {
-    if (m.raw.ColorDelegate) used.set(m.raw.ColorDelegate, (used.get(m.raw.ColorDelegate) || 0) + 1);
-  }
-  const named = [...used].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n} (${c})`);
-  $('#textures-note').textContent =
-    `${p.cols * p.rows} tiles of ${p.tile}×${p.tile}. ${used.size} textures are named by ` +
-    `materials, but the mapping from name to tile lives in compiled code: ${named.join(', ')}.`;
-}
-
 /* -------------------------------------------------------------- keyboard */
 
 function moveSelection(delta) {
@@ -872,8 +838,7 @@ function renderHelp() {
 function bindChrome() {
   $('#q').addEventListener('input', (e) => setQuery(e.target.value, { fromInput: true }));
   $('#clear').addEventListener('click', () => { setQuery(''); $('#q').focus(); });
-  for (const [btn, panel] of [['#toggle-table', '#ptable'], ['#toggle-help', '#help'],
-                              ['#toggle-textures', '#textures']]) {
+  for (const [btn, panel] of [['#toggle-table', '#ptable'], ['#toggle-help', '#help']]) {
     $(btn).addEventListener('click', () => {
       const open = $(panel).hidden;
       $(panel).hidden = !open;
@@ -918,7 +883,6 @@ function bindChrome() {
     runSearch();
     renderChips();
     renderPeriodicTable();
-    renderTextures();
     select(state.sel ? db.byName.get(state.sel) : null);
     $('#boot').remove();
   } catch (err) {

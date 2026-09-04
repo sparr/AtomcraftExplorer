@@ -165,20 +165,6 @@ button.ghost[aria-pressed="true"] { color: var(--accent); border-color: var(--ac
 .pcell:hover .ptile, .pcell[aria-pressed="true"] .ptile { filter: none; }
 .psym { color: var(--fg-dim); }
 
-.tex-grid {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(28px, 52px));
-  gap: 3px;
-  justify-content: start;
-}
-.tex-cell {
-  aspect-ratio: 1;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  image-rendering: pixelated;
-}
-#textures-note { font-size: 12px; max-width: 80ch; }
-
 .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px; flex: none; }
 .chips:not(:empty) { padding: 10px 16px; border-bottom: 1px solid var(--line-soft); }
 

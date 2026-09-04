@@ -7,27 +7,23 @@
  *             solid, a droplet for a liquid, a puff for a gas. White masks,
  *             tinted with the material's Color.
  *   elements  a 16x16 tile per element, carrying its symbol and its family
- *             colour, plus the bare symbol glyph.
- *   patterns  one 256x256 sheet of 64 tileable greyscale textures. Materials
- *             name a ColorDelegate ("Sand", "SparklyMetal", "CheckerPulse")
- *             which selects one, but nothing in the shipped data says which:
- *             the sheet is referenced only from compiled C#, and every .cs in
- *             the pck is a one-byte stub. So it is carried as a reference sheet
- *             rather than resolved per material.
+ *             colour.
+ *
+ * Not carried: Art/Materials/GrayscaleMaterialTextures.png. Decompiling
+ * Atomcraft.dll shows the 19 named ColorDelegates are procedural -- named noise
+ * patterns lerped over the material's base colour, with no image sampling
+ * anywhere in MaterialColorDelegates or MaterialColorIndex -- so there is no
+ * material-to-tile mapping, and the sheet has nothing to say about a material.
  */
 import { readCtex, dataUri, indexImported } from './ctex.mjs';
 
 const SWATCHES = { Solid: 'material_swatch_solid', Liquid: 'material_swatch_liquid',
                    Gas: 'material_swatch_gas' };
-const ATLAS = 'GrayscaleMaterialTextures';
-const ATLAS_TILE = 32;
-
 /** Texture names to pull out of the pck, as a regex for the extractor. */
 export function artFilter(elements) {
   const names = [
     ...Object.values(SWATCHES),
-    ATLAS,
-    ...elements.flatMap((e) => [`${e.name.toLowerCase()}_on`, `element_symbol_${e.name.toLowerCase()}`]),
+    ...elements.map((e) => `${e.name.toLowerCase()}_on`),
   ];
   return `\\.godot/imported/(${names.join('|')})\\.png-[0-9a-f]+\\.ctex`;
 }
@@ -50,25 +46,12 @@ export function collectArt(importedDir, elements) {
     if (uri) swatches[state] = uri;
   }
 
-  const tiles = {}, symbols = {};
+  const tiles = {};
   let missing = 0;
   for (const e of elements) {
-    const slug = e.name.toLowerCase();
-    const tile = load(`${slug}_on`);
-    const symbol = load(`element_symbol_${slug}`);
+    const tile = load(`${e.name.toLowerCase()}_on`);
     if (tile) tiles[e.sym] = tile; else missing++;
-    if (symbol) symbols[e.sym] = symbol;
   }
 
-  const sheet = index.get(ATLAS) ? readCtex(index.get(ATLAS)) : null;
-  const patterns = sheet ? {
-    uri: dataUri(sheet),
-    width: sheet.width,
-    height: sheet.height,
-    tile: ATLAS_TILE,
-    cols: sheet.width / ATLAS_TILE,
-    rows: sheet.height / ATLAS_TILE,
-  } : null;
-
-  return { art: { swatches, tiles, symbols, patterns }, missing };
+  return { art: { swatches, tiles }, missing };
 }

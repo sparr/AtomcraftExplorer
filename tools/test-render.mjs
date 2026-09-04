@@ -397,13 +397,10 @@ app.reload();
   const noTile = db.elements.filter((e) => !uri(art.tiles[e.sym]));
   if (noTile.length) {
     console.log(`FAIL ${noTile.length} elements have no tile, e.g. ${noTile[0].sym}`); fail++;
-  } else console.log(`ok    all ${db.elements.length} elements have a tile and a symbol glyph`);
-  if (db.elements.some((e) => !uri(art.symbols[e.sym]))) { console.log('FAIL a symbol glyph is missing'); fail++; }
-
-  if (!art.patterns || art.patterns.cols * art.patterns.rows !== 64) {
-    console.log(`FAIL pattern sheet is not 64 tiles`); fail++;
-  } else console.log(`ok    pattern sheet ${art.patterns.width}x${art.patterns.height}, ` +
-                     `${art.patterns.cols}x${art.patterns.rows} tiles of ${art.patterns.tile}px`);
+  } else console.log(`ok    all ${db.elements.length} elements have a tile`);
+  if (art.patterns || art.symbols) {
+    console.log('FAIL the pattern sheet and symbol glyphs should no longer be baked'); fail++;
+  } else console.log('ok    no pattern sheet or unused glyphs carried');
 
   // Swatches in the list must carry the shape, not the old plain square.
   app.setQuery('water');
@@ -419,10 +416,6 @@ app.reload();
   if (!kids.includes('ptile')) {
     console.log(`FAIL periodic cell holds ${kids.join(', ')}`); fail++;
   } else console.log('ok    periodic-table cells use the game tile');
-
-  const texCells = document.querySelector('#textures-grid').children.length;
-  if (texCells !== 64) { console.log(`FAIL texture panel has ${texCells} cells`); fail++; }
-  else console.log('ok    texture panel shows all 64 patterns');
 }
 
 // --- category headings collapse, and persist like detail sections ----------
