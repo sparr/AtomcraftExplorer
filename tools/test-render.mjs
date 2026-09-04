@@ -350,6 +350,56 @@ else console.log('ok    collapse state persists across material selection');
 globalThis.location.hash = '';
 app.reload();
 
+// --- category headings collapse, and persist like detail sections ----------
+{
+  globalThis.location.hash = '#s=name';
+  app.reload();
+  const heads = () => results.children.filter((r) => r.className === 'cat-head');
+  const rows = () => results.children.filter((r) => r.className.startsWith('row'));
+  const toggleOf = (h) => h.children[0];
+
+  const first = heads()[0];
+  if (!first || !/twisty/.test(toggleOf(first).children[0]?.className ?? '')) {
+    console.log('FAIL category heading has no twisty'); fail++;
+  } else {
+    const label = first.textContent.replace(/\s+/g, ' ');
+    const headsBefore = heads().length;
+    toggleOf(first).dispatch('click');
+    if (toggleOf(heads()[0]).getAttribute('aria-expanded') !== 'false') {
+      console.log('FAIL category heading did not report itself collapsed'); fail++;
+    }
+    // Its rows go, and the freed budget reveals categories further down.
+    if (heads().length <= headsBefore) {
+      console.log('FAIL collapsing a category revealed no further categories'); fail++;
+    } else console.log(`ok    collapsing "${label}" reveals ${heads().length - headsBefore} more categories`);
+
+    if (!/[#&]c=/.test(globalThis.location.hash)) {
+      console.log(`FAIL category collapse not written to the URL: ${globalThis.location.hash}`); fail++;
+    } else {
+      app.reload();
+      if (toggleOf(heads()[0]).getAttribute('aria-expanded') !== 'false') {
+        console.log('FAIL category re-expanded after reload'); fail++;
+      } else console.log(`ok    survives a reload via ${globalThis.location.hash}`);
+    }
+
+    const rowsCollapsed = rows().length;
+    toggleOf(heads()[0]).dispatch('click');
+    if (toggleOf(heads()[0]).getAttribute('aria-expanded') !== 'true') {
+      console.log('FAIL category did not re-expand'); fail++;
+    } else console.log(`ok    re-expands (${rowsCollapsed} -> ${rows().length} rows)`);
+  }
+
+  // Category slots must not collide with the detail pane's section slots.
+  const catSlots = COLLAPSIBLE.filter((k) => k.startsWith('cat:'));
+  if (catSlots.length !== CATEGORIES.length) {
+    console.log(`FAIL ${catSlots.length} category slots for ${CATEGORIES.length} categories`); fail++;
+  } else if (new Set(COLLAPSIBLE).size !== COLLAPSIBLE.length) {
+    console.log('FAIL slot collision after adding categories'); fail++;
+  } else console.log(`ok    ${COLLAPSIBLE.length} slots total, ${catSlots.length} of them categories`);
+}
+globalThis.location.hash = '';
+app.reload();
+
 // --- queries render a result list ------------------------------------------
 const queries = ['', 'water', 'Cu', 'H2O', 'el:Au', 'state:gas', 'is:radioactive',
                  'iron -is:hidden', 'z:80-92', 'el:Fe el:S', 'name:"Molten Iron"',

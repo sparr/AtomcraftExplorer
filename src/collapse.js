@@ -5,8 +5,12 @@
  * Every collapsible section has a fixed slot in COLLAPSIBLE; the collapsed set
  * is that list read as a bitmask, written in base 36.  Collapsing "Referenced
  * by" alone is `c=74`.
+ *
+ * It covers both the detail pane's sections and the result list's category
+ * headings, which is why keys carry a `sec:` / `subsec:` / `cat:` prefix.
  */
 import { REFERENCE_ORDER } from './data.js';
+import { CATEGORIES } from './grouping.js';
 
 // Order is the wire format.  Append freely; never reorder or remove, or old
 // URLs will decode to the wrong sections.
@@ -19,6 +23,8 @@ const SUBSECTIONS = ['Constituent materials', 'Drops', ...REFERENCE_ORDER];
 export const COLLAPSIBLE = [
   ...SECTIONS.map((t) => `sec:${t}`),
   ...SUBSECTIONS.map((t) => `subsec:${t}`),
+  // Category headings in the result list collapse too, and share the format.
+  ...CATEGORIES.map((c) => `cat:${c.id}`),
 ];
 
 const SLOT = new Map(COLLAPSIBLE.map((key, i) => [key, i]));

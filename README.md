@@ -170,6 +170,10 @@ A group takes its category from its head, except when the head lands in `Other`
 — that is a fallback, not a kind. Harvested `Sugarcane` has no formula and no
 growth rules, but it heads seven Sugarcane stalks, so the group is a plant.
 
+Category headings collapse. A collapsed category spends none of the 400-row
+budget, so closing Elements and Compounds brings the smaller categories below
+them into view.
+
 Atomic-number order applies to elements only; everything else is always by name.
 
 Keys: `/` focus search, `↑`/`↓` or `j`/`k` move, `Esc` clear.
@@ -177,9 +181,10 @@ Keys: `/` focus search, `↑`/`↓` or `j`/`k` move, `Esc` clear.
 The whole view lives in the URL hash, so any state is linkable and survives a
 reload: the query (`q`), the selected material (`m`), and which detail sections
 are collapsed (`c`). That last one is a bitmask over the fixed slot list in
-`src/collapse.js`, written in base 36 — collapsing everything is six characters.
-Slots may be appended but never reordered, or old links decode to the wrong
-sections.
+`src/collapse.js`, written in base 36 — it covers both the detail pane's
+sections and the result list's category headings, which is why slots carry a
+`sec:` / `subsec:` / `cat:` prefix. Slots may be appended but never reordered,
+or old links decode to the wrong sections.
 
 ## Layout
 

@@ -211,18 +211,31 @@ main {
 .results { list-style: none; margin: 0; padding: 4px 0 40px; overflow-y: auto; flex: 1; }
 
 .cat-head {
-  padding: 14px 16px 4px;
-  font: 10px/1.6 var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--fg-faint);
   border-bottom: 1px solid var(--line-soft);
   position: sticky;
   top: 0;
   background: var(--bg);
   z-index: 1;
 }
-.cat-head:first-child { padding-top: 6px; }
+
+.cat-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 12px 16px 4px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: 10px/1.6 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-faint);
+  text-align: left;
+}
+.cat-toggle:hover { color: var(--fg-dim); }
+.cat-toggle[aria-expanded="false"] { color: var(--fg-faint); opacity: 0.8; }
+.cat-head:first-child .cat-toggle { padding-top: 6px; }
 
 .row.variant { padding-left: 33px; }
 .row.variant .name { font-weight: 400; color: var(--fg-dim); }
@@ -341,6 +354,7 @@ main {
 }
 .detail details[open] > summary .twisty::before { transform: rotate(90deg); }
 .twisty[aria-expanded="true"]::before { transform: rotate(90deg); }
+[aria-expanded="true"] > .twisty::before { transform: rotate(90deg); }
 
 .detail h3 {
   flex: 1;

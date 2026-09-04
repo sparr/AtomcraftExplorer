@@ -184,12 +184,20 @@ function groupedResults(materials) {
   groupIndex = new Map();
   for (const g of groups) for (const m of g.members) groupIndex.set(m.name, g);
 
-  for (const g of groups.slice(0, GROUP_LIMIT)) {
+  const perCategory = new Map();
+  for (const g of groups) perCategory.set(g.category, (perCategory.get(g.category) || 0) + 1);
+
+  let emitted = 0;
+  for (const g of groups) {
     if (headings && g.category !== lastCategory) {
       lastCategory = g.category;
-      const count = groups.filter((x) => x.category === g.category).length;
-      frag.append(el('li', 'cat-head', `${g.label} (${count})`));
+      frag.append(categoryHead(g.category, g.label, perCategory.get(g.category)));
     }
+    // A collapsed category shows its heading and nothing else -- and spends
+    // none of the row budget, so collapsing one reveals the categories below it.
+    if (headings && collapsed.has(`cat:${g.category}`)) continue;
+    if (emitted >= GROUP_LIMIT) break;
+    emitted++;
 
     frag.append(resultRow({ m: g.head, why: [] }, { group: g }));
     visible.push(g.head);
@@ -203,6 +211,25 @@ function groupedResults(materials) {
     }
   }
   return { frag, groupCount: groups.length };
+}
+
+/** A collapsible category heading in the result list. */
+function categoryHead(id, label, count) {
+  const key = `cat:${id}`;
+  const li = el('li', 'cat-head');
+  const btn = el('button', 'cat-toggle');
+  btn.setAttribute('aria-expanded', String(!collapsed.has(key)));
+  const twisty = el('span', 'twisty');
+  twisty.setAttribute('aria-hidden', 'true');
+  btn.append(twisty, el('span', null, `${label} (${count})`));
+  btn.addEventListener('click', () => {
+    if (collapsed.has(key)) collapsed.delete(key);
+    else collapsed.add(key);
+    writeHash({ replace: true });
+    runSearch();
+  });
+  li.append(btn);
+  return li;
 }
 
 const SORT_MODES = [

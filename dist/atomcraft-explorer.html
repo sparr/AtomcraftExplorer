@@ -218,18 +218,31 @@ main {
 .results { list-style: none; margin: 0; padding: 4px 0 40px; overflow-y: auto; flex: 1; }
 
 .cat-head {
-  padding: 14px 16px 4px;
-  font: 10px/1.6 var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--fg-faint);
   border-bottom: 1px solid var(--line-soft);
   position: sticky;
   top: 0;
   background: var(--bg);
   z-index: 1;
 }
-.cat-head:first-child { padding-top: 6px; }
+
+.cat-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 12px 16px 4px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: 10px/1.6 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-faint);
+  text-align: left;
+}
+.cat-toggle:hover { color: var(--fg-dim); }
+.cat-toggle[aria-expanded="false"] { color: var(--fg-faint); opacity: 0.8; }
+.cat-head:first-child .cat-toggle { padding-top: 6px; }
 
 .row.variant { padding-left: 33px; }
 .row.variant .name { font-weight: 400; color: var(--fg-dim); }
@@ -348,6 +361,7 @@ main {
 }
 .detail details[open] > summary .twisty::before { transform: rotate(90deg); }
 .twisty[aria-expanded="true"]::before { transform: rotate(90deg); }
+[aria-expanded="true"] > .twisty::before { transform: rotate(90deg); }
 
 .detail h3 {
   flex: 1;
@@ -939,67 +953,6 @@ async function loadData(url = './data/atomcraft.json') {
 return { REFERENCE_RELATIONSHIPS, REFERENCE_ORDER, referencePhrase, loadData };
 })();
 
-const __mod_collapse = (() => {
-/**
- * Which detail sections the reader has collapsed, packed small enough to live
- * in the URL so the choice survives a reload (and can be linked).
- *
- * Every collapsible section has a fixed slot in COLLAPSIBLE; the collapsed set
- * is that list read as a bitmask, written in base 36.  Collapsing "Referenced
- * by" alone is `c=74`.
- */
-const {REFERENCE_ORDER} = __mod_data;
-
-// Order is the wire format.  Append freely; never reorder or remove, or old
-// URLs will decode to the wrong sections.
-const SECTIONS = [
-  'Composition', 'Nuclear', 'Thermal & fire', 'Consumed by', 'Produced by',
-  'Catalyses', 'Transitions', 'Physical', 'Referenced by',
-];
-const SUBSECTIONS = ['Constituent materials', 'Drops', ...REFERENCE_ORDER];
-
-const COLLAPSIBLE = [
-  ...SECTIONS.map((t) => `sec:${t}`),
-  ...SUBSECTIONS.map((t) => `subsec:${t}`),
-];
-
-const SLOT = new Map(COLLAPSIBLE.map((key, i) => [key, i]));
-
-/** Section title -> storage key. Counts vary per material, so drop them. */
-const collapseKey = (cls, title) => `${cls}:${title.replace(/\s*\(\d+\)\s*$/, '')}`;
-
-/**
- * @param {Iterable<string>} keys collapsed section keys
- * @returns {string} base-36 bitmask, or '' when nothing is collapsed
- */
-function packCollapsed(keys) {
-  let bits = 0n;
-  for (const key of keys) {
-    const slot = SLOT.get(key);
-    if (slot !== undefined) bits |= 1n << BigInt(slot);   // unknown keys: session-only
-  }
-  return bits ? bits.toString(36) : '';
-}
-
-/** @returns {Set<string>} */
-function unpackCollapsed(text) {
-  const out = new Set();
-  if (!text) return out;
-  let bits = 0n;
-  for (const ch of text.toLowerCase()) {
-    const digit = parseInt(ch, 36);
-    if (Number.isNaN(digit)) return out;                 // junk in the URL: ignore
-    bits = bits * 36n + BigInt(digit);
-  }
-  for (let i = 0; i < COLLAPSIBLE.length; i++) {
-    if ((bits >> BigInt(i)) & 1n) out.add(COLLAPSIBLE[i]);
-  }
-  return out;
-}
-
-return { COLLAPSIBLE, collapseKey, packCollapsed, unpackCollapsed };
-})();
-
 const __mod_grouping = (() => {
 /**
  * Categorising, grouping and ordering materials.
@@ -1199,6 +1152,73 @@ function sortMaterials(materials, db, opts) {
 }
 
 return { CATEGORIES, makeClassifier, groupKeyOf, buildGroups, sortMaterials };
+})();
+
+const __mod_collapse = (() => {
+/**
+ * Which detail sections the reader has collapsed, packed small enough to live
+ * in the URL so the choice survives a reload (and can be linked).
+ *
+ * Every collapsible section has a fixed slot in COLLAPSIBLE; the collapsed set
+ * is that list read as a bitmask, written in base 36.  Collapsing "Referenced
+ * by" alone is `c=74`.
+ *
+ * It covers both the detail pane's sections and the result list's category
+ * headings, which is why keys carry a `sec:` / `subsec:` / `cat:` prefix.
+ */
+const {REFERENCE_ORDER} = __mod_data;
+const {CATEGORIES} = __mod_grouping;
+
+// Order is the wire format.  Append freely; never reorder or remove, or old
+// URLs will decode to the wrong sections.
+const SECTIONS = [
+  'Composition', 'Nuclear', 'Thermal & fire', 'Consumed by', 'Produced by',
+  'Catalyses', 'Transitions', 'Physical', 'Referenced by',
+];
+const SUBSECTIONS = ['Constituent materials', 'Drops', ...REFERENCE_ORDER];
+
+const COLLAPSIBLE = [
+  ...SECTIONS.map((t) => `sec:${t}`),
+  ...SUBSECTIONS.map((t) => `subsec:${t}`),
+  // Category headings in the result list collapse too, and share the format.
+  ...CATEGORIES.map((c) => `cat:${c.id}`),
+];
+
+const SLOT = new Map(COLLAPSIBLE.map((key, i) => [key, i]));
+
+/** Section title -> storage key. Counts vary per material, so drop them. */
+const collapseKey = (cls, title) => `${cls}:${title.replace(/\s*\(\d+\)\s*$/, '')}`;
+
+/**
+ * @param {Iterable<string>} keys collapsed section keys
+ * @returns {string} base-36 bitmask, or '' when nothing is collapsed
+ */
+function packCollapsed(keys) {
+  let bits = 0n;
+  for (const key of keys) {
+    const slot = SLOT.get(key);
+    if (slot !== undefined) bits |= 1n << BigInt(slot);   // unknown keys: session-only
+  }
+  return bits ? bits.toString(36) : '';
+}
+
+/** @returns {Set<string>} */
+function unpackCollapsed(text) {
+  const out = new Set();
+  if (!text) return out;
+  let bits = 0n;
+  for (const ch of text.toLowerCase()) {
+    const digit = parseInt(ch, 36);
+    if (Number.isNaN(digit)) return out;                 // junk in the URL: ignore
+    bits = bits * 36n + BigInt(digit);
+  }
+  for (let i = 0; i < COLLAPSIBLE.length; i++) {
+    if ((bits >> BigInt(i)) & 1n) out.add(COLLAPSIBLE[i]);
+  }
+  return out;
+}
+
+return { COLLAPSIBLE, collapseKey, packCollapsed, unpackCollapsed };
 })();
 
 const __mod_search = (() => {
@@ -1594,12 +1614,20 @@ function groupedResults(materials) {
   groupIndex = new Map();
   for (const g of groups) for (const m of g.members) groupIndex.set(m.name, g);
 
-  for (const g of groups.slice(0, GROUP_LIMIT)) {
+  const perCategory = new Map();
+  for (const g of groups) perCategory.set(g.category, (perCategory.get(g.category) || 0) + 1);
+
+  let emitted = 0;
+  for (const g of groups) {
     if (headings && g.category !== lastCategory) {
       lastCategory = g.category;
-      const count = groups.filter((x) => x.category === g.category).length;
-      frag.append(el('li', 'cat-head', `${g.label} (${count})`));
+      frag.append(categoryHead(g.category, g.label, perCategory.get(g.category)));
     }
+    // A collapsed category shows its heading and nothing else -- and spends
+    // none of the row budget, so collapsing one reveals the categories below it.
+    if (headings && collapsed.has(`cat:${g.category}`)) continue;
+    if (emitted >= GROUP_LIMIT) break;
+    emitted++;
 
     frag.append(resultRow({ m: g.head, why: [] }, { group: g }));
     visible.push(g.head);
@@ -1613,6 +1641,25 @@ function groupedResults(materials) {
     }
   }
   return { frag, groupCount: groups.length };
+}
+
+/** A collapsible category heading in the result list. */
+function categoryHead(id, label, count) {
+  const key = `cat:${id}`;
+  const li = el('li', 'cat-head');
+  const btn = el('button', 'cat-toggle');
+  btn.setAttribute('aria-expanded', String(!collapsed.has(key)));
+  const twisty = el('span', 'twisty');
+  twisty.setAttribute('aria-hidden', 'true');
+  btn.append(twisty, el('span', null, `${label} (${count})`));
+  btn.addEventListener('click', () => {
+    if (collapsed.has(key)) collapsed.delete(key);
+    else collapsed.add(key);
+    writeHash({ replace: true });
+    runSearch();
+  });
+  li.append(btn);
+  return li;
 }
 
 const SORT_MODES = [
