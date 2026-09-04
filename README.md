@@ -135,7 +135,9 @@ The result list sorts by **Relevance**, **Name** or **Atomic number**. The two
 ordered modes also group: 1795 materials collapse to about 1000 rows, because
 variants of one thing fold under it. `Iron` carries `Molten Iron`; `Uranium`
 carries its isotopes; `And Gate` carries all eight direction/state permutations;
-`Bits of Blender` files under `Blender`. A `+n` badge expands a group in place.
+`Bits of Blender` files under `Blender`. The twisty at the left of a row expands
+its group in place; selecting a row opens its group, and clicking the selected
+row again closes it without losing the selection.
 
 `src/grouping.js` holds the mechanism, and keeps two ideas apart:
 

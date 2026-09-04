@@ -317,6 +317,21 @@ else console.log('ok    collapse state persists across material selection');
       app.select(app.db.byName.get('Uranium'));
       if (!isotopeRows()) { console.log('FAIL selecting Uranium did not reveal its isotopes'); fail++; }
       else console.log(`ok    selecting a row expands its group (${isotopeRows()} isotopes revealed)`);
+
+      // Clicking the selected row again works its twisty, without deselecting.
+      const selectedNames = () => results.children
+        .filter((r) => r.getAttribute('aria-selected') === 'true').map((r) => r.dataset.name);
+      results.children.find((r) => r.dataset.name === 'Uranium').dispatch('click');
+      if (isotopeRows()) { console.log('FAIL second click did not collapse the group'); fail++; }
+      else if (selectedNames().join() !== 'Uranium') {
+        console.log(`FAIL second click changed the selection to ${selectedNames()}`); fail++;
+      } else if (!detail.textContent.startsWith('Uranium')) {
+        console.log('FAIL second click cleared the detail pane'); fail++;
+      } else console.log('ok    clicking the selected row collapses its group, selection intact');
+
+      results.children.find((r) => r.dataset.name === 'Uranium').dispatch('click');
+      if (!isotopeRows()) { console.log('FAIL third click did not reopen the group'); fail++; }
+      else console.log('ok    clicking again reopens it');
     }
   }
 }

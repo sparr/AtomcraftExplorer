@@ -276,7 +276,16 @@ function resultRow(hit, { group = null, variant = false } = {}) {
   if (m.hidden) right.append(el('span', 'badge hidden', 'hidden'));
 
   li.append(lead, swatch(m), main, right);
-  li.addEventListener('click', () => select(m, { push: true }));
+  li.addEventListener('click', () => {
+    // First click selects and opens the group; clicking the selected row again
+    // works the group's twisty, so one row does both jobs.
+    if (selected === m) {
+      const g = groupIndex.get(m.name);
+      if (g && g.members.length > 1) toggleGroup(g.key);
+    } else {
+      select(m, { push: true });
+    }
+  });
   return li;
 }
 
