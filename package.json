@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Browser explorer for the Atomcraft material and reaction data.",
+  "license": "MIT",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
     "build": "npm run build-data && npm run bundle",

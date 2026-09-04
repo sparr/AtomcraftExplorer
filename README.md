@@ -258,9 +258,11 @@ tools/elements.mjs            canonical periodic table (symbols + grid layout)
 tools/godot-translation.mjs   decoder for Godot .translation resources
 tools/dom-shim.mjs            minimal DOM, so the UI can be tested headlessly
 .githooks/pre-commit          blocks commits with a stale bundle
+tools/audit-grouping.mjs      prints every grouping decision and why
 tools/test-*.mjs              headless tests
 data/atomcraft.json           baked game data          (generated)
 dist/atomcraft-explorer.html  standalone build         (generated)
+LICENSE                       MIT
 ```
 
 Everything is JavaScript — source, build and tests all run on Node.
@@ -290,6 +292,33 @@ Everything is JavaScript — source, build and tests all run on Node.
   that are enums, where 0 names a case: `State` 0 is Solid and
   `DecaySettings.Mode` 0 is alpha decay, which 192 materials use.
 
+## Limitations
+
+- **The interface has never been rendered.** No browser was available while it
+  was built, so the CSS and layout are unverified — not once, at any point.
+  Everything is checked at the logic level against the DOM shim in
+  [`tools/dom-shim.mjs`](tools/dom-shim.mjs): the tests confirm all 1795 detail
+  panes build without throwing and contain what they should, and say nothing
+  about whether any of it *looks* right.
+- **Enum labels are inferred.** Every `.cs` file in the `.pck` is a one-byte
+  stub, so `State`, `Direction` and the decay modes were recovered from the data.
+  The compass directions are the weakest of these: `1/3/5/7` are pinned by
+  materials named `(Right)`, `(Down)`, `(Left)` and `(Up)`, but the diagonals
+  `2/4/6/8` are a pattern completed from those, not something the data confirms.
+- **The grouping rules describe this data set, not documented game semantics.**
+  Each guard in [`src/grouping.js`](src/grouping.js) exists because an audit
+  caught a specific wrong merge — machines melting into their metal, deposits
+  into theirs, `Liquid Nitrogen` bridging N to N₂. They fit what the game
+  currently ships and may fit what it ships next much less well.
+- **The biological category is a hand-written list.** No flag identifies it, so
+  it is a set of `LocIdName` stems. Unlike the relationship list, which has a
+  test asserting it still covers the data, nothing can detect a tissue type
+  added by a future update — it will quietly land in Terrain.
+- **The committed data is one build from one store.** The Steam and itch copies
+  differ; on the machine this was built, itch had 1728 materials and 610
+  reactions against Steam's 1795 and 681, a strict subset. The bake is English
+  only, though the decoder handles all 28 shipped locales.
+
 ## Tests
 
 ```sh
@@ -317,31 +346,16 @@ decoder was written against Godot's `OptimizedTranslation` and SMAZ, and is
 confirmed by the strings it recovers. Where this README describes what the game
 data contains — counts, enum meanings, the phase links, the formula quirks — it
 is describing values read out of `AllMaterials.json` and `AllReactions.json`,
-usually printed in the process of finding a bug.
+usually printed in the course of finding a bug.
 
-Five limits are worth knowing:
+What that verification does not cover is set out under
+[Limitations](#limitations); the first entry there is the one to read.
 
-- **Nothing here has been looked at.** No browser was available in the session,
-  so the CSS and the layout have never been rendered — not once. Every check is
-  logic-level, run against the DOM shim in
-  [`tools/dom-shim.mjs`](tools/dom-shim.mjs): the tests confirm that 1795 detail
-  panes build without throwing and contain what they should, and say nothing
-  about whether any of it *looks* right.
-- **Enum labels are inferred.** Every `.cs` file in the `.pck` is a one-byte
-  stub, so `State`, `Direction` and the decay modes were recovered from the data.
-  The compass directions are the weakest of these: `1/3/5/7` are pinned by
-  materials named `(Right)`, `(Down)`, `(Left)` and `(Up)`, but the diagonals
-  `2/4/6/8` are a pattern completed from those, not something the data confirms.
-- **The grouping rules describe this data set, not documented game semantics.**
-  Each guard in [`src/grouping.js`](src/grouping.js) was added because an audit
-  caught a specific wrong merge — machines melting into their metal, deposits
-  into theirs, `Liquid Nitrogen` bridging N to N₂. They are a good fit for what
-  the game currently ships and may be a poor one for what it ships next.
-- **The biological category is a hand-written list.** No flag identifies it, so
-  it is a set of `LocIdName` stems. Unlike the relationship list, which has a
-  test asserting it still covers the data, nothing can detect a tissue type
-  added by a future update — it will quietly land in Terrain.
-- **The committed data is one build from one store.** The Steam and itch copies
-  differ; on the machine this was written on, itch had 1728 materials and 610
-  reactions against Steam's 1795 and 681, a strict subset. The bake is English
-  only, though the decoder handles all 28 shipped locales.
+## License
+
+[MIT](LICENSE)
+
+The licence covers the code. `data/atomcraft.json` and the copy of it inlined
+into `dist/atomcraft-explorer.html` are extracted from Atomcraft and belong to
+the game's authors; `npm run build` regenerates both from a copy of the game you
+already own.
