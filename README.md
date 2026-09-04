@@ -218,8 +218,8 @@ the game re-rolls them each run.
 
 ## Sorting and grouping
 
-The result list sorts by **Relevance**, **Name** or **Atomic number**. The two
-ordered modes also group: 1795 materials collapse to about 1000 rows, because
+The result list sorts by **Name** (the default), **Atomic number** or
+**Relevance**. All three group: 1795 materials collapse to about 1000 rows, because
 variants of one thing fold under it. `Iron` carries `Molten Iron`; `Uranium`
 carries its isotopes; `And Gate` carries all eight direction/state permutations;
 `Bits of Blender` files under `Blender`. The twisty at the left of a row expands
@@ -285,7 +285,8 @@ growth rules, but it heads seven Sugarcane stalks, so the group is a plant.
 
 Category headings collapse. A collapsed category spends none of the 400-row
 budget, so closing Elements and Compounds brings the smaller categories below
-them into view.
+them into view — and a capped list ends with a button that lifts the cap
+outright. Typing a new query puts it back.
 
 Atomic-number order applies to elements only; everything else is always by name.
 

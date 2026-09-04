@@ -31,8 +31,12 @@ console.log(`ok    booted from embedded data: ${app.db.materials.length} materia
 const results = document.querySelector('#results');
 for (const [q, want] of [['water', 'Water'], ['H2O', 'Water'], ['Cu', 'Copper'],
                          ['el:Au', 'Gold'], ['state:plasma', 'Plasma Bullet']]) {
-  app.setQuery(q);
-  const first = results.children[0]?.textContent ?? '';
+  // These check that search ranking survives bundling, so ask for relevance
+  // order explicitly -- the default sort is alphabetical, which would only
+  // ever confirm that "Water" sorts before "Wood".
+  globalThis.location.hash = `#s=relevance&q=${encodeURIComponent(q)}`;
+  app.reload();
+  const first = results.children.find((r) => r.className.startsWith('row'))?.textContent ?? '';
   if (!first.startsWith(want)) { console.log(`FAIL "${q}" -> ${first.slice(0, 40)}`); fail++; }
   else console.log(`ok    "${q}" -> ${first.slice(0, 40)}`);
 }

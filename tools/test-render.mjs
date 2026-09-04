@@ -461,6 +461,36 @@ app.reload();
 }
 app.setQuery('');
 
+// --- Name is the default sort, and the cap can be lifted -------------------
+{
+  globalThis.location.hash = '';
+  app.reload();
+  const active = document.querySelector('#sort').children
+    .find((b) => b.getAttribute('aria-pressed') === 'true');
+  if (active?.dataset.mode !== 'name') bad(`default sort is ${active?.dataset.mode}, want name`);
+  else console.log('ok    Name is the default sort');
+
+  const rows = () => results.children.filter((r) => r.className.startsWith('row')).length;
+  const button = () => results.children.find((r) => r.className === 'show-all');
+
+  const capped = rows();
+  const btn = button();
+  if (!btn) bad('a capped list offers no way to see the rest');
+  else if (!/remaining \d+/.test(btn.textContent)) bad(`button reads "${btn.textContent}"`);
+  else {
+    btn.children[0].dispatch('click');
+    if (rows() <= capped) bad(`lifting the cap did not add rows (${capped} -> ${rows()})`);
+    else if (button()) bad('the button is still there after lifting the cap');
+    else console.log(`ok    the cap lifts on request: ${capped} -> ${rows()} rows`);
+  }
+
+  // A new query starts capped again.
+  app.setQuery('is:radioactive');
+  if (!button() && rows() >= 400) bad('a new query did not restore the cap');
+  else console.log('ok    a new query restores the cap');
+  app.setQuery('');
+}
+
 // --- category headings collapse, and persist like detail sections ----------
 {
   globalThis.location.hash = '#s=name';
@@ -474,15 +504,25 @@ app.setQuery('');
     console.log('FAIL category heading has no twisty'); fail++;
   } else {
     const label = first.textContent.replace(/\s+/g, ' ');
-    const headsBefore = heads().length;
+    const shownBefore = new Set(results.children
+      .filter((r) => r.className.startsWith('row')).map((r) => r.dataset.name));
     toggleOf(first).dispatch('click');
     if (toggleOf(heads()[0]).getAttribute('aria-expanded') !== 'false') {
       console.log('FAIL category heading did not report itself collapsed'); fail++;
     }
-    // Its rows go, and the freed budget reveals categories further down.
-    if (heads().length <= headsBefore) {
-      console.log('FAIL collapsing a category revealed no further categories'); fail++;
-    } else console.log(`ok    collapsing "${label}" reveals ${heads().length - headsBefore} more categories`);
+    // Its rows go, and the freed budget goes to groups further down. Every
+    // heading is always drawn, so the gain shows up as rows, not headings.
+    const shownAfter = new Set(results.children
+      .filter((r) => r.className.startsWith('row')).map((r) => r.dataset.name));
+    const revealed = [...shownAfter].filter((n) => !shownBefore.has(n));
+    const hidden = [...shownBefore].filter((n) => !shownAfter.has(n));
+    if (!hidden.length) {
+      console.log(`FAIL collapsing "${label}" hid none of its rows`); fail++;
+    } else if (!revealed.length) {
+      console.log(`FAIL collapsing "${label}" freed no budget for later groups`); fail++;
+    } else {
+      console.log(`ok    collapsing "${label}" hides ${hidden.length} rows and reveals ${revealed.length}`);
+    }
 
     if (!/[#&]c=/.test(globalThis.location.hash)) {
       console.log(`FAIL category collapse not written to the URL: ${globalThis.location.hash}`); fail++;

@@ -31,7 +31,10 @@ let selected = null;
 
 /* ------------------------------------------------------------------ query */
 
-const state = { q: '', sel: null, sort: 'relevance' };
+const state = { q: '', sel: null, sort: 'name' };
+
+/** Set when the reader asks a capped list to show everything. */
+let uncapped = false;
 
 /** Groups whose variants are shown. Grouping hides 794 variant rows by default. */
 const expanded = new Set();
@@ -56,7 +59,7 @@ function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   state.q = p.get('q') || '';
   state.sel = p.get('m') || null;
-  state.sort = ['name', 'z'].includes(p.get('s')) ? p.get('s') : 'relevance';
+  state.sort = ['relevance', 'z', 'name'].includes(p.get('s')) ? p.get('s') : 'name';
   collapsed.clear();
   for (const key of unpackCollapsed(p.get('c'))) collapsed.add(key);
 }
@@ -65,7 +68,7 @@ function writeHash({ replace = false } = {}) {
   const p = new URLSearchParams();
   if (state.q) p.set('q', state.q);
   if (state.sel) p.set('m', state.sel);
-  if (state.sort !== 'relevance') p.set('s', state.sort);
+  if (state.sort !== 'name') p.set('s', state.sort);   // name is the default
   const packed = packCollapsed(collapsed);
   if (packed) p.set('c', packed);
   const hash = p.toString() ? '#' + p.toString() : ' ';
@@ -84,6 +87,7 @@ function writeHash({ replace = false } = {}) {
 
 function setQuery(q, { fromInput = false } = {}) {
   state.q = q;
+  uncapped = false;                    // a new query gets the cap back
   if (!fromInput) $('#q').value = q;
   $('#clear').hidden = !q;
   runSearch();
@@ -224,7 +228,7 @@ function runSearch() {
   const parts = [`${r.total.toLocaleString()} of ${db.materials.length.toLocaleString()} materials`];
   if (groupCount) {
     parts.push(`${groupCount.toLocaleString()} group${groupCount === 1 ? '' : 's'}`);
-    if (groupCount > GROUP_LIMIT) parts.push(`showing first ${GROUP_LIMIT}`);
+    if (!uncapped && groupCount > GROUP_LIMIT) parts.push(`showing first ${GROUP_LIMIT}`);
   } else if (visible.length < r.total) {
     parts.push(`showing first ${visible.length}`);
   }
@@ -259,6 +263,8 @@ function groupedResults(materials) {
   for (const g of groups) perCategory.set(g.category, (perCategory.get(g.category) || 0) + 1);
 
   let emitted = 0;
+  const limit = uncapped ? Infinity : GROUP_LIMIT;
+  let capped = 0;
   for (const g of groups) {
     if (headings && g.category !== lastCategory) {
       lastCategory = g.category;
@@ -267,7 +273,7 @@ function groupedResults(materials) {
     // A collapsed category shows its heading and nothing else -- and spends
     // none of the row budget, so collapsing one reveals the categories below it.
     if (headings && collapsed.has(`cat:${g.category}`)) continue;
-    if (emitted >= GROUP_LIMIT) break;
+    if (emitted >= limit) { capped++; continue; }
     emitted++;
 
     frag.append(resultRow({ m: g.head, why: [] }, { group: g }));
@@ -281,6 +287,16 @@ function groupedResults(materials) {
       }
     }
   }
+  if (capped) {
+    const li = el('li', 'show-all');
+    const btn = el('button', 'show-all-btn',
+                   `Show the remaining ${capped.toLocaleString()} ` +
+                   `group${capped === 1 ? '' : 's'}`);
+    btn.addEventListener('click', () => { uncapped = true; runSearch(); });
+    li.append(btn);
+    frag.append(li);
+  }
+
   return { frag, groupCount: groups.length };
 }
 
