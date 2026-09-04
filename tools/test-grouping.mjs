@@ -99,12 +99,28 @@ ok('category assignment for 12 representative materials');
   if (allotropes.length < 9) bad(`only ${allotropes.length} single-element compound groups`);
   else ok(`${allotropes.length} single-element compound groups: ${allotropes.map((g) => g.key).slice(0, 4).join(', ')}…`);
 
-  // A machine melting into its metal must not join the metal.
-  for (const [machine, metal] of [['Silver Wall', 'Silver'], ['Iron Wall', 'Iron']]) {
-    const g = groups.find((x) => x.members.some((m) => m.name === machine));
-    if (g?.members.some((m) => m.name === metal)) bad(`${machine} grouped with ${metal}`);
+  // Melting something that merely holds a material is extraction, not a change
+  // of state, whether it is a device or an ore deposit.
+  for (const [holder, substance] of [['Silver Wall', 'Silver'], ['Iron Wall', 'Iron'],
+                                     ['Gold Deposit', 'Gold'], ['Corundum Deposit', 'Alumina'],
+                                     ['Fluorite Deposit', 'Calcium Fluoride']]) {
+    const g = groups.find((x) => x.members.some((m) => m.name === holder));
+    if (g?.members.some((m) => m.name === substance)) bad(`${holder} grouped with ${substance}`);
   }
-  ok('machines are not filed under the metal they melt into');
+  ok('machines and deposits are not filed under what they melt into');
+
+  // Deposits belong in the deposit category. Kelp Stalk is the exception: it
+  // has drop rates but is a plant, and plants are tested first.
+  const strays = groups.filter((g) => g.category !== 'deposit' && g.category !== 'plant')
+    .flatMap((g) => g.members.filter((m) => / Deposit$/.test(m.name)));
+  if (strays.length) bad(`${strays.length} deposits outside the deposit category, e.g. ${strays[0].name}`);
+  else ok('every "* Deposit" sits in the deposit category');
+
+  // Liquid Hydrogen states no formula; its phase partner decides where it goes.
+  const lh = groups.find((g) => g.members.some((m) => m.name === 'Liquid Hydrogen'));
+  if (!lh.members.some((m) => m.name === 'Hydrogen Gas')) {
+    bad('Liquid Hydrogen did not follow its phase partner Hydrogen Gas');
+  } else ok('a formula-less material follows its phase partner, not its name');
 }
 
 // --- things that must NOT be stripped or merged ----------------------------

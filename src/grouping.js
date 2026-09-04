@@ -42,6 +42,10 @@ export const CATEGORIES = [
 
 const CATEGORY_RANK = new Map(CATEGORIES.map((c, i) => [c.id, i]));
 
+// Categories that are made of, or hold, a material without being it. Melting
+// one yields the material, which is extraction rather than a change of state.
+const HOLDS_MATERIAL = new Set(['machine', 'deposit']);
+
 // Trailing "(Off)", "(Up)", "(1500)" mark variants. Roman numerals must survive:
 // "Potassium Heptafluoroniobate(V)" is an oxidation state, not a variant.
 const VARIANT_PAREN = /\s*\((?:On|Off|Turning On|Turning Off|Active|Rest|Burning|Up|Down|Left|Right|\d+)\)\s*$/;
@@ -96,13 +100,61 @@ function sameSubstance(a, b) {
   return !a || !b || a === b;
 }
 
+/** Reciprocal phase partners: each names the other as its opposite transition. */
+function phasePartners(materials) {
+  const byName = new Map(materials.map((m) => [m.name, m]));
+  const evaporatesTo = (m) => m?.raw.Evaporation?.TargetMaterialName;
+  const condensesTo = (m) => m?.raw.Condensation?.TargetMaterialName;
+
+  const partners = new Map(materials.map((m) => [m, []]));
+  for (const m of materials) {
+    for (const [forward, back] of [[evaporatesTo, condensesTo], [condensesTo, evaporatesTo]]) {
+      const target = byName.get(forward(m));
+      if (!target || back(target) !== m.name) continue;
+      // A device and a puddle of its metal are never one substance, however the
+      // game links them: Bits of Heating Element melts into Molten Nichrome and
+      // freezes back out of it. Ice is Static too but is not machinery, which
+      // is what lets it stay with Water.
+      if (!!m.raw.IsMechanical !== !!target.raw.IsMechanical) continue;
+      partners.get(m).push(target);
+    }
+  }
+  return partners;
+}
+
+/**
+ * Formulas, with a formula-less material adopting the one its phase partner
+ * states -- the game's own statement that they are one substance, which beats
+ * what a name happens to look like.
+ *
+ * Liquid Hydrogen states nothing, so by name alone it files under Hydrogen (H).
+ * Its partner Hydrogen Gas says H2, and once it inherits that it goes where it
+ * belongs. Partners that disagree leave the formula unset rather than guessing.
+ */
+export function effectiveFormulas(materials) {
+  const partners = phasePartners(materials);
+  const formula = new Map(materials.map((m) => [m, m.raw.Formula || null]));
+
+  for (let pass = 0; pass < materials.length; pass++) {
+    let changed = false;
+    for (const m of materials) {
+      if (formula.get(m)) continue;
+      const stated = new Set(partners.get(m).map((p) => formula.get(p)).filter(Boolean));
+      if (stated.size === 1) { formula.set(m, [...stated][0]); changed = true; }
+    }
+    if (!changed) break;
+  }
+  return formula;
+}
+
 /**
  * The name a material's group is filed under.
  * @param {object} m       material
  * @param {string} category its category id
  * @param {(name: string) => object|undefined} lookup  resolves a material by name
+ * @param {(m: object) => string|null} [formulaOf]  formula to compare on
  */
-export function groupKeyOf(m, category, lookup) {
+export function groupKeyOf(m, category, lookup, formulaOf = (x) => x.raw.Formula || null) {
   // Plants are named "<Plant> <Part> <Index>"; the plant is the first word.
   if (category === 'plant') return m.name.split(' ')[0];
 
@@ -118,7 +170,7 @@ export function groupKeyOf(m, category, lookup) {
     for (const p of PHASE_PREFIXES) {
       if (!name.startsWith(p)) continue;
       const base = lookup(name.slice(p.length));
-      if (base && sameSubstance(m.raw.Formula, base.raw.Formula)) {
+      if (base && sameSubstance(formulaOf(m), formulaOf(base))) {
         name = name.slice(p.length);
         break;
       }
@@ -126,7 +178,7 @@ export function groupKeyOf(m, category, lookup) {
     for (const suffix of PHASE_SUFFIXES) {
       if (!name.endsWith(suffix)) continue;
       const base = lookup(name.slice(0, -suffix.length));
-      if (base && sameSubstance(m.raw.Formula, base.raw.Formula)) {
+      if (base && sameSubstance(formulaOf(m), formulaOf(base))) {
         name = name.slice(0, -suffix.length);
         break;
       }
@@ -184,15 +236,19 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
   const classify = makeClassifier(db.materials);
   const lookup = (name) => db.byName.get(name);
 
+  // Phase partners settle formulas before names get a say.
+  const effective = effectiveFormulas(db.materials);
+  const formulaOf = (m) => effective.get(m) ?? m.raw.Formula ?? null;
+
   const keyOf = new Map();
-  for (const m of materials) keyOf.set(m, groupKeyOf(m, classify(m), lookup));
+  for (const m of materials) keyOf.set(m, groupKeyOf(m, classify(m), lookup, formulaOf));
 
   // Union the name-derived keys that phase transitions say are one substance.
   const parent = new Map();
   const formulas = new Map();          // component -> the formulas its members state
   for (const [m, k] of keyOf) {
     if (!parent.has(k)) { parent.set(k, k); formulas.set(k, new Set()); }
-    if (m.raw.Formula) formulas.get(k).add(m.raw.Formula);
+    if (formulaOf(m)) formulas.get(k).add(formulaOf(m));
   }
   const find = (k) => {
     while (parent.get(k) !== k) { parent.set(k, parent.get(parent.get(k))); k = parent.get(k); }
@@ -234,13 +290,15 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
       // melts back to Water, and Ice states no formula at all.
       //
       // A one-way link needs more: both sides naming the same formula, and
-      // neither being a machine. Bromine Gas condenses straight to Solid
-      // Bromine, skipping the liquid, and all three are Br2 -- while a Silver
-      // Wall melts one-way into Molten Silver and states Ag just like the metal
-      // does, but it is a thing built from silver, not silver in another state.
+      // both being the substance itself rather than something that merely
+      // contains it. Bromine Gas condenses straight to Solid Bromine, skipping
+      // the liquid, and all three are Br2 -- while a Silver Wall melts into
+      // Molten Silver and a Gold Deposit into Molten Gold, each stating the
+      // same formula as the metal without being that metal in another state.
       const reciprocal = back(target) === m.name;
-      const oneWay = !!m.raw.Formula && !!target.raw.Formula &&
-                     classify(m) !== 'machine' && classify(target) !== 'machine';
+      const isSubstance = (x) => !HOLDS_MATERIAL.has(classify(x));
+      const oneWay = !!formulaOf(m) && !!formulaOf(target) &&
+                     isSubstance(m) && isSubstance(target);
       if (reciprocal || oneWay) union(keyOf.get(m), keyOf.get(target));
     }
   }

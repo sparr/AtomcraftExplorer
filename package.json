@@ -13,7 +13,8 @@
     "serve": "python3 -m http.server 8099",
     "test": "node tools/test-formula.mjs && node tools/test-search.mjs && node tools/test-grouping.mjs && node tools/test-locate.mjs && node tools/test-render.mjs && node tools/test-bundle.mjs",
     "locate": "node tools/locate-game.mjs",
-    "pck-tools": "node tools/pck-tool.mjs"
+    "pck-tools": "node tools/pck-tool.mjs",
+    "audit": "node tools/audit-grouping.mjs"
   },
   "dependencies": {
     "@ciberus/find-steam-app": "^4.0.0",
