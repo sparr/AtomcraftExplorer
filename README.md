@@ -110,7 +110,7 @@ Terms are ANDed. Prefix `-` to exclude, quote to group: `name:"Molten Iron"`.
 
 | Term | Matches |
 | --- | --- |
-| `water` | names, formulas and descriptions |
+| `water` | names, formulas, constituent materials and descriptions |
 | `Cu` | the above **and** composition — finds Chalcopyrite as well as Copper |
 | `H2O` | anything whose formula contains both H and O |
 | `el:Au` / `element:Au` | formula contains gold |
@@ -120,6 +120,11 @@ Terms are ANDed. Prefix `-` to exclude, quote to group: `name:"Molten Iron"`.
 | `state:gas` | Solid, Liquid, Gas, Static, Plasma |
 | `z:26`, `z:80-92` | proton number (also matches the element's own material) |
 | `is:radioactive` | also: element, isotope, burning, mechanical, hidden, buildable, mineable, interactable, unstable, food, growing |
+
+Constituents are indexed because a formula can omit what a material is made of:
+`Aqueous Zinc Sulfate` has the formula `ZnSO4`, with its water recorded only in
+`Composition` — 58 aqueous materials are like this. Searching `H2O` finds them
+anyway, ranked below anything matching by name.
 
 The **Periodic table** panel is the same filter with a click target — shading
 shows how many materials contain each element.

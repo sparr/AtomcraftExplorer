@@ -48,6 +48,34 @@ expectContains('Cu', 'Copper');
 expectContains('Cu', 'Chalcopyrite');
 expectContains('Au', 'Gold');
 
+console.log('\n--- constituent materials ---');
+// These carry no H2O in their formula; only Composition records the water.
+for (const n of ['Aqueous Zinc Sulfate', 'Aqueous Calcium Chloride', 'Seawater', 'Vinegar']) {
+  expectContains('H2O', n);
+}
+{
+  const m = db.byName.get('Aqueous Zinc Sulfate');
+  if (/H2O/.test(m.raw.Formula)) {
+    console.log('FAIL Aqueous Zinc Sulfate now has H2O in its formula; test premise is stale'); fail++;
+  } else {
+    console.log(`ok    premise holds: Aqueous Zinc Sulfate formula is ${m.raw.Formula}, water only in composition`);
+  }
+}
+// A constituent match must not outrank a name match.
+expectTop('water', 'Water');
+expectTop('sulfate ion', 'Sulfate Ion');
+{
+  const hits = search(db, 'water').results;
+  const seawater = hits.findIndex((r) => r.m.name === 'Seawater');
+  const viaConstituent = hits.findIndex((r) => r.why.includes('constituents') && !r.why.includes('name'));
+  if (seawater < 0) { console.log('FAIL "water" does not find Seawater'); fail++; }
+  else if (viaConstituent >= 0 && viaConstituent < seawater) {
+    console.log('FAIL a constituent-only match outranks the name match Seawater'); fail++;
+  } else {
+    console.log(`ok    name matches outrank constituent-only matches (Seawater at #${seawater + 1})`);
+  }
+}
+
 console.log('\n--- field filters ---');
 expectCount('state:gas', (m) => m.state === 'Gas', 'Gas');
 expectCount('el:U', (m) => m.formula?.counts.has('U'), 'contain U');

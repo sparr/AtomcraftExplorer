@@ -30,6 +30,7 @@ const SCORE = {
   substring: 260,
   formulaSubstring: 200,
   composition: 160,
+  constituent: 140,
   description: 60,
 };
 
@@ -140,6 +141,9 @@ function matchWord(m, term, symbolSet) {
     for (const sym of chem.counts.keys()) if (!m.formula.counts.has(sym)) { all = false; break; }
     if (all) bump(SCORE.composition, 'composition');
   }
+
+  // What the material is made of, which the formula often omits.
+  if (m.lcConstituents.includes(v)) bump(SCORE.constituent, 'constituents');
 
   if (m.lcDescription.includes(v)) bump(SCORE.description, 'description');
   return { score: best, why };

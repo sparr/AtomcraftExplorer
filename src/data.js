@@ -95,6 +95,21 @@ export async function loadData(url = './data/atomcraft.json') {
 
   const byName = new Map(materials.map((m) => [m.name, m]));
 
+  // Constituent materials, for search.  Composition names other materials --
+  // often ones the formula does not mention at all, like the water in
+  // "Aqueous Zinc Sulfate" (ZnSO4) -- so index both the referenced name and its
+  // display name, which is how "+H2O" becomes findable as "Water".
+  for (const m of materials) {
+    const parts = [];
+    for (const e of m.raw.Composition?.Elements || []) {
+      parts.push(e.Item1);
+      const target = byName.get(e.Item1);
+      if (target && target.display !== e.Item1) parts.push(target.display);
+    }
+    m.constituents = parts;
+    m.lcConstituents = parts.join(' \u241f ').toLowerCase();
+  }
+
   const bySymbol = new Map();
   for (const m of materials) {
     if (!m.formula) continue;
