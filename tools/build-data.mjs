@@ -2,17 +2,29 @@
 /**
  * Bake the extracted Atomcraft game data into a single compact bundle.
  *
- * Reads AllMaterials.json / AllReactions.json plus the Godot .translation
- * resources, merges in the localized display names, drops fields that are at
- * their default, and writes data/atomcraft.json for the browser app.
+ * Locates an installed copy of the game, extracts the three files it needs from
+ * the .pck with whichever Godot extractor is on PATH, merges the localized
+ * display names into the material list, drops fields that are at their default,
+ * and writes data/atomcraft.json for the browser app.
  *
- * Usage: node tools/build-data.mjs [--pck ../Atomcraft.pck] [--locale en]
+ * Usage: node tools/build-data.mjs [options]
+ *   --pck <file>        use this .pck instead of searching for the game
+ *   --game-dir <dir>    search this install directory for the .pck
+ *   --data-dir <dir>    skip extraction; read already-extracted files from here
+ *   --steam-appid <id>  match this Steam appid instead of the game name
+ *   --pck-tool <name>   force godotpcktool or GodotPCKExplorer.Console
+ *   --locale <code>     translation locale to bake (default: en)
+ *   --keep-extracted    leave the temp extraction in place, and print where
  */
-import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, statSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { PERIODIC_TABLE } from './elements.mjs';
 import { loadTranslation, makeLookup } from './godot-translation.mjs';
+import { locateGamePck } from './locate-game.mjs';
+import { findPckTool, KNOWN_TOOLS } from './pck-tool.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(HERE);
@@ -71,25 +83,88 @@ function buildElementTable(materials) {
 }
 
 function parseArgs(argv) {
-  const opts = { pck: join(ROOT, '..', 'Atomcraft.pck'), locale: 'en',
-                 out: join(ROOT, 'data', 'atomcraft.json'), indent: false };
+  const opts = { locale: 'en', out: join(ROOT, 'data', 'atomcraft.json'),
+                 indent: false, keepExtracted: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--indent') opts.indent = true;
-    else if (a.startsWith('--')) opts[a.slice(2)] = argv[++i];
+    else if (a === '--keep-extracted') opts.keepExtracted = true;
+    else if (a.startsWith('--')) {
+      const key = a.slice(2).replace(/-(\w)/g, (_, c) => c.toUpperCase());
+      opts[key] = argv[++i];
+    }
   }
   return opts;
 }
 
-function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const dataDir = join(args.pck, 'Data');
-  const readJson = (f) => JSON.parse(readFileSync(join(dataDir, f), 'utf8'));
+/** Recursive search, so we do not depend on how a given extractor lays out its output. */
+function findFile(dir, name, depth = 4) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.isFile() && e.name === name) return join(dir, e.name);
+  }
+  if (depth <= 0) return null;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const hit = findFile(join(dir, e.name), name, depth - 1);
+    if (hit) return hit;
+  }
+  return null;
+}
 
-  const materials = readJson('AllMaterials.json');
-  const reactions = readJson('AllReactions.json');
-  const lookup = makeLookup(
-    loadTranslation(join(dataDir, `LocalizedStrings.${args.locale}.translation`)));
+/**
+ * Produce a directory holding the three files we need, plus a cleanup fn.
+ * Either the caller already has them extracted, or we pull them out of the pck.
+ */
+async function obtainData(opts, wanted) {
+  if (opts.dataDir) {
+    console.log(`using already-extracted data: ${opts.dataDir}`);
+    return { dir: opts.dataDir, cleanup: () => {} };
+  }
+
+  // Resolve the extractor first: a bad --pck-tool should fail before we spend
+  // time hunting through Steam libraries.
+  const tool = findPckTool(opts.pckTool);
+
+  const { pck, source } = await locateGamePck(opts);
+  console.log(`found ${pck}`);
+  console.log(`  via ${source}`);
+
+  const dir = mkdtempSync(join(tmpdir(), 'atomcraft-pck-'));
+  // Anchored alternation over just the files we read; without filter support
+  // this is ignored and the whole 234 MB pck comes out.
+  const include = `^Data/(${wanted.map((f) => f.replace(/[.]/g, '[.]')).join('|')})$`;
+  console.log(`  extracting with ${tool.name}` +
+              (tool.supportsFilter ? ' (filtered)' : ' (no filter support: full extract)'));
+  tool.extract(pck, dir, { include });
+
+  return {
+    dir,
+    cleanup: () => {
+      if (opts.keepExtracted) console.log(`  extraction kept at ${dir}`);
+      else rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const translation = `LocalizedStrings.${args.locale}.translation`;
+  const wanted = ['AllMaterials.json', 'AllReactions.json', translation];
+
+  const { dir, cleanup } = await obtainData(args, wanted);
+  let materials, reactions, lookup;
+  try {
+    const locate = (f) => {
+      const p = findFile(dir, f);
+      if (!p) throw new Error(`${f} not found under ${dir}`);
+      return p;
+    };
+    materials = JSON.parse(readFileSync(locate('AllMaterials.json'), 'utf8'));
+    reactions = JSON.parse(readFileSync(locate('AllReactions.json'), 'utf8'));
+    lookup = makeLookup(loadTranslation(locate(translation)));
+  } finally {
+    cleanup();
+  }
 
   const known = new Set(materials.map((m) => m.Name));
   const elements = buildElementTable(materials);
@@ -155,4 +230,7 @@ function main() {
   console.log(`  elements with game materials: ${modelled} / ${elements.length}`);
 }
 
-main();
+main().catch((err) => {
+  console.error(`build-data: ${err.message}`);
+  process.exit(1);
+});

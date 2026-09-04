@@ -1,13 +1,16 @@
 # Atomcraft Explorer
 
-A browser explorer for the material and reaction data extracted from **Atomcraft**
-(`../Atomcraft.pck`). The first mode is material search — by name, by formula, or
-by chemical symbol.
+A browser explorer for the material and reaction data inside **Atomcraft**. The
+first mode is material search — by name, by formula, or by chemical symbol.
+
+The build reads the game's `.pck` directly: it locates your installed copy, pulls
+three files out of the archive, and bakes them into a bundle the page loads.
 
 ## Running it
 
 ```sh
-npm run build            # -> dist/atomcraft-explorer.html
+npm install              # one dependency, plus it wires up the git hook
+npm run build            # locate the game, extract, bake -> dist/atomcraft-explorer.html
 ```
 
 **Then just open `dist/atomcraft-explorer.html`.** It is a standalone build —
@@ -29,22 +32,52 @@ and fetches `data/atomcraft.json` — is blocked on `file://` by CORS, no matter
 where the files sit. The standalone build sidesteps both by being one classic
 `<script>` with its data already inside it.
 
+## Getting the game data
+
+`npm run build-data` needs two things.
+
+**1. A Godot `.pck` extractor on your PATH.** Either one works:
+
+| | |
+| --- | --- |
+| [`godotpcktool`](https://github.com/hhyyrylainen/GodotPckTool) | preferred — supports regex filtering, so it pulls 3 files out of a 234 MB archive in ~0.2 s |
+| [`GodotPCKExplorer.Console`](https://github.com/DmitriySalnikov/GodotPCKExplorer) | no filtering, so it extracts the whole archive to a temp dir (~1.6 s) and the build picks through it |
+
+Both produce byte-identical bakes. `npm run pck-tools` shows which are visible;
+`--pck-tool <name>` forces one.
+
+**2. An installed copy of Atomcraft.** Locators run in order, first hit wins:
+
+| | |
+| --- | --- |
+| explicit | `--pck <file>`, `--game-dir <dir>`, or `ATOMCRAFT_PCK` / `ATOMCRAFT_GAME_DIR` |
+| Steam | via [`@ciberus/find-steam-app`](https://www.npmjs.com/package/@ciberus/find-steam-app), matching on name or `--steam-appid` |
+| itch | **not implemented yet** — a stub in `tools/locate-game.mjs` awaiting the itch locator |
+
+`npm run locate` prints what it found and how. Extraction goes to a temp
+directory that is removed afterwards; `--keep-extracted` leaves it and says where.
+
+If you already have the `.pck` unpacked, `--data-dir <dir>` skips locating and
+extracting entirely.
+
 ## Scripts
 
 | | |
 | --- | --- |
 | `npm run build` | both steps below |
-| `npm run build-data` | bake `../Atomcraft.pck` → `data/atomcraft.json` |
+| `npm run build-data` | locate + extract + bake → `data/atomcraft.json` |
 | `npm run bundle` | inline everything → `dist/atomcraft-explorer.html` |
 | `npm test` | formula, search, render and bundle suites |
+| `npm run locate` | show which game install was found |
+| `npm run pck-tools` | show which extractors are on PATH |
 | `npm run serve` | static server for the modular version |
 | `npm run clean` | remove `dist/` |
 
-Node only — no dependencies, no bundler config, nothing to install.
+One runtime dependency (`@ciberus/find-steam-app`, used only at build time), no
+bundler config.
 
 Both build outputs — `data/atomcraft.json` and `dist/atomcraft-explorer.html` —
-are committed, so the app runs from a fresh clone without `../Atomcraft.pck`
-being present.
+are committed, so a fresh clone runs without the game, an extractor, or Steam.
 
 ## The pre-commit hook
 
@@ -100,7 +133,9 @@ src/formula.js                formula parser (Al2(SO4)3, CaSO4·2H2O, (Fe,Mn)WO4
 src/data.js                   bundle loader; name/symbol/reaction/back-reference indexes
 src/search.js                 query grammar and ranking
 src/main.js                   UI
-tools/build-data.mjs          bakes the game data into data/atomcraft.json
+tools/locate-game.mjs         finds the installed game (Steam; itch is a stub)
+tools/pck-tool.mjs            adapter over godotpcktool / GodotPCKExplorer.Console
+tools/build-data.mjs          locates, extracts and bakes data/atomcraft.json
 tools/bundle.mjs              inlines everything into the standalone build
 tools/elements.mjs            canonical periodic table (symbols + grid layout)
 tools/godot-translation.mjs   decoder for Godot .translation resources
@@ -118,7 +153,7 @@ Everything is JavaScript — source, build and tests all run on Node.
 - **Display names come from the Godot translation resources.** They are stored as
   a perfect-hash table (SMAZ-compressed values, keys kept only as 32-bit hashes),
   so `tools/godot-translation.mjs` looks up the `LocIdName` values rather than
-  enumerating. 1156 of 1181 ids resolve; the rest fall back to the internal name.
+  enumerating. 1198 of 1223 ids resolve; the rest fall back to the internal name.
   All 25 shipped locales decode — the build currently bakes `--locale en`.
 - **Isotopes share their element's localized name**, so the mass number is
   re-appended: `Lead-212` rather than three entries all reading "Lead".
@@ -129,11 +164,11 @@ Everything is JavaScript — source, build and tests all run on Node.
 - **Elements are not all tagged as such.** Carbon ships as `MAT_SOLID_CARBON`, so
   only ~105 symbols are recoverable from the game data; `tools/elements.mjs` carries
   the real periodic table instead.
-- **~40 references dangle** — mostly superheavy isotopes named as decay or impact
+- **39 references dangle** — mostly superheavy isotopes named as decay or impact
   products but never defined. The UI renders those as dead links rather than
   pretending they resolve.
-- The baking step drops nulls, falses and default zeroes, taking 2.8 MB of raw
-  JSON down to 816 KB. Fields where zero is a real value (`State`, `Density`,
+- The baking step drops nulls, falses and default zeroes, taking 2.9 MB of raw
+  JSON down to 824 KB. Fields where zero is a real value (`State`, `Density`,
   `ThermalConductivity`, …) are kept.
 
 ## Tests
@@ -142,7 +177,7 @@ Everything is JavaScript — source, build and tests all run on Node.
 npm test                      # all four suites
 node tools/test-formula.mjs   # parses + round-trips all 437 distinct formulas
 node tools/test-search.mjs    # ranking assertions
-node tools/test-render.mjs    # renders all 1759 detail panes against a DOM shim
+node tools/test-render.mjs    # renders all 1795 detail panes against a DOM shim
 node tools/test-bundle.mjs    # runs the standalone build with fetch() disabled
 ```
 
