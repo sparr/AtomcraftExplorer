@@ -294,12 +294,10 @@ Everything is JavaScript — source, build and tests all run on Node.
 
 ## Limitations
 
-- **The interface has never been rendered.** No browser was available while it
-  was built, so the CSS and layout are unverified — not once, at any point.
-  Everything is checked at the logic level against the DOM shim in
-  [`tools/dom-shim.mjs`](tools/dom-shim.mjs): the tests confirm all 1795 detail
-  panes build without throwing and contain what they should, and say nothing
-  about whether any of it *looks* right.
+- **The tests do not cover appearance.** They run against the DOM shim in
+  [`tools/dom-shim.mjs`](tools/dom-shim.mjs), which confirms all 1795 detail
+  panes build without throwing and contain what they should, but knows nothing
+  of CSS. Layout and styling are checked by looking at the page.
 - **Enum labels are inferred.** Every `.cs` file in the `.pck` is a one-byte
   stub, so `State`, `Direction` and the decay modes were recovered from the data.
   The compass directions are the weakest of these: `1/3/5/7` are pinned by
@@ -348,8 +346,10 @@ data contains — counts, enum meanings, the phase links, the formula quirks —
 is describing values read out of `AllMaterials.json` and `AllReactions.json`,
 usually printed in the course of finding a bug.
 
-What that verification does not cover is set out under
-[Limitations](#limitations); the first entry there is the one to read.
+The interface was reviewed in a browser by the author, whose feedback caught
+things no test would have — a stray `null` between detail sections, an ignition
+temperature reading `undefined K`. What the automated checks do and do not cover
+is set out under [Limitations](#limitations).
 
 ## License
 
