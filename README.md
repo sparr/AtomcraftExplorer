@@ -3,19 +3,45 @@
 A browser explorer for the material and reaction data inside **Atomcraft**. The
 first mode is material search — by name, by formula, or by chemical symbol.
 
-The build reads the game's `.pck` directly: it locates your installed copy, pulls
-three files out of the archive, and bakes them into a bundle the page loads.
+## Using it
 
-## Running it
+**[`dist/atomcraft-explorer.html`](dist/atomcraft-explorer.html) is the whole
+thing.** It is already built and committed, so there is nothing to run: download
+that one file and open it.
+
+No install, no build step, no server — and no copy of Atomcraft. The modules, the
+stylesheet and all 826 KB of game data are inlined into the page, and it fetches
+nothing at all. It works from a `file://` path, off a USB stick, or served from
+anywhere you can put a static file. It is 915 KB on disk and about 114 KB over a
+gzipped connection.
+
+What is in it: **1795 materials, 681 reactions, 118 elements**, with English
+display names, baked from the Steam build of Atomcraft (appid 2803490) as it
+stood on **2026-09-02**. Rebuild it against a newer build of the game whenever
+you like — see below — but you never have to.
+
+Once it is open:
+
+- Type a name, a formula, or an element symbol: `water`, `Al2O3`, `Cu`. Bare
+  terms also match what a material is *made of*, so `H2O` finds Seawater and
+  Vinegar, neither of which says so in its name or formula.
+- Filters narrow things down: `state:gas`, `el:Au`, `z:80-92`, `is:radioactive`,
+  `-is:hidden`. The full list is under [Searching](#searching).
+- `/` focuses the search box, `↑`/`↓` move, `Esc` clears.
+- The whole view lives in the URL, so any search, selection or collapsed section
+  can be bookmarked or linked.
+
+## Rebuilding it
+
+Only needed to pick up a newer version of the game, or to change the code.
 
 ```sh
-npm install              # one dependency, plus it wires up the git hook
+npm install              # two dependencies, plus it wires up the git hook
 npm run build            # locate the game, extract, bake -> dist/atomcraft-explorer.html
 ```
 
-**Then just open `dist/atomcraft-explorer.html`.** It is a standalone build —
-the modules, the stylesheet and all the data are inlined. Double-click it, or
-open it from any filesystem path; nothing is fetched.
+This reads the game's `.pck` directly: it locates your installed copy, pulls three
+files out of the archive, and inlines them into the page.
 
 **Or run the modular source**, which is what you want while editing:
 
@@ -245,7 +271,7 @@ Everything is JavaScript — source, build and tests all run on Node.
   a perfect-hash table (SMAZ-compressed values, keys kept only as 32-bit hashes),
   so `tools/godot-translation.mjs` looks up the `LocIdName` values rather than
   enumerating. 1198 of 1223 ids resolve; the rest fall back to the internal name.
-  All 25 shipped locales decode — the build currently bakes `--locale en`.
+  All 28 shipped locales decode — the build currently bakes `--locale en`.
 - **Isotopes share their element's localized name**, so the mass number is
   re-appended: `Lead-212` rather than three entries all reading "Lead".
 - **Enum labels were recovered from the data**, not from code — every `.cs` file in
@@ -267,7 +293,7 @@ Everything is JavaScript — source, build and tests all run on Node.
 ## Tests
 
 ```sh
-npm test                      # all four suites
+npm test                      # all six suites
 node tools/test-formula.mjs   # parses + round-trips all 437 distinct formulas
 node tools/test-search.mjs    # ranking assertions
 node tools/test-render.mjs    # renders all 1795 detail panes against a DOM shim
@@ -278,3 +304,44 @@ The DOM shim deliberately mimics browser quirks rather than smoothing them over
 — `append(null)` stringifies to the text `"null"`, for instance, which is how a
 real rendering bug got caught.
 
+## AI disclosure
+
+This project was written by Claude Opus 5, Anthropic's model, in a
+[Claude Code](https://claude.com/claude-code) session directed by the author.
+
+Claims about the game's data were checked against the game rather than assumed.
+The `.pck` is read with [`godotpcktool`](https://github.com/hhyyrylainen/GodotPckTool)
+or [`GodotPCKExplorer.Console`](https://github.com/DmitriySalnikov/GodotPCKExplorer),
+and both were verified to produce byte-identical bakes. The `.translation`
+decoder was written against Godot's `OptimizedTranslation` and SMAZ, and is
+confirmed by the strings it recovers. Where this README describes what the game
+data contains — counts, enum meanings, the phase links, the formula quirks — it
+is describing values read out of `AllMaterials.json` and `AllReactions.json`,
+usually printed in the process of finding a bug.
+
+Five limits are worth knowing:
+
+- **Nothing here has been looked at.** No browser was available in the session,
+  so the CSS and the layout have never been rendered — not once. Every check is
+  logic-level, run against the DOM shim in
+  [`tools/dom-shim.mjs`](tools/dom-shim.mjs): the tests confirm that 1795 detail
+  panes build without throwing and contain what they should, and say nothing
+  about whether any of it *looks* right.
+- **Enum labels are inferred.** Every `.cs` file in the `.pck` is a one-byte
+  stub, so `State`, `Direction` and the decay modes were recovered from the data.
+  The compass directions are the weakest of these: `1/3/5/7` are pinned by
+  materials named `(Right)`, `(Down)`, `(Left)` and `(Up)`, but the diagonals
+  `2/4/6/8` are a pattern completed from those, not something the data confirms.
+- **The grouping rules describe this data set, not documented game semantics.**
+  Each guard in [`src/grouping.js`](src/grouping.js) was added because an audit
+  caught a specific wrong merge — machines melting into their metal, deposits
+  into theirs, `Liquid Nitrogen` bridging N to N₂. They are a good fit for what
+  the game currently ships and may be a poor one for what it ships next.
+- **The biological category is a hand-written list.** No flag identifies it, so
+  it is a set of `LocIdName` stems. Unlike the relationship list, which has a
+  test asserting it still covers the data, nothing can detect a tissue type
+  added by a future update — it will quietly land in Terrain.
+- **The committed data is one build from one store.** The Steam and itch copies
+  differ; on the machine this was written on, itch had 1728 materials and 610
+  reactions against Steam's 1795 and 681, a strict subset. The bake is English
+  only, though the decoder handles all 28 shipped locales.
