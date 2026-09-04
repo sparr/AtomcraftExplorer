@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { installDom } from './dom-shim.mjs';
 import { REFERENCE_ORDER } from '../src/data.js';
 import { COLLAPSIBLE, packCollapsed, unpackCollapsed, collapseKey } from '../src/collapse.js';
+import { CATEGORIES } from '../src/grouping.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const ids = [...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
@@ -25,6 +26,7 @@ const { db } = app;
 console.log(`booted: ${db.materials.length} materials indexed\n`);
 
 let fail = 0;
+const bad = (m) => { console.log(`FAIL ${m}`); fail++; };
 const detail = document.querySelector('#detail');
 const results = document.querySelector('#results');
 
@@ -227,6 +229,56 @@ app.select(db.byName.get('Oxygen'));
 const reopened = [...detail.walk()].find((n) => n.className === 'sec' && n.textContent.startsWith('Composition'));
 if (reopened.open !== false) { console.log('FAIL collapsed section reopened after switching material'); fail++; }
 else console.log('ok    collapse state persists across material selection');
+
+// --- grouped result list ---------------------------------------------------
+{
+  const sortHost = document.querySelector('#sort');
+  const buttons = () => sortHost.children.filter((c) => c.className === 'sortbtn');
+
+  app.setQuery('');
+  globalThis.location.hash = '#s=name';
+  app.reload();
+
+  if (buttons().length !== 3) bad(`sort control has ${buttons().length} buttons, want 3`);
+  const pressed = buttons().find((b) => b.getAttribute('aria-pressed') === 'true');
+  if (pressed?.dataset.mode !== 'name') { console.log('FAIL sort control does not show the active mode'); fail++; }
+  else console.log(`ok    sort control: ${buttons().map((b) => b.textContent).join(', ')} (active: ${pressed.textContent})`);
+
+  const heads = results.children.filter((r) => r.className === 'cat-head');
+  if (heads.length < 3) { console.log(`FAIL grouped view rendered ${heads.length} category headings`); fail++; }
+  else console.log(`ok    grouped view: ${heads.length} categories, ${results.children.length} rows`);
+
+  // Categories must appear in the declared order, never interleaved.
+  const order = heads.map((h) => h.textContent.replace(/\s*\(\d+\)$/, ''));
+  const want = CATEGORIES.map((c) => c.label).filter((l) => order.includes(l));
+  if (order.join('|') !== want.join('|')) {
+    console.log(`FAIL categories out of order: ${order.join(', ')}`); fail++;
+  } else console.log(`ok    categories in declared order: ${order.slice(0, 4).join(', ')}…`);
+
+  // Sorting by atomic number must actually reorder the elements.
+  const firstRow = () => results.children.find((r) => r.className === 'row')?.dataset.name;
+  const byName = firstRow();
+  globalThis.location.hash = '#s=z';
+  app.reload();
+  const byZ = firstRow();
+  if (byName === byZ) { console.log(`FAIL name and atomic-number sort agree (${byZ})`); fail++; }
+  else console.log(`ok    sort by name -> ${byName}; by atomic number -> ${byZ}`);
+
+  // Variants are hidden until their toggle is pressed.
+  const toggle = [...results.children].flatMap((r) => [...r.walk()])
+    .find((n) => n.className === 'variant-toggle');
+  if (!toggle) { console.log('FAIL no variant toggle rendered'); fail++; }
+  else {
+    const before = results.children.length;
+    toggle.dispatch('click', { stopPropagation() {} });
+    const after = results.children.length;
+    const variants = results.children.filter((r) => /\bvariant\b/.test(r.className)).length;
+    if (after <= before || !variants) { console.log('FAIL expanding a group added no variant rows'); fail++; }
+    else console.log(`ok    variant toggle expands ${after - before} rows (${variants} marked variant)`);
+  }
+}
+globalThis.location.hash = '';
+app.reload();
 
 // --- queries render a result list ------------------------------------------
 const queries = ['', 'water', 'Cu', 'H2O', 'el:Au', 'state:gas', 'is:radioactive',

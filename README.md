@@ -129,6 +129,35 @@ anyway, ranked below anything matching by name.
 The **Periodic table** panel is the same filter with a click target — shading
 shows how many materials contain each element.
 
+## Sorting and grouping
+
+The result list sorts by **Relevance**, **Name** or **Atomic number**. The two
+ordered modes also group: 1795 materials collapse to about 1000 rows, because
+variants of one thing fold under it. `Iron` carries `Molten Iron`; `Uranium`
+carries its isotopes; `And Gate` carries all eight direction/state permutations;
+`Bits of Blender` files under `Blender`. A `+n` badge expands a group in place.
+
+`src/grouping.js` holds the mechanism, and keeps two ideas apart:
+
+- **Category** — what kind of thing a material is. Tested in a fixed order
+  because the tests overlap: Kelp Stalk has drop rates but is a plant, and an
+  oscillator's formula is `Cu` but it is a machine, not copper.
+
+  | Elements | Single-element compounds | Polyatomic ions | Compounds | Mixtures & solutions |
+  | Deposits | Plants | Projectiles & beams | Machines & structures | Other |
+
+- **Group** — variants of one thing, found by stripping variant markers from
+  names. A phase affix is only stripped when what remains names a material that
+  exists, so `Bromine Gas` folds into `Bromine` but `Arsenic Trioxide Gas` stays
+  put — there is no `Arsenic Trioxide`. Roman numerals survive: the `(V)` in
+  `Potassium Heptafluoroniobate(V)` is an oxidation state, not a variant.
+
+A group takes its category from its head, except when the head lands in `Other`
+— that is a fallback, not a kind. Harvested `Sugarcane` has no formula and no
+growth rules, but it heads seven Sugarcane stalks, so the group is a plant.
+
+Atomic-number order applies to elements only; everything else is always by name.
+
 Keys: `/` focus search, `↑`/`↓` or `j`/`k` move, `Esc` clear.
 
 The whole view lives in the URL hash, so any state is linkable and survives a

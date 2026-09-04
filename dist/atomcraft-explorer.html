@@ -201,7 +201,50 @@ main {
   gap: 12px;
 }
 
+.sort { display: flex; align-items: center; gap: 4px; }
+.sort .faint { text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; margin-right: 2px; }
+.sortbtn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--fg-faint);
+  font: 11px var(--mono);
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.sortbtn:hover { color: var(--fg); }
+.sortbtn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-dim); }
+
 .results { list-style: none; margin: 0; padding: 4px 0 40px; overflow-y: auto; flex: 1; }
+
+.cat-head {
+  padding: 14px 16px 4px;
+  font: 10px/1.6 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-faint);
+  border-bottom: 1px solid var(--line-soft);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+.cat-head:first-child { padding-top: 6px; }
+
+.row.variant { padding-left: 34px; }
+.row.variant .name { font-weight: 400; color: var(--fg-dim); }
+
+.variant-toggle {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--fg-faint);
+  font: 10px var(--mono);
+  padding: 0 5px;
+  cursor: pointer;
+}
+.variant-toggle:hover { color: var(--accent); border-color: var(--accent-dim); }
+.variant-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-dim); }
 
 .row {
   display: grid;
@@ -417,7 +460,10 @@ span.mat-missing { color: var(--fg-faint); border-bottom: 1px dashed var(--fg-fa
 
 <main>
   <section id="results-pane">
-    <div id="summary" class="summary"></div>
+    <div id="summary" class="summary">
+      <span id="summary-counts"></span>
+      <span id="sort" class="sort"></span>
+    </div>
     <ol id="results" class="results" tabindex="-1"></ol>
   </section>
   <aside id="detail" class="detail"></aside>
@@ -926,6 +972,200 @@ function unpackCollapsed(text) {
 return { COLLAPSIBLE, collapseKey, packCollapsed, unpackCollapsed };
 })();
 
+const __mod_grouping = (() => {
+/**
+ * Categorising, grouping and ordering materials.
+ *
+ * Two ideas, kept separate:
+ *
+ *   category -- what kind of thing a material is. Every material lands in
+ *               exactly one, tested in the order below because the tests
+ *               overlap: Kelp Stalk has drop rates but is a plant, and an
+ *               oscillator's formula is "Cu" but it is a machine, not copper.
+ *
+ *   group    -- variants of one thing. "Molten Iron", "Iron Gas" and the 30
+ *               isotopes all belong under "Iron"; the eight And Gate
+ *               direction/state permutations belong under "And Gate".
+ *
+ * Grouping works by stripping variant markers off names. Phase affixes are only
+ * stripped when what is left names a material that actually exists, so
+ * "Arsenic Trioxide Gas" stays put (there is no "Arsenic Trioxide") while
+ * "Bromine Gas" folds into "Bromine".
+ */
+
+const CATEGORIES = [
+  { id: 'element',    label: 'Elements' },
+  { id: 'allotrope',  label: 'Single-element compounds' },
+  { id: 'ion',        label: 'Polyatomic ions' },
+  { id: 'compound',   label: 'Compounds' },
+  { id: 'mixture',    label: 'Mixtures & solutions' },
+  { id: 'deposit',    label: 'Deposits' },
+  { id: 'plant',      label: 'Plants' },
+  { id: 'projectile', label: 'Projectiles & beams' },
+  { id: 'machine',    label: 'Machines & structures' },
+  { id: 'other',      label: 'Other' },
+];
+
+const CATEGORY_RANK = new Map(CATEGORIES.map((c, i) => [c.id, i]));
+
+// Trailing "(Off)", "(Up)", "(1500)" mark variants. Roman numerals must survive:
+// "Potassium Heptafluoroniobate(V)" is an oxidation state, not a variant.
+const VARIANT_PAREN = /\s*\((?:On|Off|Turning On|Turning Off|Active|Rest|Burning|Up|Down|Left|Right|\d+)\)\s*$/;
+const VARIANT_WORD = /\s+(?:On|Off|Up|Down|Left|Right)$/;
+
+const PHASE_PREFIXES = ['Molten ', 'Frozen ', 'Liquid ', 'Falling ', 'Solid '];
+const PHASE_SUFFIXES = [' Gas', ' Vapor', ' Powder', ' Crystal'];
+const BITS_PREFIX = 'Bits of ';
+
+/** Materials that are, or grow into, a plant. */
+function plantNames(materials) {
+  const names = new Set();
+  for (const m of materials) {
+    if (m.raw.GrowthRules) {
+      names.add(m.name);
+      for (const g of m.raw.GrowthRules) names.add(g.GrowthMaterialName);
+    }
+  }
+  return names;
+}
+
+/** A material is a solution if its formula says so, or its composition does. */
+function isMixture(m) {
+  if (/[+·]/.test(m.raw.Formula || '')) return true;
+  return (m.raw.Composition?.Elements || [])
+    .some((e) => e.Item1 === '+H2O' || e.Item1 === 'Water');
+}
+
+function makeClassifier(materials) {
+  const plants = plantNames(materials);
+
+  return function classify(m) {
+    if (plants.has(m.name)) return 'plant';
+    if (/(^|\s)(Bullet|Laser)(\s|$)/.test(m.name) || m.state === 'Plasma') return 'projectile';
+    if (/ Deposit$/.test(m.name) || m.raw.DropRates) return 'deposit';
+    // Before the formula tests: a machine's formula is its build material.
+    if (m.state === 'Static' || m.raw.IsMechanical || m.name.startsWith(BITS_PREFIX)) return 'machine';
+    if (m.raw.ShowParenthesesWhenInFormula) return 'ion';
+
+    if (m.formula && m.formula.counts.size === 1) {
+      const [count] = m.formula.counts.values();
+      return count === 1 ? 'element' : 'allotrope';
+    }
+    if (isMixture(m)) return 'mixture';
+    if (m.formula) return 'compound';
+    return 'other';
+  };
+}
+
+/**
+ * The name a material's group is filed under.
+ * @param {object} m       material
+ * @param {string} category its category id
+ * @param {(name: string) => boolean} exists
+ */
+function groupKeyOf(m, category, exists) {
+  // Plants are named "<Plant> <Part> <Index>"; the plant is the first word.
+  if (category === 'plant') return m.name.split(' ')[0];
+
+  let name = m.name;
+  for (let guard = 0; guard < 8; guard++) {
+    const before = name;
+
+    if (name.startsWith(BITS_PREFIX)) name = name.slice(BITS_PREFIX.length);
+    name = name.replace(VARIANT_PAREN, '').replace(VARIANT_WORD, '');
+    // Only isotopes carry a mass-number suffix; other trailing digits are real.
+    if (m.raw.ProtonNumber) name = name.replace(/-\d+$/, '');
+
+    for (const p of PHASE_PREFIXES) {
+      if (name.startsWith(p) && exists(name.slice(p.length))) { name = name.slice(p.length); break; }
+    }
+    for (const s of PHASE_SUFFIXES) {
+      if (name.endsWith(s) && exists(name.slice(0, -s.length))) { name = name.slice(0, -s.length); break; }
+    }
+
+    if (name === before) break;
+  }
+  return name.trim() || m.name;
+}
+
+/**
+ * A group takes its head's category -- unless the head falls in "other", which
+ * is a fallback rather than a kind. Harvested Sugarcane has no formula and no
+ * growth rules, but it heads a group of seven Sugarcane stalks, so the group is
+ * plants.
+ */
+function categoryOf(group, classify) {
+  const headCategory = classify(group.head);
+  if (headCategory !== 'other') return headCategory;
+
+  const votes = new Map();
+  for (const m of group.members) {
+    const c = classify(m);
+    if (c !== 'other') votes.set(c, (votes.get(c) || 0) + 1);
+  }
+  if (!votes.size) return 'other';
+  return [...votes].sort((a, b) =>
+    b[1] - a[1] || CATEGORY_RANK.get(a[0]) - CATEGORY_RANK.get(b[0]))[0][0];
+}
+
+/** Within a group, the plainest-named member represents it. */
+function pickHead(key, members) {
+  return members.find((m) => m.name === key)
+      ?? [...members].sort((a, b) => a.name.length - b.name.length ||
+                                     a.name.localeCompare(b.name))[0];
+}
+
+/**
+ * Group and order materials.
+ * @param {object[]} materials
+ * @param {object} db
+ * @param {{sortBy?: 'name'|'z'}} opts  'z' orders elements by atomic number;
+ *   everything else is always by name, since compounds have no atomic number.
+ * @returns {{category: string, label: string, key: string, head: object, members: object[]}[]}
+ */
+function buildGroups(materials, db, { sortBy = 'name' } = {}) {
+  const classify = makeClassifier(db.materials);
+  const exists = (name) => db.byName.has(name);
+
+  // Group by name alone, then let the head decide the category: a variant is
+  // whatever its plainest form is. Classifying first would split "Iron" from
+  // "Molten Iron", which the game ships without a formula and which would
+  // therefore land in a different bucket than the metal it is made of.
+  const groups = new Map();
+  for (const m of materials) {
+    const key = groupKeyOf(m, classify(m), exists);
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { key, head: null, members: [] }));
+    g.members.push(m);
+  }
+
+  const zOf = (m) => db.elementBySymbol.get(m.raw.Formula)?.z ?? 999;
+
+  for (const g of groups.values()) {
+    g.head = pickHead(g.key, g.members);
+    g.category = categoryOf(g, classify);
+    g.label = CATEGORIES[CATEGORY_RANK.get(g.category)].label;
+    g.members.sort((a, b) =>
+      (a === g.head ? -1 : b === g.head ? 1 : 0) ||
+      // Isotopes read best in mass order, not alphabetically.
+      (a.raw.MassNumber || 0) - (b.raw.MassNumber || 0) ||
+      a.display.localeCompare(b.display));
+  }
+
+  return [...groups.values()].sort((a, b) =>
+    CATEGORY_RANK.get(a.category) - CATEGORY_RANK.get(b.category) ||
+    (a.category === 'element' && sortBy === 'z' ? zOf(a.head) - zOf(b.head) : 0) ||
+    a.key.localeCompare(b.key));
+}
+
+/** The same order, flattened -- for callers that just want a sorted list. */
+function sortMaterials(materials, db, opts) {
+  return buildGroups(materials, db, opts).flatMap((g) => g.members);
+}
+
+return { CATEGORIES, makeClassifier, groupKeyOf, buildGroups, sortMaterials };
+})();
+
 const __mod_search = (() => {
 /**
  * Query parsing and ranking for material search.
@@ -1136,6 +1376,7 @@ const __mod_main = (() => {
 /** Search UI: query box, element filter, result list, material detail. */
 const {loadData, REFERENCE_ORDER} = __mod_data;
 const {collapseKey, packCollapsed, unpackCollapsed} = __mod_collapse;
+const {buildGroups, CATEGORIES} = __mod_grouping;
 const {search, parseQuery, FIELDS, TERM_RE} = __mod_search;
 const {formulaHtml} = __mod_formula;
 
@@ -1155,7 +1396,13 @@ let selected = null;
 
 /* ------------------------------------------------------------------ query */
 
-const state = { q: '', sel: null };
+const state = { q: '', sel: null, sort: 'relevance' };
+
+/** Groups whose variants are shown. Grouping hides 794 variant rows by default. */
+const expanded = new Set();
+
+/** Materials in rendered order, for keyboard navigation. */
+let visible = [];
 
 /** Sections the reader has collapsed. Mirrored into the URL. */
 const collapsed = new Set();
@@ -1168,6 +1415,7 @@ function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   state.q = p.get('q') || '';
   state.sel = p.get('m') || null;
+  state.sort = ['name', 'z'].includes(p.get('s')) ? p.get('s') : 'relevance';
   collapsed.clear();
   for (const key of unpackCollapsed(p.get('c'))) collapsed.add(key);
 }
@@ -1176,6 +1424,7 @@ function writeHash({ replace = false } = {}) {
   const p = new URLSearchParams();
   if (state.q) p.set('q', state.q);
   if (state.sel) p.set('m', state.sel);
+  if (state.sort !== 'relevance') p.set('s', state.sort);
   const packed = packCollapsed(collapsed);
   if (packed) p.set('c', packed);
   const hash = p.toString() ? '#' + p.toString() : ' ';
@@ -1258,31 +1507,117 @@ function matLink(name) {
 
 function runSearch() {
   const t0 = performance.now();
-  const r = search(db, state.q);
+  // Grouping collapses 1795 materials to ~1000 rows, so the relevance cap would
+  // only ever show a slice of the catalogue when browsing.
+  const grouping = state.sort !== 'relevance';
+  const r = search(db, state.q, { limit: grouping ? Infinity : 250 });
   hits = r.results;
   const ms = performance.now() - t0;
 
   const list = $('#results');
   list.textContent = '';
 
+  visible = [];
+  let groupCount = 0;
   if (!hits.length) {
     list.append(el('li', 'empty', state.q ? 'No materials match this query.' : 'No materials.'));
-  } else {
+  } else if (state.sort === 'relevance') {
     const frag = document.createDocumentFragment();
-    for (const hit of hits) frag.append(resultRow(hit));
+    for (const hit of hits) { frag.append(resultRow(hit)); visible.push(hit.m); }
     list.append(frag);
+  } else {
+    const built = groupedResults(hits.map((h) => h.m));
+    groupCount = built.groupCount;
+    list.append(built.frag);
   }
 
-  const shown = hits.length;
-  $('#summary').innerHTML =
-    `<span>${r.total.toLocaleString()} of ${db.materials.length.toLocaleString()} materials` +
-    (shown < r.total ? ` &middot; showing first ${shown}` : '') + `</span>` +
-    `<span class="faint">${ms.toFixed(1)} ms</span>`;
+  renderSortControl();
+  const parts = [`${r.total.toLocaleString()} of ${db.materials.length.toLocaleString()} materials`];
+  if (grouping && groupCount) {
+    parts.push(`${groupCount.toLocaleString()} group${groupCount === 1 ? '' : 's'}`);
+    if (groupCount > GROUP_LIMIT) parts.push(`showing first ${GROUP_LIMIT}`);
+  } else if (visible.length < r.total) {
+    parts.push(`showing first ${visible.length}`);
+  }
+  $('#summary-counts').innerHTML =
+    `<span>${parts.join(' &middot; ')}</span> <span class="faint">${ms.toFixed(1)} ms</span>`;
 
   if (selected) markSelected();
 }
 
-function resultRow(hit) {
+const GROUP_LIMIT = 400;
+
+/** Grouped view: a heading per category, one row per group, variants on demand. */
+function groupedResults(materials) {
+  const frag = document.createDocumentFragment();
+  const groups = buildGroups(materials, db, { sortBy: state.sort });
+  let lastCategory = null;
+
+  for (const g of groups.slice(0, GROUP_LIMIT)) {
+    if (g.category !== lastCategory) {
+      lastCategory = g.category;
+      const count = groups.filter((x) => x.category === g.category).length;
+      frag.append(el('li', 'cat-head', `${g.label} (${count})`));
+    }
+
+    const variants = g.members.filter((m) => m !== g.head);
+    let toggle = null;
+    if (variants.length) {
+      toggle = el('button', 'variant-toggle', `+${variants.length}`);
+      toggle.title = `${variants.length} variant${variants.length === 1 ? '' : 's'}: ` +
+                     variants.map((m) => m.display).slice(0, 6).join(', ');
+      toggle.setAttribute('aria-expanded', String(expanded.has(g.key)));
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (expanded.has(g.key)) expanded.delete(g.key);
+        else expanded.add(g.key);
+        runSearch();
+      });
+    }
+    frag.append(resultRow({ m: g.head, why: [] }, toggle));
+    visible.push(g.head);
+
+    if (expanded.has(g.key)) {
+      for (const m of variants) {
+        const v = resultRow({ m, why: [] });
+        v.classList.add('variant');
+        frag.append(v);
+        visible.push(m);
+      }
+    }
+  }
+  return { frag, groupCount: groups.length };
+}
+
+const SORT_MODES = [
+  ['relevance', 'Relevance'],
+  ['name', 'Name'],
+  ['z', 'Atomic number'],
+];
+
+function renderSortControl() {
+  const host = $('#sort');
+  if (host.children.length) {
+    for (const b of host.children) {
+      b.setAttribute('aria-pressed', String(b.dataset.mode === state.sort));
+    }
+    return;
+  }
+  host.append(el('span', 'faint', 'sort'));
+  for (const [mode, label] of SORT_MODES) {
+    const b = el('button', 'sortbtn', label);
+    b.dataset.mode = mode;
+    b.setAttribute('aria-pressed', String(mode === state.sort));
+    b.addEventListener('click', () => {
+      state.sort = mode;
+      writeHash({ replace: true });
+      runSearch();
+    });
+    host.append(b);
+  }
+}
+
+function resultRow(hit, extra) {
   const m = hit.m;
   const li = el('li', 'row');
   li.dataset.name = m.name;
@@ -1301,6 +1636,7 @@ function resultRow(hit) {
   if (sub.childNodes.length) main.append(sub);
 
   const right = el('div', 'row-right');
+  if (extra) right.append(extra);
   right.append(stateBadge(m));
   if (m.hidden) right.append(el('span', 'badge hidden', 'hidden'));
 
@@ -1719,10 +2055,10 @@ function renderPeriodicTable() {
 /* -------------------------------------------------------------- keyboard */
 
 function moveSelection(delta) {
-  if (!hits.length) return;
-  const i = hits.findIndex((h) => h.m === selected);
-  const next = Math.min(hits.length - 1, Math.max(0, (i < 0 ? -1 : i) + delta));
-  select(hits[next].m, { push: true });
+  if (!visible.length) return;
+  const i = visible.indexOf(selected);
+  const next = Math.min(visible.length - 1, Math.max(0, (i < 0 ? -1 : i) + delta));
+  select(visible[next], { push: true });
 }
 
 function bindKeys() {

@@ -1,6 +1,7 @@
 /** Search UI: query box, element filter, result list, material detail. */
 import { loadData, REFERENCE_ORDER } from './data.js';
 import { collapseKey, packCollapsed, unpackCollapsed } from './collapse.js';
+import { buildGroups, CATEGORIES } from './grouping.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
 import { formulaHtml } from './formula.js';
 
@@ -20,7 +21,13 @@ let selected = null;
 
 /* ------------------------------------------------------------------ query */
 
-const state = { q: '', sel: null };
+const state = { q: '', sel: null, sort: 'relevance' };
+
+/** Groups whose variants are shown. Grouping hides 794 variant rows by default. */
+const expanded = new Set();
+
+/** Materials in rendered order, for keyboard navigation. */
+let visible = [];
 
 /** Sections the reader has collapsed. Mirrored into the URL. */
 const collapsed = new Set();
@@ -33,6 +40,7 @@ function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   state.q = p.get('q') || '';
   state.sel = p.get('m') || null;
+  state.sort = ['name', 'z'].includes(p.get('s')) ? p.get('s') : 'relevance';
   collapsed.clear();
   for (const key of unpackCollapsed(p.get('c'))) collapsed.add(key);
 }
@@ -41,6 +49,7 @@ function writeHash({ replace = false } = {}) {
   const p = new URLSearchParams();
   if (state.q) p.set('q', state.q);
   if (state.sel) p.set('m', state.sel);
+  if (state.sort !== 'relevance') p.set('s', state.sort);
   const packed = packCollapsed(collapsed);
   if (packed) p.set('c', packed);
   const hash = p.toString() ? '#' + p.toString() : ' ';
@@ -123,31 +132,117 @@ function matLink(name) {
 
 function runSearch() {
   const t0 = performance.now();
-  const r = search(db, state.q);
+  // Grouping collapses 1795 materials to ~1000 rows, so the relevance cap would
+  // only ever show a slice of the catalogue when browsing.
+  const grouping = state.sort !== 'relevance';
+  const r = search(db, state.q, { limit: grouping ? Infinity : 250 });
   hits = r.results;
   const ms = performance.now() - t0;
 
   const list = $('#results');
   list.textContent = '';
 
+  visible = [];
+  let groupCount = 0;
   if (!hits.length) {
     list.append(el('li', 'empty', state.q ? 'No materials match this query.' : 'No materials.'));
-  } else {
+  } else if (state.sort === 'relevance') {
     const frag = document.createDocumentFragment();
-    for (const hit of hits) frag.append(resultRow(hit));
+    for (const hit of hits) { frag.append(resultRow(hit)); visible.push(hit.m); }
     list.append(frag);
+  } else {
+    const built = groupedResults(hits.map((h) => h.m));
+    groupCount = built.groupCount;
+    list.append(built.frag);
   }
 
-  const shown = hits.length;
-  $('#summary').innerHTML =
-    `<span>${r.total.toLocaleString()} of ${db.materials.length.toLocaleString()} materials` +
-    (shown < r.total ? ` &middot; showing first ${shown}` : '') + `</span>` +
-    `<span class="faint">${ms.toFixed(1)} ms</span>`;
+  renderSortControl();
+  const parts = [`${r.total.toLocaleString()} of ${db.materials.length.toLocaleString()} materials`];
+  if (grouping && groupCount) {
+    parts.push(`${groupCount.toLocaleString()} group${groupCount === 1 ? '' : 's'}`);
+    if (groupCount > GROUP_LIMIT) parts.push(`showing first ${GROUP_LIMIT}`);
+  } else if (visible.length < r.total) {
+    parts.push(`showing first ${visible.length}`);
+  }
+  $('#summary-counts').innerHTML =
+    `<span>${parts.join(' &middot; ')}</span> <span class="faint">${ms.toFixed(1)} ms</span>`;
 
   if (selected) markSelected();
 }
 
-function resultRow(hit) {
+const GROUP_LIMIT = 400;
+
+/** Grouped view: a heading per category, one row per group, variants on demand. */
+function groupedResults(materials) {
+  const frag = document.createDocumentFragment();
+  const groups = buildGroups(materials, db, { sortBy: state.sort });
+  let lastCategory = null;
+
+  for (const g of groups.slice(0, GROUP_LIMIT)) {
+    if (g.category !== lastCategory) {
+      lastCategory = g.category;
+      const count = groups.filter((x) => x.category === g.category).length;
+      frag.append(el('li', 'cat-head', `${g.label} (${count})`));
+    }
+
+    const variants = g.members.filter((m) => m !== g.head);
+    let toggle = null;
+    if (variants.length) {
+      toggle = el('button', 'variant-toggle', `+${variants.length}`);
+      toggle.title = `${variants.length} variant${variants.length === 1 ? '' : 's'}: ` +
+                     variants.map((m) => m.display).slice(0, 6).join(', ');
+      toggle.setAttribute('aria-expanded', String(expanded.has(g.key)));
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (expanded.has(g.key)) expanded.delete(g.key);
+        else expanded.add(g.key);
+        runSearch();
+      });
+    }
+    frag.append(resultRow({ m: g.head, why: [] }, toggle));
+    visible.push(g.head);
+
+    if (expanded.has(g.key)) {
+      for (const m of variants) {
+        const v = resultRow({ m, why: [] });
+        v.classList.add('variant');
+        frag.append(v);
+        visible.push(m);
+      }
+    }
+  }
+  return { frag, groupCount: groups.length };
+}
+
+const SORT_MODES = [
+  ['relevance', 'Relevance'],
+  ['name', 'Name'],
+  ['z', 'Atomic number'],
+];
+
+function renderSortControl() {
+  const host = $('#sort');
+  if (host.children.length) {
+    for (const b of host.children) {
+      b.setAttribute('aria-pressed', String(b.dataset.mode === state.sort));
+    }
+    return;
+  }
+  host.append(el('span', 'faint', 'sort'));
+  for (const [mode, label] of SORT_MODES) {
+    const b = el('button', 'sortbtn', label);
+    b.dataset.mode = mode;
+    b.setAttribute('aria-pressed', String(mode === state.sort));
+    b.addEventListener('click', () => {
+      state.sort = mode;
+      writeHash({ replace: true });
+      runSearch();
+    });
+    host.append(b);
+  }
+}
+
+function resultRow(hit, extra) {
   const m = hit.m;
   const li = el('li', 'row');
   li.dataset.name = m.name;
@@ -166,6 +261,7 @@ function resultRow(hit) {
   if (sub.childNodes.length) main.append(sub);
 
   const right = el('div', 'row-right');
+  if (extra) right.append(extra);
   right.append(stateBadge(m));
   if (m.hidden) right.append(el('span', 'badge hidden', 'hidden'));
 
@@ -584,10 +680,10 @@ function renderPeriodicTable() {
 /* -------------------------------------------------------------- keyboard */
 
 function moveSelection(delta) {
-  if (!hits.length) return;
-  const i = hits.findIndex((h) => h.m === selected);
-  const next = Math.min(hits.length - 1, Math.max(0, (i < 0 ? -1 : i) + delta));
-  select(hits[next].m, { push: true });
+  if (!visible.length) return;
+  const i = visible.indexOf(selected);
+  const next = Math.min(visible.length - 1, Math.max(0, (i < 0 ? -1 : i) + delta));
+  select(visible[next], { push: true });
 }
 
 function bindKeys() {
