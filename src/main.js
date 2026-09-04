@@ -585,6 +585,50 @@ function refEntry(label, group) {
   return wrap;
 }
 
+/**
+ * The particle accelerator, which fires one of three beams.
+ *
+ * BaseMaterial.TryParticleCollision looks the result up in the struck
+ * material's own TurnsIntoFrom<beam>Impact field -- a table, not arithmetic --
+ * and does nothing where that field is unset. The shipped table matches the
+ * physics exactly in all 654 mappings that resolve: a proton adds a proton, a
+ * neutron adds a neutron, an alpha adds two of each. That is alpha absorption,
+ * the reverse of the alpha decay shown under Nuclear.
+ */
+const BEAMS = [
+  ['Proton', 'TurnsIntoFromProtonImpact', 'proton impact', 'Z+1'],
+  ['Neutron', 'TurnsIntoFromNeutronImpact', 'neutron impact', 'N+1'],
+  ['Alpha', 'TurnsIntoFromAlphaParticleImpact', 'alpha impact', 'Z+2, N+2'],
+];
+const BEAM_LABELS = new Set(BEAMS.map(([, , label]) => label));
+
+function beamSection(m) {
+  const refs = db.referencedBy.get(m.name) ?? [];
+  const rows = [];
+
+  for (const [name, field, label, delta] of BEAMS) {
+    const to = m.raw[field];
+    const from = [...new Set(refs.filter((r) => r.label === label).map((r) => r.source))];
+    if (!to && !from.length) continue;
+
+    const line = el('span', 'beam-line');
+    if (from.length) {
+      line.append(el('span', 'beam-arrow', '\u2190 '));
+      from.forEach((src, i) => {
+        if (i) line.append(', ');
+        line.append(matLink(src.name));
+      });
+    }
+    if (to && from.length) line.append(el('span', 'beam-sep', ' '));
+    if (to) {
+      line.append(el('span', 'beam-arrow', '\u2192 '));
+      line.append(matLink(to));
+    }
+    rows.push([`${name} (${delta})`, line]);
+  }
+  return kv(rows);
+}
+
 function renderDetail(m) {
   const pane = $('#detail');
   pane.textContent = '';
@@ -658,10 +702,8 @@ function renderDetail(m) {
     }
     if (decay.TickModValue) nuclear.push(['Decay interval', `${decay.TickModValue.toLocaleString()} ticks`]);
   }
-  for (const [f, label] of TRANSITION_FIELDS.slice(9, 12)) {
-    if (r[f]) nuclear.push([label, matLink(r[f])]);
-  }
   mount(pane, section('Nuclear', kv(nuclear)));
+  mount(pane, section('Particle accelerator', beamSection(m)));
 
   // --- thermal -----------------------------------------------------------
   const thermal = [];
@@ -761,6 +803,7 @@ function renderDetail(m) {
     const groups = new Map();
     let total = 0;
     for (const { source, label } of refs) {
+      if (BEAM_LABELS.has(label)) continue;   // shown under Particle accelerator
       const dedupe = `${source.name}|${label}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);

@@ -384,6 +384,52 @@ app.reload();
   else console.log('ok    a filtered group is headed by a survivor, not by its absent base');
 }
 
+// --- the particle accelerator section ---------------------------------------
+{
+  const FIELDS = ['TurnsIntoFromProtonImpact', 'TurnsIntoFromNeutronImpact',
+                  'TurnsIntoFromAlphaParticleImpact'];
+  const beamSec = () => [...detail.walk()]
+    .find((n) => n.className === 'sec' && n.textContent.startsWith('Particle accelerator'));
+
+  const forward = db.materials.filter((m) => FIELDS.some((f) => m.raw[f]));
+  const backOnly = db.materials.filter((m) => !FIELDS.some((f) => m.raw[f]) &&
+    (db.referencedBy.get(m.name) ?? []).some((r) => /impact$/.test(r.label)));
+
+  app.select(forward[0]);
+  if (!beamSec()) bad(`${forward[0].name} has beam mappings but no section`);
+  else app.select(backOnly[0]);
+  if (!beamSec()) bad(`${backOnly[0].name} is a beam target but has no section`);
+  else app.select(db.byName.get('Water'));
+  if (beamSec()) bad('Water has no beam mappings but shows the section');
+  else console.log(`ok    beam section on ${forward.length} sources and ${backOnly.length} targets, not on others`);
+
+  // The section labels each beam Z+1 / N+1 / Z+2, N+2. Check the data agrees,
+  // so the labels cannot quietly become a lie.
+  const deltas = { TurnsIntoFromProtonImpact: [1, 0], TurnsIntoFromNeutronImpact: [0, 1],
+                   TurnsIntoFromAlphaParticleImpact: [2, 2] };
+  let checked = 0, wrong = 0;
+  for (const m of db.materials) {
+    for (const [field, [dz, dn]] of Object.entries(deltas)) {
+      const target = db.byName.get(m.raw[field]);
+      if (!target || !m.raw.ProtonNumber || !target.raw.ProtonNumber) continue;
+      checked++;
+      if (target.raw.ProtonNumber - m.raw.ProtonNumber !== dz ||
+          (target.raw.NeutronNumber || 0) - (m.raw.NeutronNumber || 0) !== dn) {
+        if (!wrong++) bad(`${m.name} -${field}-> ${target.name} does not match ${dz > 0 ? 'Z+' + dz : ''} ${dn > 0 ? 'N+' + dn : ''}`);
+      }
+    }
+  }
+  if (!wrong) console.log(`ok    all ${checked} resolvable beam mappings match the labelled deltas`);
+
+  // Referenced by must not repeat what the beam section says.
+  app.select(forward.find((m) => (db.referencedBy.get(m.name) ?? []).some((r) => /impact$/.test(r.label))));
+  const refSec = [...detail.walk()].find((n) => n.className === 'sec' &&
+                                                n.textContent.startsWith('Referenced by'));
+  if (refSec && /impact/.test(refSec.textContent)) {
+    bad('Referenced by still lists beam impacts');
+  } else console.log('ok    Referenced by leaves beam impacts to the beam section');
+}
+
 // --- the game's art ---------------------------------------------------------
 {
   const art = db.art;

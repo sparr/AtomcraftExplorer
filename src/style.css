@@ -460,6 +460,10 @@ main {
 .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; }
 
 .flags { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.beam-line { white-space: nowrap; }
+.beam-arrow { color: var(--fg-faint); }
+.beam-sep { display: inline-block; width: 1.4em; }
 .flag { font: 11px var(--mono); padding: 1px 7px; border: 1px solid var(--line); border-radius: 3px; color: var(--fg-dim); }
 
 a.mat {

@@ -467,6 +467,10 @@ main {
 .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; }
 
 .flags { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.beam-line { white-space: nowrap; }
+.beam-arrow { color: var(--fg-faint); }
+.beam-sep { display: inline-block; width: 1.4em; }
 .flag { font: 11px var(--mono); padding: 1px 7px; border: 1px solid var(--line); border-radius: 3px; color: var(--fg-dim); }
 
 a.mat {
@@ -1527,6 +1531,8 @@ const SECTIONS = [
 const SUBSECTIONS = ['Constituent materials', 'Drops', ...REFERENCE_ORDER];
 
 // Append-only, like everything else here. CATEGORIES may be reordered freely.
+const LATER_SECTIONS = ['Particle accelerator'];
+
 const CATEGORY_SLOTS = [
   'element', 'allotrope', 'ion', 'compound', 'mixture', 'deposit', 'plant',
   'projectile', 'machine', 'other',
@@ -1540,6 +1546,9 @@ const COLLAPSIBLE = [
   // Listed explicitly rather than taken from CATEGORIES, whose order is a
   // display choice: reordering it there must not renumber slots here.
   ...CATEGORY_SLOTS.map((id) => `cat:${id}`),
+  // Sections added after the category slots go here rather than in SECTIONS,
+  // which would renumber everything after them and break saved links.
+  ...LATER_SECTIONS.map((t) => `sec:${t}`),
 ];
 
 const SLOT = new Map(COLLAPSIBLE.map((key, i) => [key, i]));
@@ -3107,6 +3116,50 @@ function refEntry(label, group) {
   return wrap;
 }
 
+/**
+ * The particle accelerator, which fires one of three beams.
+ *
+ * BaseMaterial.TryParticleCollision looks the result up in the struck
+ * material's own TurnsIntoFrom<beam>Impact field -- a table, not arithmetic --
+ * and does nothing where that field is unset. The shipped table matches the
+ * physics exactly in all 654 mappings that resolve: a proton adds a proton, a
+ * neutron adds a neutron, an alpha adds two of each. That is alpha absorption,
+ * the reverse of the alpha decay shown under Nuclear.
+ */
+const BEAMS = [
+  ['Proton', 'TurnsIntoFromProtonImpact', 'proton impact', 'Z+1'],
+  ['Neutron', 'TurnsIntoFromNeutronImpact', 'neutron impact', 'N+1'],
+  ['Alpha', 'TurnsIntoFromAlphaParticleImpact', 'alpha impact', 'Z+2, N+2'],
+];
+const BEAM_LABELS = new Set(BEAMS.map(([, , label]) => label));
+
+function beamSection(m) {
+  const refs = db.referencedBy.get(m.name) ?? [];
+  const rows = [];
+
+  for (const [name, field, label, delta] of BEAMS) {
+    const to = m.raw[field];
+    const from = [...new Set(refs.filter((r) => r.label === label).map((r) => r.source))];
+    if (!to && !from.length) continue;
+
+    const line = el('span', 'beam-line');
+    if (from.length) {
+      line.append(el('span', 'beam-arrow', '\u2190 '));
+      from.forEach((src, i) => {
+        if (i) line.append(', ');
+        line.append(matLink(src.name));
+      });
+    }
+    if (to && from.length) line.append(el('span', 'beam-sep', ' '));
+    if (to) {
+      line.append(el('span', 'beam-arrow', '\u2192 '));
+      line.append(matLink(to));
+    }
+    rows.push([`${name} (${delta})`, line]);
+  }
+  return kv(rows);
+}
+
 function renderDetail(m) {
   const pane = $('#detail');
   pane.textContent = '';
@@ -3180,10 +3233,8 @@ function renderDetail(m) {
     }
     if (decay.TickModValue) nuclear.push(['Decay interval', `${decay.TickModValue.toLocaleString()} ticks`]);
   }
-  for (const [f, label] of TRANSITION_FIELDS.slice(9, 12)) {
-    if (r[f]) nuclear.push([label, matLink(r[f])]);
-  }
   mount(pane, section('Nuclear', kv(nuclear)));
+  mount(pane, section('Particle accelerator', beamSection(m)));
 
   // --- thermal -----------------------------------------------------------
   const thermal = [];
@@ -3283,6 +3334,7 @@ function renderDetail(m) {
     const groups = new Map();
     let total = 0;
     for (const { source, label } of refs) {
+      if (BEAM_LABELS.has(label)) continue;   // shown under Particle accelerator
       const dedupe = `${source.name}|${label}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);

@@ -21,6 +21,8 @@ const SECTIONS = [
 const SUBSECTIONS = ['Constituent materials', 'Drops', ...REFERENCE_ORDER];
 
 // Append-only, like everything else here. CATEGORIES may be reordered freely.
+const LATER_SECTIONS = ['Particle accelerator'];
+
 const CATEGORY_SLOTS = [
   'element', 'allotrope', 'ion', 'compound', 'mixture', 'deposit', 'plant',
   'projectile', 'machine', 'other',
@@ -34,6 +36,9 @@ export const COLLAPSIBLE = [
   // Listed explicitly rather than taken from CATEGORIES, whose order is a
   // display choice: reordering it there must not renumber slots here.
   ...CATEGORY_SLOTS.map((id) => `cat:${id}`),
+  // Sections added after the category slots go here rather than in SECTIONS,
+  // which would renumber everything after them and break saved links.
+  ...LATER_SECTIONS.map((t) => `sec:${t}`),
 ];
 
 const SLOT = new Map(COLLAPSIBLE.map((key, i) => [key, i]));

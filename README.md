@@ -216,6 +216,35 @@ and falls back to the flat colour where there is no canvas. The random tables ar
 regenerated from a fixed seed, so a material looks the same on every visit —
 the game re-rolls them each run.
 
+## The particle accelerator
+
+The accelerator fires one of three beams, and each material's detail pane gets a
+**Particle accelerator** section showing, per beam, what it turns into and what
+turns into it.
+
+`BaseMaterial.TryParticleCollision` decides this by looking the result up in the
+struck material's own `TurnsIntoFrom<beam>Impact` field — a table, not
+arithmetic — and does nothing where that field is unset. It fires on a cadence
+rather than every tick, gated on `(tick + tile) % 32`.
+
+The table is nonetheless exactly consistent with the physics, in all 654
+mappings that resolve to a defined material:
+
+| beam | change | mappings |
+| --- | --- | --- |
+| Proton | Z+1 | 214 |
+| Neutron | N+1 | 226 |
+| Alpha | Z+2, N+2 | 214 |
+
+Not one exception. Note the alpha beam *absorbs* a helium nucleus, the reverse
+of the alpha decay shown under Nuclear. A test asserts every mapping still
+matches the label the section prints, so those labels cannot quietly become
+wrong.
+
+277 materials name a beam result and another 12 are only ever a target; the
+section is omitted for everything else, and `Referenced by` no longer repeats
+the impacts it covers.
+
 ## Sorting and grouping
 
 The result list sorts by **Name** (the default), **Atomic number** or
