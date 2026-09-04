@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atomcraft Explorer</title>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">Ac</span> Atomcraft Explorer</div>
+  <div class="searchwrap">
+    <input id="q" type="search" autocomplete="off" spellcheck="false" autofocus
+           placeholder="Search materials &mdash; name, formula, or element symbol">
+    <button id="clear" class="ghost" title="Clear (Esc)" hidden>&times;</button>
+  </div>
+  <div class="topbar-actions">
+    <button id="toggle-table" class="ghost" aria-pressed="false">Periodic table</button>
+    <button id="toggle-help" class="ghost" aria-pressed="false">Syntax</button>
+  </div>
+</header>
+
+<section id="help" class="panel" hidden>
+  <h2>Query syntax</h2>
+  <p>Terms are combined with AND. Prefix a term with <code>-</code> to exclude it.
+     Quote phrases: <code>name:"Molten Iron"</code>.</p>
+  <dl id="help-fields"></dl>
+  <p class="muted">A bare term matches names, formulas and descriptions. If it also
+     reads as chemistry &mdash; <code>Cu</code>, <code>H2O</code>, <code>SO4</code> &mdash;
+     it matches composition too, so <code>Cu</code> finds Chalcopyrite as well as Copper.</p>
+</section>
+
+<section id="ptable" class="panel" hidden>
+  <div class="ptable-head">
+    <h2>Filter by element</h2>
+    <span class="muted">Click a symbol to require it in the formula. Shade shows how many
+      materials contain it.</span>
+  </div>
+  <div id="ptable-grid" class="ptable-grid"></div>
+</section>
+
+<div id="chips" class="chips"></div>
+
+<main>
+  <section id="results-pane">
+    <div id="summary" class="summary"></div>
+    <ol id="results" class="results" tabindex="-1"></ol>
+  </section>
+  <aside id="detail" class="detail"></aside>
+</main>
+
+<div id="boot" class="boot">Loading game data&hellip;</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

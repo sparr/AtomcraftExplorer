@@ -1,0 +1,47 @@
+#!/bin/sh
+# Refuse a commit whose staged sources no longer match the committed bundle.
+#
+# The check rebuilds from the *index*, not the working tree, so it validates
+# exactly what is being committed -- partial staging (git add -p) included.
+#
+# Enable with:  git config core.hooksPath .githooks
+set -e
+
+BUNDLE='dist/atomcraft-explorer.html'
+
+# Paths whose contents end up inside the bundle.
+CONTRIB='^(src/|index\.html$|data/atomcraft\.json$|tools/bundle\.mjs$)'
+# Paths that regenerate data/atomcraft.json, which we cannot verify without
+# ../Atomcraft.pck being present.
+DATA_TOOLS='^tools/(build-data|elements|godot-translation)\.mjs$'
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+echo "$staged" | grep -Eq "$DATA_TOOLS" && \
+  ! echo "$staged" | grep -q '^data/atomcraft\.json$' && \
+  echo "pre-commit: warning: a data-generating tool changed but data/atomcraft.json did not." >&2 && \
+  echo "pre-commit:          run 'npm run build' if ../Atomcraft.pck is available." >&2
+
+echo "$staged" | grep -Eq "$CONTRIB" || exit 0
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+git checkout-index -a --prefix="$tmp/"
+
+if [ ! -f "$tmp/$BUNDLE" ]; then
+  echo "pre-commit: $BUNDLE is not staged, but its sources changed." >&2
+  echo "pre-commit: run 'npm run bundle' and stage it." >&2
+  exit 1
+fi
+
+node "$tmp/tools/bundle.mjs" --out rebuilt.html >/dev/null
+
+if ! cmp -s "$tmp/rebuilt.html" "$tmp/$BUNDLE"; then
+  echo "pre-commit: $BUNDLE is stale -- it does not match the staged sources." >&2
+  echo "pre-commit:" >&2
+  echo "pre-commit:   npm run bundle && git add $BUNDLE" >&2
+  echo "pre-commit:" >&2
+  echo "pre-commit: changed sources:" >&2
+  echo "$staged" | grep -E "$CONTRIB" | sed 's/^/pre-commit:   /' >&2
+  exit 1
+fi
