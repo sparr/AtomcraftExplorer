@@ -48,21 +48,29 @@ async function locateSteam({ steamAppId } = {}) {
   }
 }
 
-/**
- * Itch.io installs.
- *
- * PLACEHOLDER -- the itch locator is being written separately.  Drop it in here
- * and keep the contract: resolve to { dir, source } for an install directory,
- * or null when Atomcraft is not installed through itch.  Nothing else in the
- * build needs to change.
- *
- * Until then, itch users can point the build at their install with
- * --game-dir / ATOMCRAFT_GAME_DIR.
- */
-async function locateItch() {
-  return null;
+async function locateItch({ itchGameId } = {}) {
+  let api;
+  try {
+    api = await import('find-itch-games');
+  } catch {
+    return null;                       // dependency not installed -- skip quietly
+  }
+  try {
+    const dir = itchGameId
+      ? await api.findItchAppById(Number(itchGameId))
+      : await api.findItchAppByName(GAME_NAME);
+    if (!dir) return null;
+    return { dir, source: `itch (${itchGameId ? `game ${itchGameId}` : GAME_NAME})` };
+  } catch {
+    // itch is not installed, or the game is not in any of its locations.
+    return null;
+  }
 }
 
+/**
+ * Tried in order, first hit wins. Steam sits ahead of itch deliberately: the
+ * game can be installed through both, and their builds differ.
+ */
 export const LOCATORS = [
   ['explicit', locateExplicit],
   ['steam', locateSteam],
@@ -123,7 +131,6 @@ export async function locateGamePck(opts = {}) {
   throw new Error(
     `could not find an installed copy of ${GAME_NAME}.\n` +
     `  checked: ${tried.join(', ')}\n` +
-    `  itch support is not implemented yet -- see tools/locate-game.mjs\n` +
     `\n` +
     `  Point the build at it directly with one of:\n` +
     `    node tools/build-data.mjs --pck /path/to/${PCK_NAME}\n` +
@@ -137,7 +144,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const flag = (n) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
   try {
     const r = await locateGamePck({ pck: flag('--pck'), gameDir: flag('--game-dir'),
-                                    steamAppId: flag('--steam-appid') });
+                                    steamAppId: flag('--steam-appid'),
+                                    itchGameId: flag('--itch-game-id') });
     console.log(`${r.pck}\n  via ${r.source}`);
   } catch (err) {
     console.error(err.message);

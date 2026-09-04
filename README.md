@@ -46,13 +46,17 @@ where the files sit. The standalone build sidesteps both by being one classic
 Both produce byte-identical bakes. `npm run pck-tools` shows which are visible;
 `--pck-tool <name>` forces one.
 
-**2. An installed copy of Atomcraft.** Locators run in order, first hit wins:
+**2. An installed copy of Atomcraft.** Locators run in order, first hit wins.
+Steam sits ahead of itch deliberately: the game can be installed through both
+and the builds differ — on the machine this was written on, the Steam copy had
+1795 materials and 681 reactions against itch's 1728 and 610, with the itch set
+a strict subset. Pass `--game-dir` to build from the itch copy instead.
 
 | | |
 | --- | --- |
 | explicit | `--pck <file>`, `--game-dir <dir>`, or `ATOMCRAFT_PCK` / `ATOMCRAFT_GAME_DIR` |
 | Steam | [`@ciberus/find-steam-app`](https://www.npmjs.com/package/@ciberus/find-steam-app)'s own lookup — by name, or by `--steam-appid` |
-| itch | **not implemented yet** — a stub in `tools/locate-game.mjs` awaiting the itch locator |
+| itch | [`find-itch-games`](https://www.npmjs.com/package/find-itch-games)'s own lookup — by name, or by `--itch-game-id` |
 
 `npm run locate` prints what it found and how. If a store locator comes up empty
 — or gets it wrong — pass the path explicitly; nothing tries to outsmart the
@@ -75,8 +79,8 @@ extracting entirely.
 | `npm run serve` | static server for the modular version |
 | `npm run clean` | remove `dist/` |
 
-One runtime dependency (`@ciberus/find-steam-app`, used only at build time), no
-bundler config.
+Two runtime dependencies (`@ciberus/find-steam-app` and `find-itch-games`, both
+used only at build time), no bundler config.
 
 Both build outputs — `data/atomcraft.json` and `dist/atomcraft-explorer.html` —
 are committed, so a fresh clone runs without the game, an extractor, or Steam.
@@ -210,7 +214,7 @@ src/formula.js                formula parser (Al2(SO4)3, CaSO4·2H2O, (Fe,Mn)WO4
 src/data.js                   bundle loader; name/symbol/reaction/back-reference indexes
 src/search.js                 query grammar and ranking
 src/main.js                   UI
-tools/locate-game.mjs         finds the installed game (Steam; itch is a stub)
+tools/locate-game.mjs         finds the installed game (explicit, Steam, itch)
 tools/pck-tool.mjs            adapter over godotpcktool / GodotPCKExplorer.Console
 tools/build-data.mjs          locates, extracts and bakes data/atomcraft.json
 tools/bundle.mjs              inlines everything into the standalone build
