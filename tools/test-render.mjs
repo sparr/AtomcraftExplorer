@@ -444,8 +444,8 @@ app.reload();
       const steps = Number(/steps\((\d+)/.exec(gem.style.animation)?.[1]);
       // jump-none is what keeps each frame on an exact icon boundary.
       const exact = /jump-none/.test(gem.style.animation);
-      if (!(secs > 4 && secs < 7) || steps !== 12 || !exact) {
-        bad(`${where}: animation is "${gem.style.animation}", want ~5.3s over 12 jump-none steps`);
+      if (!(secs > 10 && secs < 14) || steps !== 48 || !exact) {
+        bad(`${where}: animation is "${gem.style.animation}", want 12s over 48 jump-none steps`);
       } else {
         console.log(`ok    ${where} icon animates: ${steps} frames over ${secs}s, on exact boundaries`);
       }

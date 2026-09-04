@@ -12,8 +12,8 @@ const ICON_TILE = 8;
 const ICON_ZOOM = 4;
 
 // Animated delegates are drawn as a strip of frames and stepped through by CSS.
-const ANIM_FRAMES = 12;
-const SECONDS_PER_FRAME = 0.44;
+const ANIM_FRAMES = 48;
+const SECONDS_PER_FRAME = 0.25;
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
