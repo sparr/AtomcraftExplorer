@@ -1,8 +1,7 @@
 # Publish the standalone build to GitHub Pages.
 #
 # dist/atomcraft-explorer.html is committed and self-contained, so there is
-# nothing to build here: the job copies it into place as the site root and
-# leaves a copy under its own name for a stable link.
+# nothing to build here: the job just puts it in place as the site root.
 name: Pages
 
 on:
@@ -32,7 +31,6 @@ jobs:
         run: |
           mkdir -p _site
           cp dist/atomcraft-explorer.html _site/index.html
-          cp dist/atomcraft-explorer.html _site/atomcraft-explorer.html
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
