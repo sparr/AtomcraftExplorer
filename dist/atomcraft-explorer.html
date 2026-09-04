@@ -2492,6 +2492,10 @@ const {formulaHtml} = __mod_formula;
 const ICON_TILE = 8;
 const ICON_ZOOM = 4;
 
+// Animated delegates are drawn as a strip of frames and stepped through by CSS.
+const ANIM_FRAMES = 12;
+const SECONDS_PER_FRAME = 0.44;
+
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -2599,10 +2603,8 @@ function swatch(m) {
   }
   // Fill with the material's own shading where we can reproduce it, and fall
   // back to the flat colour where we cannot (or where there is no canvas).
-  const strip = patternStrip(m, { size: ICON_TILE, frames: 1 });
-  if (strip) {
-    s.style.backgroundImage = `url("${strip.uri}")`;
-    s.style.backgroundSize = 'cover';
+  if (paintPattern(s, m)) {
+    // done
   } else if (m.color) {
     s.style.background = m.color;
   } else {
@@ -2612,18 +2614,29 @@ function swatch(m) {
 }
 
 /** A bigger tile in the detail pane, running its animation if it has one. */
-function patternPreview(m) {
-  const strip = patternStrip(m, { size: ICON_TILE, frames: 12 });
-  if (!strip) return null;
-  const box = el('span', 'pattern-preview');
-  box.style.backgroundImage = `url("${strip.uri}")`;
-  const { spec, animated } = recipeFor(m);
-  if (animated && strip.frames > 1) {
-    box.style.backgroundSize = `${strip.frames * 100}% 100%`;
-    box.style.animation = `pattern-frames ${(strip.frames * 0.11).toFixed(2)}s steps(${strip.frames}) infinite`;
+/**
+ * Paint a material's shading onto a node, stepping through its frames when the
+ * delegate animates. Used for both the list icons and the detail tile, so they
+ * share one strip in the cache and one speed.
+ */
+function paintPattern(node, m) {
+  const strip = patternStrip(m, { size: ICON_TILE, frames: ANIM_FRAMES });
+  if (!strip) return false;
+  node.style.backgroundImage = `url("${strip.uri}")`;
+  if (strip.frames > 1) {
+    node.style.backgroundSize = `${strip.frames * 100}% 100%`;
+    node.style.animation =
+      `pattern-frames ${(strip.frames * SECONDS_PER_FRAME).toFixed(2)}s steps(${strip.frames}) infinite`;
   } else {
-    box.style.backgroundSize = 'cover';
+    node.style.backgroundSize = 'cover';
   }
+  return true;
+}
+
+function patternPreview(m) {
+  const box = el('span', 'pattern-preview');
+  if (!paintPattern(box, m)) return null;
+  const { spec, animated } = recipeFor(m);
   box.title = spec
     ? `${m.raw.ColorDelegate}: ${spec.pattern ?? spec.builder}` +
       (spec.amount ? ` blended ${spec.amount} toward ${spec.tint}` : '') +

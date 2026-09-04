@@ -418,6 +418,47 @@ app.reload();
   } else console.log('ok    periodic-table cells use the game tile');
 }
 
+// --- animated delegates actually animate, in both places -------------------
+{
+  const iconOf = (name, where) => {
+    if (where === 'row') {
+      app.setQuery(name);
+      const row = results.children.find((r) => r.dataset.name === name);
+      return row && row.children.find((c) => /swatch/.test(c.className));
+    }
+    app.select(db.byName.get(name));
+    return [...detail.walk()].find((n) => /pattern-preview|swatch/.test(n.className));
+  };
+
+  for (const where of ['row', 'detail']) {
+    const gem = iconOf('Ruby', where);          // twinkles
+    const rock = iconOf('Granite', where);      // static pattern
+    if (!gem || !rock) { bad(`could not find the ${where} icons`); continue; }
+
+    if (!gem.style.animation) {
+      bad(`${where}: an animated material has no animation`);
+    } else if (rock.style.animation) {
+      bad(`${where}: a static material should not animate`);
+    } else {
+      const secs = Number(/([\d.]+)s/.exec(gem.style.animation)?.[1]);
+      const steps = Number(/steps\((\d+)\)/.exec(gem.style.animation)?.[1]);
+      if (!(secs > 4 && secs < 7) || steps !== 12) {
+        bad(`${where}: animation is "${gem.style.animation}", want ~5.3s over 12 steps`);
+      } else {
+        console.log(`ok    ${where} icon animates: ${steps} frames over ${secs}s`);
+      }
+    }
+  }
+
+  // Both places must pull the same strip, so the cache serves one canvas each.
+  const rowIcon = iconOf('Ruby', 'row');
+  const detailIcon = iconOf('Ruby', 'detail');
+  if (rowIcon.style.backgroundImage !== detailIcon.style.backgroundImage) {
+    bad('the row icon and the detail tile use different strips');
+  } else console.log('ok    both icons share one rendered strip');
+}
+app.setQuery('');
+
 // --- category headings collapse, and persist like detail sections ----------
 {
   globalThis.location.hash = '#s=name';

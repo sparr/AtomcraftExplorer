@@ -70,8 +70,23 @@ export function installDom(idsFromHtml) {
     if (id === 'q') { n.tagName = 'INPUT'; n.value = ''; }
     byId.set('#' + id, n);
   }
+  // Just enough canvas for src/pattern-render.js to produce a strip. It draws
+  // nothing; what matters is that the code path runs and returns a data URI, so
+  // the styles that depend on it can be asserted.
+  const makeCanvas = () => {
+    const node = new Node('canvas');
+    node.width = node.height = 0;
+    node.getContext = () => ({
+      createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData() {},
+      drawImage() {},
+    });
+    node.toDataURL = () => 'data:image/png;base64,iVBORw0KGgo=';
+    return node;
+  };
+
   const document = {
-    createElement: (t) => new Node(t),
+    createElement: (t) => (t === 'canvas' ? makeCanvas() : new Node(t)),
     createDocumentFragment: () => new Fragment(),
     createTextNode: (t) => ({ text: String(t) }),
     querySelector: (sel) => byId.get(sel) ?? null,
