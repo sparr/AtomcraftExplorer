@@ -159,6 +159,31 @@ anyway, ranked below anything matching by name.
 The **Periodic table** panel is the same filter with a click target — shading
 shows how many materials contain each element.
 
+## The game's art
+
+Three kinds of art are pulled out of the `.pck` and inlined into the page.
+`tools/ctex.mjs` reads Godot's `GST2` container, whose payload is a WebP that
+goes straight into a `data:` URI without being decoded.
+
+| | what | cost |
+| --- | --- | --- |
+| Swatch shapes | filled square, droplet, puff — white masks tinted with each material's colour, the way the game draws them. Static and Plasma fall back to the square. | 0.3 KB |
+| Element tiles | the game's 16×16 periodic-table tile per element, carrying its symbol and family colour. Used in the periodic table, over a bar showing how many materials contain it. | 21.6 KB |
+| Symbol glyphs | the bare 14×14 symbol, transparent. **Baked but not yet used anywhere.** | 12.5 KB |
+| Pattern sheet | 64 tileable 32×32 greyscale textures on one 256×256 sheet, shown in the **Textures** panel. | 68.1 KB |
+
+The pattern sheet is a reference, not a per-material lookup. A material names a
+`ColorDelegate` — `Sand` (532 materials), `Granite` (81), `MetalBits` (40),
+down to the animated `LeftConveyor`, `RightConveyor` and `CheckerPulse` — which
+selects one of the 64 and, for a few, animates it. Nothing shipped says *which*:
+the sheet is referenced only from compiled C#, and every `.cs` in the pck is a
+one-byte stub. Searching every `.res`, `.scn`, `.tres` and `project.binary` for
+those delegate names finds them in `AllMaterials.json` and nowhere else.
+
+There are no per-material images. All 1898 textures were checked against the
+1795 material names, and `Tileset.res` is keyed by tile coordinates with no
+material names in it at all.
+
 ## Sorting and grouping
 
 The result list sorts by **Relevance**, **Name** or **Atomic number**. The two

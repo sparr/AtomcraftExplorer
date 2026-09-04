@@ -366,6 +366,47 @@ else console.log('ok    collapse state persists across material selection');
 globalThis.location.hash = '';
 app.reload();
 
+// --- the game's art ---------------------------------------------------------
+{
+  const art = db.art;
+  const uri = (v) => typeof v === 'string' && /^data:image\/(webp|png);base64,[A-Za-z0-9+/=]+$/.test(v);
+
+  const states = Object.keys(art.swatches);
+  if (!states.length || !states.every((k) => uri(art.swatches[k]))) {
+    console.log(`FAIL swatch shapes missing or malformed: ${states.join(', ')}`); fail++;
+  } else console.log(`ok    swatch shapes for ${states.join(', ')}`);
+
+  const noTile = db.elements.filter((e) => !uri(art.tiles[e.sym]));
+  if (noTile.length) {
+    console.log(`FAIL ${noTile.length} elements have no tile, e.g. ${noTile[0].sym}`); fail++;
+  } else console.log(`ok    all ${db.elements.length} elements have a tile and a symbol glyph`);
+  if (db.elements.some((e) => !uri(art.symbols[e.sym]))) { console.log('FAIL a symbol glyph is missing'); fail++; }
+
+  if (!art.patterns || art.patterns.cols * art.patterns.rows !== 64) {
+    console.log(`FAIL pattern sheet is not 64 tiles`); fail++;
+  } else console.log(`ok    pattern sheet ${art.patterns.width}x${art.patterns.height}, ` +
+                     `${art.patterns.cols}x${art.patterns.rows} tiles of ${art.patterns.tile}px`);
+
+  // Swatches in the list must carry the shape, not the old plain square.
+  app.setQuery('water');
+  const row = results.children.find((r) => r.className.startsWith('row'));
+  const sw = [...row.walk()].find((n) => /swatch/.test(n.className));
+  if (!/shaped/.test(sw?.className ?? '')) { console.log('FAIL row swatch is not shaped'); fail++; }
+  else console.log('ok    list swatches use the game shape');
+
+  // Periodic-table cells carry the tile image and the count bar.
+  const grid = document.querySelector('#ptable-grid');
+  const cell = grid.children[0];
+  const kids = cell.children.map((c) => c.className);
+  if (!kids.includes('ptile') || !kids.includes('pbar')) {
+    console.log(`FAIL periodic cell holds ${kids.join(', ')}`); fail++;
+  } else console.log('ok    periodic-table cells use the game tile, with a material-count bar');
+
+  const texCells = document.querySelector('#textures-grid').children.length;
+  if (texCells !== 64) { console.log(`FAIL texture panel has ${texCells} cells`); fail++; }
+  else console.log('ok    texture panel shows all 64 patterns');
+}
+
 // --- category headings collapse, and persist like detail sections ----------
 {
   globalThis.location.hash = '#s=name';

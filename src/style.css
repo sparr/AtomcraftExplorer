@@ -138,9 +138,11 @@ button.ghost[aria-pressed="true"] { color: var(--accent); border-color: var(--ac
   grid-column: var(--col);
   grid-row: var(--row);
   aspect-ratio: 1;
+  position: relative;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 3px;
-  background: color-mix(in srgb, var(--accent) calc(var(--w) * 26%), var(--bg-sunken));
+  background: var(--bg-sunken);
   color: var(--fg);
   font: 11px/1 var(--mono);
   display: grid;
@@ -150,8 +152,40 @@ button.ghost[aria-pressed="true"] { color: var(--accent); border-color: var(--ac
 }
 .pcell:hover { border-color: var(--accent); }
 .pcell[data-empty] { opacity: 0.28; cursor: default; }
-.pcell[aria-pressed="true"] { background: var(--accent); color: #06202b; border-color: var(--accent); font-weight: 700; }
-.pcell .z { display: none; }
+.pcell[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* The game's element tile fills the cell; the bar under it is ours, showing
+   how many materials contain the element. */
+.ptile {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+.pcell:not([aria-pressed="true"]) .ptile { filter: saturate(0.72) brightness(0.86); }
+.pcell:hover .ptile, .pcell[aria-pressed="true"] .ptile { filter: none; }
+.psym { color: var(--fg-dim); }
+.pbar {
+  position: absolute;
+  left: 0; bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+.tex-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(28px, 52px));
+  gap: 3px;
+  justify-content: start;
+}
+.tex-cell {
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  image-rendering: pixelated;
+}
+#textures-note { font-size: 12px; max-width: 80ch; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px; flex: none; }
 .chips:not(:empty) { padding: 10px 16px; border-bottom: 1px solid var(--line-soft); }
@@ -274,6 +308,22 @@ main {
   border: 1px solid #ffffff26;
   align-self: center;
 }
+
+/* The game's own swatch shapes, used as a mask over the material colour. */
+.swatch.shaped {
+  border: 0;
+  border-radius: 0;
+  -webkit-mask-image: var(--shape);
+  mask-image: var(--shape);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  image-rendering: pixelated;
+}
+.swatch.shaped[data-none] { background: #2a3240; }
 .swatch[data-none] { background: repeating-linear-gradient(45deg, #2a3240 0 3px, #1a1f28 3px 6px); }
 
 .row-main { min-width: 0; }

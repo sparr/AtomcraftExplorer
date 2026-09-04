@@ -25,6 +25,7 @@ import { PERIODIC_TABLE } from './elements.mjs';
 import { loadTranslation, makeLookup } from './godot-translation.mjs';
 import { locateGamePck } from './locate-game.mjs';
 import { findPckTool, KNOWN_TOOLS } from './pck-tool.mjs';
+import { artFilter, collectArt } from './art.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(HERE);
@@ -135,7 +136,7 @@ async function obtainData(opts, wanted) {
   const dir = mkdtempSync(join(tmpdir(), 'atomcraft-pck-'));
   // Anchored alternation over just the files we read; without filter support
   // this is ignored and the whole 234 MB pck comes out.
-  const include = `^Data/(${wanted.map((f) => f.replace(/[.]/g, '[.]')).join('|')})$`;
+  const include = `(^Data/(${wanted.map((f) => f.replace(/[.]/g, '[.]')).join('|')})$|${opts.artFilter})`;
   console.log(`  extracting with ${tool.name}` +
               (tool.supportsFilter ? ' (filtered)' : ' (no filter support: full extract)'));
   tool.extract(pck, dir, { include });
@@ -154,8 +155,9 @@ async function main() {
   const translation = `LocalizedStrings.${args.locale}.translation`;
   const wanted = ['AllMaterials.json', 'AllReactions.json', translation];
 
+  args.artFilter = artFilter(PERIODIC_TABLE.map((e) => ({ name: e.name })));
   const { dir, cleanup } = await obtainData(args, wanted);
-  let materials, reactions, lookup;
+  let materials, reactions, lookup, artDir = null, collected = null;
   try {
     const locate = (f) => {
       const p = findFile(dir, f);
@@ -165,7 +167,9 @@ async function main() {
     materials = JSON.parse(readFileSync(locate('AllMaterials.json'), 'utf8'));
     reactions = JSON.parse(readFileSync(locate('AllReactions.json'), 'utf8'));
     lookup = makeLookup(loadTranslation(locate(translation)));
+    artDir = join(dir, '.godot', 'imported');
   } finally {
+    if (artDir) collected = collectArt(artDir, buildElementTable(materials));
     cleanup();
   }
 
@@ -218,6 +222,7 @@ async function main() {
             materials: outMaterials.length, reactions: reactions.length },
     enums: { State: STATES, Direction: DIRECTIONS, DecayMode: DECAY_MODES },
     elements,
+    art: collected?.art ?? null,
     dangling: [...dangling].sort(),
     materials: outMaterials,
     reactions: reactions.map(stripDefaults),
@@ -231,6 +236,14 @@ async function main() {
   console.log(`  materials ${outMaterials.length}  reactions ${reactions.length}  elements ${elements.length}`);
   console.log(`  untranslated LocIdName: ${untranslated}   dangling refs: ${dangling.size}`);
   console.log(`  elements with game materials: ${modelled} / ${elements.length}`);
+  if (collected) {
+    const a = collected.art;
+    console.log(`  art: ${Object.keys(a.swatches).length} swatches, ` +
+                `${Object.keys(a.tiles).length} element tiles, ` +
+                `${Object.keys(a.symbols).length} symbol glyphs` +
+                (a.patterns ? `, ${a.patterns.cols}x${a.patterns.rows} pattern sheet` : '') +
+                (collected.missing ? ` (${collected.missing} elements had no tile)` : ''));
+  }
 }
 
 main().catch((err) => {

@@ -102,6 +102,14 @@ function removeTermAt(idx) {
 
 function swatch(m) {
   const s = el('span', 'swatch');
+  // The game draws a material as a shape chosen by state -- a filled square, a
+  // droplet, a puff -- tinted with its colour. Static and Plasma have no shape
+  // of their own and fall back to the solid square.
+  const shape = db.art.swatches[m.state] ?? db.art.swatches.Solid;
+  if (shape) {
+    s.classList.add('shaped');
+    s.style.setProperty('--shape', `url("${shape}")`);
+  }
   if (m.color) s.style.background = m.color;
   else s.dataset.none = '';
   return s;
@@ -757,12 +765,29 @@ function renderPeriodicTable() {
   if (!grid.children.length) {
     const max = Math.max(...db.elements.map((e) => e.count));
     for (const e of db.elements) {
-      const cell = el('button', 'pcell', e.sym);
+      const cell = el('button', 'pcell');
+      const share = e.count ? Math.log2(1 + e.count) / Math.log2(1 + max) : 0;
       cell.style.setProperty('--row', e.row);
       cell.style.setProperty('--col', e.col);
-      cell.style.setProperty('--w', e.count ? (Math.log2(1 + e.count) / Math.log2(1 + max)).toFixed(3) : 0);
+      cell.style.setProperty('--w', share.toFixed(3));
       cell.title = `${e.name} — Z=${e.z} — ${e.count} material${e.count === 1 ? '' : 's'}`;
       cell.dataset.sym = e.sym;
+
+      // The game's own 16x16 tile carries the symbol and the family colour.
+      const tile = db.art.tiles[e.sym];
+      if (tile) {
+        const img = el('img', 'ptile');
+        img.src = tile;
+        img.alt = e.sym;
+        cell.append(img);
+      } else {
+        cell.append(el('span', 'psym', e.sym));
+      }
+      // How many materials contain it, which the tile does not say.
+      const bar = el('span', 'pbar');
+      bar.style.width = `${Math.round(share * 100)}%`;
+      cell.append(bar);
+
       if (!e.count) cell.dataset.empty = '';
       else cell.addEventListener('click', () => toggleTerm('el', e.sym));
       grid.append(cell);
@@ -771,6 +796,40 @@ function renderPeriodicTable() {
   for (const cell of grid.children) {
     cell.setAttribute('aria-pressed', active.has(cell.dataset.sym) ? 'true' : 'false');
   }
+}
+
+/**
+ * The pattern sheet, shown as a reference grid.
+ *
+ * A material names a ColorDelegate -- "Sand", "SparklyMetal", "CheckerPulse" --
+ * which picks one of these and, for a few, animates it. Nothing in the shipped
+ * data says which: the sheet is referenced only from compiled C#, and every
+ * .cs file in the pck is a one-byte stub. So the tiles are shown unlabelled.
+ */
+function renderTextures() {
+  const grid = $('#textures-grid');
+  const p = db.art.patterns;
+  if (!p || grid.children.length) return;
+
+  for (let row = 0; row < p.rows; row++) {
+    for (let col = 0; col < p.cols; col++) {
+      const cell = el('span', 'tex-cell');
+      cell.style.backgroundImage = `url("${p.uri}")`;
+      cell.style.backgroundSize = `${p.cols * 100}% ${p.rows * 100}%`;
+      cell.style.backgroundPosition = `${(col / (p.cols - 1)) * 100}% ${(row / (p.rows - 1)) * 100}%`;
+      cell.title = `tile ${col},${row}`;
+      grid.append(cell);
+    }
+  }
+
+  const used = new Map();
+  for (const m of db.materials) {
+    if (m.raw.ColorDelegate) used.set(m.raw.ColorDelegate, (used.get(m.raw.ColorDelegate) || 0) + 1);
+  }
+  const named = [...used].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n} (${c})`);
+  $('#textures-note').textContent =
+    `${p.cols * p.rows} tiles of ${p.tile}×${p.tile}. ${used.size} textures are named by ` +
+    `materials, but the mapping from name to tile lives in compiled code: ${named.join(', ')}.`;
 }
 
 /* -------------------------------------------------------------- keyboard */
@@ -812,7 +871,8 @@ function renderHelp() {
 function bindChrome() {
   $('#q').addEventListener('input', (e) => setQuery(e.target.value, { fromInput: true }));
   $('#clear').addEventListener('click', () => { setQuery(''); $('#q').focus(); });
-  for (const [btn, panel] of [['#toggle-table', '#ptable'], ['#toggle-help', '#help']]) {
+  for (const [btn, panel] of [['#toggle-table', '#ptable'], ['#toggle-help', '#help'],
+                              ['#toggle-textures', '#textures']]) {
     $(btn).addEventListener('click', () => {
       const open = $(panel).hidden;
       $(panel).hidden = !open;
@@ -857,6 +917,7 @@ function bindChrome() {
     runSearch();
     renderChips();
     renderPeriodicTable();
+    renderTextures();
     select(state.sel ? db.byName.get(state.sel) : null);
     $('#boot').remove();
   } catch (err) {
