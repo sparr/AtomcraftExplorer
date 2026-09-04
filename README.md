@@ -370,6 +370,10 @@ Everything is JavaScript — source, build and tests all run on Node.
 - **Elements are not all tagged as such.** Carbon ships as `MAT_SOLID_CARBON`, so
   only ~105 symbols are recoverable from the game data; `tools/elements.mjs` carries
   the real periodic table instead.
+- **76 materials carry a `LightColor` with no `LightRange`.** `Materials.cs`
+  defaults an unset range to 0, and lighting is driven by that range, so those
+  colours light nothing and are not shown. Every powered logic gate is one of
+  them, all recorded red.
 - **39 references dangle** — mostly superheavy isotopes named as decay or impact
   products but never defined. The UI renders those as dead links rather than
   pretending they resolve.

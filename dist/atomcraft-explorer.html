@@ -3356,8 +3356,14 @@ function renderDetail(m) {
   if (r.MaterialAudioTypeId) {
     nums.push(['Audio', db.enums.AudioType[r.MaterialAudioTypeId] ?? String(r.MaterialAudioTypeId)]);
   }
-  const light = colourChip(r.LightColor);
-  if (light) nums.push(['Light colour', light]);
+  // Only when the material actually emits. Materials.cs defaults LightRange to
+  // 0 where it is unset, and Gameplay reads that range to decide lighting, so a
+  // colour without a range lights nothing -- 76 materials carry such a value,
+  // and showing it claimed every powered logic gate glows red.
+  if (r.LightRange) {
+    const light = colourChip(r.LightColor);
+    if (light) nums.push(['Light colour', light]);
+  }
   if (r.ColorDelegate) nums.push(['Colour delegate', r.ColorDelegate]);
   const flags = FLAG_FIELDS.filter(([f]) => r[f]);
   const flagBox = flags.length ? el('div', 'flags') : null;
