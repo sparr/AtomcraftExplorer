@@ -42,7 +42,9 @@ const contains = (key, ...names) => {
   else ok(`"${key}" [${g.category}] holds ${g.members.length}: ${names.slice(0, 3).join(', ')}…`);
 };
 contains('Iron', 'Iron', 'Molten Iron');                       // states of one element
-contains('Bromine', 'Bromine', 'Bromine Gas', 'Liquid Bromine', 'Solid Bromine');
+contains('Water', 'Water', 'Steam', 'Ice');                    // phases with unrelated names
+contains('Bromine Gas', 'Bromine Gas', 'Liquid Bromine', 'Solid Bromine');
+contains('Oxygen Gas', 'Oxygen Gas', 'Liquid Oxygen');
 contains('Uranium', 'Uranium', 'Uranium-235');                 // isotopes under the element
 contains('And Gate', 'And Gate', 'And Gate (Up) (On)', 'And Gate (Down) (Off)');
 contains('Aluminum Wire', 'Aluminum Wire', 'Aluminum Wire On', 'Aluminum Wire (Turning Off)');
@@ -65,6 +67,32 @@ for (const [name, want] of [
   if (got !== want) bad(`${name} is "${got}", want "${want}"`);
 }
 ok('category assignment for 12 representative materials');
+
+// --- a name that looks like a phase but names another substance ------------
+{
+  // "Oxygen Gas" is O2 and "Oxygen" is O -- different substances that read like
+  // phases of each other. The game gives them no transition between them.
+  for (const [variant, element] of [['Oxygen Gas', 'Oxygen'], ['Bromine Gas', 'Bromine'],
+                                    ['Nitrogen Gas', 'Nitrogen'], ['Chlorine Gas', 'Chlorine']]) {
+    const g = groups.find((x) => x.members.some((m) => m.name === variant));
+    if (g.members.some((m) => m.name === element)) {
+      bad(`${variant} (${db.byName.get(variant).raw.Formula}) grouped with ` +
+          `${element} (${db.byName.get(element).raw.Formula})`);
+    }
+  }
+  ok('diatomic gases are not filed under their monatomic element');
+
+  const allotropes = groups.filter((g) => g.category === 'allotrope');
+  if (allotropes.length < 6) bad(`only ${allotropes.length} single-element compound groups`);
+  else ok(`${allotropes.length} single-element compound groups: ${allotropes.map((g) => g.key).slice(0, 4).join(', ')}…`);
+
+  // A machine melting into its metal must not join the metal.
+  for (const [machine, metal] of [['Silver Wall', 'Silver'], ['Iron Wall', 'Iron']]) {
+    const g = groups.find((x) => x.members.some((m) => m.name === machine));
+    if (g?.members.some((m) => m.name === metal)) bad(`${machine} grouped with ${metal}`);
+  }
+  ok('machines are not filed under the metal they melt into');
+}
 
 // --- things that must NOT be stripped or merged ----------------------------
 {

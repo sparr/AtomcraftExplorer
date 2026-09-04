@@ -8,14 +8,23 @@
  *               overlap: Kelp Stalk has drop rates but is a plant, and an
  *               oscillator's formula is "Cu" but it is a machine, not copper.
  *
- *   group    -- variants of one thing. "Molten Iron", "Iron Gas" and the 30
- *               isotopes all belong under "Iron"; the eight And Gate
- *               direction/state permutations belong under "And Gate".
+ *   group    -- variants of one thing. "Molten Iron" and the 30 isotopes all
+ *               belong under "Iron"; the eight And Gate direction/state
+ *               permutations belong under "And Gate".
  *
- * Grouping works by stripping variant markers off names. Phase affixes are only
- * stripped when what is left names a material that actually exists, so
- * "Arsenic Trioxide Gas" stays put (there is no "Arsenic Trioxide") while
- * "Bromine Gas" folds into "Bromine".
+ * Grouping works two ways, because neither alone is right.
+ *
+ * Names carry variant markers, which get stripped -- but a phase affix is only
+ * stripped when what remains names a material that exists AND states the same
+ * formula. "Oxygen Gas" is O2 while "Oxygen" is O: different substances that
+ * merely read like phases of each other, and the game agrees, giving them no
+ * transition between them.
+ *
+ * Phase transitions are the other half. Evaporation and condensation targets
+ * say outright that two materials are one substance in different states, which
+ * catches what names cannot: "Liquid Oxygen" belongs with "Oxygen Gas" rather
+ * than with "Oxygen", and "Steam" belongs with "Water" despite sharing no part
+ * of its name.
  */
 
 export const CATEGORIES = [
@@ -82,13 +91,18 @@ export function makeClassifier(materials) {
   };
 }
 
+/** Same substance, or one side simply does not state a formula. */
+function sameSubstance(a, b) {
+  return !a || !b || a === b;
+}
+
 /**
  * The name a material's group is filed under.
  * @param {object} m       material
  * @param {string} category its category id
- * @param {(name: string) => boolean} exists
+ * @param {(name: string) => object|undefined} lookup  resolves a material by name
  */
-export function groupKeyOf(m, category, exists) {
+export function groupKeyOf(m, category, lookup) {
   // Plants are named "<Plant> <Part> <Index>"; the plant is the first word.
   if (category === 'plant') return m.name.split(' ')[0];
 
@@ -102,10 +116,20 @@ export function groupKeyOf(m, category, exists) {
     if (m.raw.ProtonNumber) name = name.replace(/-\d+$/, '');
 
     for (const p of PHASE_PREFIXES) {
-      if (name.startsWith(p) && exists(name.slice(p.length))) { name = name.slice(p.length); break; }
+      if (!name.startsWith(p)) continue;
+      const base = lookup(name.slice(p.length));
+      if (base && sameSubstance(m.raw.Formula, base.raw.Formula)) {
+        name = name.slice(p.length);
+        break;
+      }
     }
-    for (const s of PHASE_SUFFIXES) {
-      if (name.endsWith(s) && exists(name.slice(0, -s.length))) { name = name.slice(0, -s.length); break; }
+    for (const suffix of PHASE_SUFFIXES) {
+      if (!name.endsWith(suffix)) continue;
+      const base = lookup(name.slice(0, -suffix.length));
+      if (base && sameSubstance(m.raw.Formula, base.raw.Formula)) {
+        name = name.slice(0, -suffix.length);
+        break;
+      }
     }
 
     if (name === before) break;
@@ -133,11 +157,17 @@ function categoryOf(group, classify) {
     b[1] - a[1] || CATEGORY_RANK.get(a[0]) - CATEGORY_RANK.get(b[0]))[0][0];
 }
 
-/** Within a group, the plainest-named member represents it. */
-function pickHead(key, members) {
-  return members.find((m) => m.name === key)
-      ?? [...members].sort((a, b) => a.name.length - b.name.length ||
-                                     a.name.localeCompare(b.name))[0];
+/**
+ * Within a group, the plainest form represents it: a member that is already its
+ * own base name, else the one the rest of the data leans on most.
+ */
+function pickHead(members, keyOf) {
+  const base = members.filter((m) => m.name === keyOf(m));
+  const pool = base.length ? base : members;
+  return [...pool].sort((a, b) =>
+    (b.refs || 0) - (a.refs || 0) ||
+    a.name.length - b.name.length ||
+    a.name.localeCompare(b.name))[0];
 }
 
 /**
@@ -152,17 +182,61 @@ function pickHead(key, members) {
  */
 export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
   const classify = makeClassifier(db.materials);
-  const exists = (name) => db.byName.has(name);
+  const lookup = (name) => db.byName.get(name);
 
-  // Group by name alone, then let the head decide the category: a variant is
-  // whatever its plainest form is. Classifying first would split "Iron" from
-  // "Molten Iron", which the game ships without a formula and which would
-  // therefore land in a different bucket than the metal it is made of.
+  const keyOf = new Map();
+  for (const m of materials) keyOf.set(m, groupKeyOf(m, classify(m), lookup));
+
+  // Union the name-derived keys that phase transitions say are one substance.
+  const parent = new Map();
+  for (const k of keyOf.values()) if (!parent.has(k)) parent.set(k, k);
+  const find = (k) => {
+    while (parent.get(k) !== k) { parent.set(k, parent.get(parent.get(k))); k = parent.get(k); }
+    return k;
+  };
+  const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent.set(a, b); };
+
+  // Phase transitions say two materials are one substance in different states.
+  const byName = new Map(materials.map((m) => [m.name, m]));
+  const evaporatesTo = (m) => m?.raw.Evaporation?.TargetMaterialName;
+  const condensesTo = (m) => m?.raw.Condensation?.TargetMaterialName;
+
+  for (const m of materials) {
+    for (const [forward, back] of [[evaporatesTo, condensesTo], [condensesTo, evaporatesTo]]) {
+      const target = byName.get(forward(m));
+      if (!target) continue;
+
+      // A device and a puddle of its metal are never the same substance, even
+      // when the game links them both ways: Bits of Heating Element melts into
+      // Molten Nichrome and freezes back out of it. Ice is Static too but is
+      // not machinery, which is what lets it stay with Water.
+      if (!!m.raw.IsMechanical !== !!target.raw.IsMechanical) continue;
+
+      // Never join two materials that state different formulas. Liquid
+      // Nitrogen is recorded as N while Nitrogen Gas is N2, so their
+      // reciprocal link would otherwise drag monatomic Nitrogen along too.
+      if (!sameSubstance(m.raw.Formula, target.raw.Formula)) continue;
+
+      // A reciprocal pair is trusted outright: Water freezes to Ice and Ice
+      // melts back to Water, and Ice states no formula at all.
+      //
+      // A one-way link needs more: both sides naming the same formula, and
+      // neither being a machine. Bromine Gas condenses straight to Solid
+      // Bromine, skipping the liquid, and all three are Br2 -- while a Silver
+      // Wall melts one-way into Molten Silver and states Ag just like the metal
+      // does, but it is a thing built from silver, not silver in another state.
+      const reciprocal = back(target) === m.name;
+      const oneWay = !!m.raw.Formula && !!target.raw.Formula &&
+                     classify(m) !== 'machine' && classify(target) !== 'machine';
+      if (reciprocal || oneWay) union(keyOf.get(m), keyOf.get(target));
+    }
+  }
+
   const groups = new Map();
   materials.forEach((m, i) => {
-    const key = groupKeyOf(m, classify(m), exists);
-    let g = groups.get(key);
-    if (!g) groups.set(key, (g = { key, head: null, members: [], rank: i }));
+    const id = find(keyOf.get(m));
+    let g = groups.get(id);
+    if (!g) groups.set(id, (g = { key: id, head: null, members: [], rank: i }));
     g.members.push(m);
     g.rank = Math.min(g.rank, i);
   });
@@ -170,12 +244,12 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
   const zOf = (m) => db.elementBySymbol.get(m.raw.Formula)?.z ?? 999;
 
   for (const g of groups.values()) {
-    g.head = pickHead(g.key, g.members);
+    g.head = pickHead(g.members, (m) => keyOf.get(m));
+    g.key = keyOf.get(g.head);       // name the group after the form that heads it
     g.category = categoryOf(g, classify);
     g.label = CATEGORIES[CATEGORY_RANK.get(g.category)].label;
     g.members.sort((a, b) =>
       (a === g.head ? -1 : b === g.head ? 1 : 0) ||
-      // Isotopes read best in mass order, not alphabetically.
       (a.raw.MassNumber || 0) - (b.raw.MassNumber || 0) ||
       a.display.localeCompare(b.display));
   }

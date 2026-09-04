@@ -151,11 +151,27 @@ ever nested.
   | Elements | Single-element compounds | Polyatomic ions | Compounds | Mixtures & solutions |
   | Deposits | Plants | Projectiles & beams | Machines & structures | Other |
 
-- **Group** — variants of one thing, found by stripping variant markers from
-  names. A phase affix is only stripped when what remains names a material that
-  exists, so `Bromine Gas` folds into `Bromine` but `Arsenic Trioxide Gas` stays
-  put — there is no `Arsenic Trioxide`. Roman numerals survive: the `(V)` in
+- **Group** — variants of one thing, found two ways, because neither alone is
+  right.
+
+  *Names* carry variant markers, which get stripped. A phase affix is only
+  stripped when what remains names a material that exists **and states the same
+  formula**: `Oxygen Gas` is O₂ while `Oxygen` is O — different substances that
+  merely read like phases of each other, and the game agrees, giving them no
+  transition between them. Roman numerals survive too: the `(V)` in
   `Potassium Heptafluoroniobate(V)` is an oxidation state, not a variant.
+
+  *Phase transitions* are the other half, and catch what names cannot.
+  Evaporation and condensation targets say outright that two materials are one
+  substance in different states, so `Liquid Oxygen` files with `Oxygen Gas`
+  rather than with `Oxygen`, and `Steam`, `Ice` and `Snow` file with `Water`
+  despite sharing no part of its name. Three guards keep that honest: a link
+  across a mechanical boundary is ignored (a heating element melts into molten
+  nichrome and freezes back out of it, but a device is not a phase of its
+  metal); a link between differing formulas is ignored (the game records Liquid
+  Nitrogen as N and Nitrogen Gas as N₂); and a *one-way* link additionally needs
+  both sides to name the same formula and neither to be a machine, since a
+  Silver Wall melts into Molten Silver and states `Ag` just as the metal does.
 
 Back-reference headings spell out their subject — "129 materials are made of
 this" rather than "made of (129)". Read in isolation, the bare relationship name
