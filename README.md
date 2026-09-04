@@ -381,6 +381,7 @@ npm test                      # all six suites
 node tools/test-formula.mjs   # parses + round-trips all 437 distinct formulas
 node tools/test-search.mjs    # ranking assertions
 node tools/test-render.mjs    # renders all 1795 detail panes against a DOM shim
+node tools/test-styles.mjs    # every class used in markup or code has a rule
 node tools/test-bundle.mjs    # runs the standalone build with fetch() disabled
 ```
 

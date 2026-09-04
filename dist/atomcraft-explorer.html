@@ -322,6 +322,7 @@ main {
 .swatch[data-none] { background: repeating-linear-gradient(45deg, #2a3240 0 3px, #1a1f28 3px 6px); }
 
 .row-main { min-width: 0; }
+.row-right { display: flex; align-items: center; gap: 5px; }
 .row-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .row-title .name { font-weight: 500; }
 .row-title .alias { font: 11px var(--mono); color: var(--fg-faint); }
@@ -364,7 +365,29 @@ main {
   z-index: 1;
 }
 .detail-head h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
-.detail-head .swatch { width: 16px; height: 16px; }
+.detail-head .swatch,
+.detail-head .pattern-preview {
+  width: var(--icon-size-lg);
+  height: var(--icon-size-lg);
+}
+
+/* The material's own shading, drawn to a canvas. A span defaults to inline,
+   which ignores width and height, so this must be a block. */
+.pattern-preview {
+  display: block;
+  flex: none;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  border: 1px solid #ffffff26;
+  border-radius: 2px;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+@keyframes pattern-frames { to { background-position-x: 100%; } }
+@media (prefers-reduced-motion: reduce) {
+  .pattern-preview { animation: none !important; }
+}
 .detail-head .subline { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; font-size: 12px; color: var(--fg-dim); }
 .detail-head .formula { font-size: 15px; }
 .detail-desc { padding: 12px 24px 0; color: var(--fg); max-width: 72ch; }
