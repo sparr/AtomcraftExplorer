@@ -54,6 +54,37 @@ contains('Bullet', 'Bullet Up', 'Bullet Down', 'Bullet Left', 'Bullet Right');
 contains('Laser Ruby', 'Laser Ruby Up On', 'Bits of Laser Ruby');
 contains('Sugarcane', 'Sugarcane', 'Sugarcane Stalk 1');       // head has no formula
 
+// --- variants order by power state, then by facing --------------------------
+{
+  const order = (key) => groups.find((g) => g.key === key).members.map((m) => m.name);
+
+  // "Laser Ruby Down Off" -- bare facing, bare state.
+  const laser = order('Laser Ruby').filter((n) => /\b(On|Off)$/.test(n));
+  const laserStates = laser.map((n) => /\b(On|Off)$/.exec(n)[1]);
+  if (laserStates.join() !== [...laserStates].sort((a, b) => (a === 'On' ? 0 : 1) - (b === 'On' ? 0 : 1)).join()) {
+    bad(`Laser Ruby interleaves states: ${laser.join(', ')}`);
+  } else ok(`Laser Ruby: all ${laserStates.filter((s) => s === 'On').length} On, then all Off`);
+
+  // "And Gate (Down) (Off)" -- both parenthesised.
+  const gate = order('And Gate').filter((n) => /\)$/.test(n));
+  const firstOff = gate.findIndex((n) => n.endsWith('(Off)'));
+  const lastOn = gate.map((n) => n.endsWith('(On)')).lastIndexOf(true);
+  if (firstOff < lastOn) bad(`And Gate interleaves states: ${gate.join(', ')}`);
+  else ok('And Gate: every (On) before every (Off)');
+
+  // "Plasma Gun Down (Active)" -- bare facing, parenthesised state, and a
+  // plain form with no state at all.
+  const plasma = order('Plasma Gun').filter((n) => n.startsWith('Plasma Gun'));
+  const stateOf = (n) => (/\(([^)]+)\)$/.exec(n)?.[1] ?? '');
+  const runs = [...new Set(plasma.map(stateOf))];
+  const grouped = runs.every((st) => {
+    const idx = plasma.map((n, i) => (stateOf(n) === st ? i : -1)).filter((i) => i >= 0);
+    return idx[idx.length - 1] - idx[0] === idx.length - 1;
+  });
+  if (!grouped) bad(`Plasma Gun interleaves states: ${plasma.join(', ')}`);
+  else ok(`Plasma Gun: states stay in runs (${runs.map((r) => r || 'plain').join(', ')})`);
+}
+
 // --- category assignment ---------------------------------------------------
 const catOf = (name) => groups.find((g) => g.members.some((m) => m.name === name))?.category;
 for (const [name, want] of [

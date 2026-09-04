@@ -276,6 +276,32 @@ function categoryOf(group, classify) {
 }
 
 /**
+ * Machine variants carry a power state and a facing, written three ways:
+ * "Laser Ruby Down Off", "And Gate (Down) (Off)", "Plasma Gun Down (Active)".
+ * State sorts ahead of facing, so all the off ones sit together instead of
+ * being scattered one per direction.
+ */
+const VARIANT_STATES = ['', 'On', 'Off', 'Turning On', 'Turning Off', 'Active', 'Rest'];
+const VARIANT_FACINGS = ['', 'Up', 'Down', 'Left', 'Right'];
+
+function variantState(name) {
+  const paren = /\((On|Off|Turning On|Turning Off|Active|Rest)\)\s*$/.exec(name);
+  if (paren) return paren[1];
+  const bare = /\s(On|Off)$/.exec(name);
+  return bare ? bare[1] : '';
+}
+
+function variantFacing(name) {
+  const m = /\((Up|Down|Left|Right)\)|\b(Up|Down|Left|Right)\b/.exec(name);
+  return m ? (m[1] ?? m[2]) : '';
+}
+
+const rankIn = (list, value) => {
+  const i = list.indexOf(value);
+  return i < 0 ? list.length : i;
+};
+
+/**
  * Within a group, the plainest form represents it: a member that is already its
  * own base name, else the one the rest of the data leans on most.
  */
@@ -389,6 +415,8 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
     g.members.sort((a, b) =>
       (a === g.head ? -1 : b === g.head ? 1 : 0) ||
       (a.raw.MassNumber || 0) - (b.raw.MassNumber || 0) ||
+      rankIn(VARIANT_STATES, variantState(a.name)) - rankIn(VARIANT_STATES, variantState(b.name)) ||
+      rankIn(VARIANT_FACINGS, variantFacing(a.name)) - rankIn(VARIANT_FACINGS, variantFacing(b.name)) ||
       a.display.localeCompare(b.display));
   }
 
