@@ -144,8 +144,10 @@ function pickHead(key, members) {
  * Group and order materials.
  * @param {object[]} materials
  * @param {object} db
- * @param {{sortBy?: 'name'|'z'}} opts  'z' orders elements by atomic number;
- *   everything else is always by name, since compounds have no atomic number.
+ * @param {{sortBy?: 'name'|'z'|'relevance'}} opts  'z' orders elements by atomic
+ *   number and everything else by name, since compounds have no atomic number;
+ *   'relevance' keeps the order the materials arrived in, ranking each group by
+ *   its best-placed member.
  * @returns {{category: string, label: string, key: string, head: object, members: object[]}[]}
  */
 export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
@@ -157,12 +159,13 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
   // "Molten Iron", which the game ships without a formula and which would
   // therefore land in a different bucket than the metal it is made of.
   const groups = new Map();
-  for (const m of materials) {
+  materials.forEach((m, i) => {
     const key = groupKeyOf(m, classify(m), exists);
     let g = groups.get(key);
-    if (!g) groups.set(key, (g = { key, head: null, members: [] }));
+    if (!g) groups.set(key, (g = { key, head: null, members: [], rank: i }));
     g.members.push(m);
-  }
+    g.rank = Math.min(g.rank, i);
+  });
 
   const zOf = (m) => db.elementBySymbol.get(m.raw.Formula)?.z ?? 999;
 
@@ -177,7 +180,11 @@ export function buildGroups(materials, db, { sortBy = 'name' } = {}) {
       a.display.localeCompare(b.display));
   }
 
-  return [...groups.values()].sort((a, b) =>
+  const all = [...groups.values()];
+  // Relevance keeps the incoming order, so categories interleave by score.
+  if (sortBy === 'relevance') return all.sort((a, b) => a.rank - b.rank);
+
+  return all.sort((a, b) =>
     CATEGORY_RANK.get(a.category) - CATEGORY_RANK.get(b.category) ||
     (a.category === 'element' && sortBy === 'z' ? zOf(a.head) - zOf(b.head) : 0) ||
     a.key.localeCompare(b.key));

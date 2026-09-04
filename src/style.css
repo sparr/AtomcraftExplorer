@@ -224,24 +224,28 @@ main {
 }
 .cat-head:first-child { padding-top: 6px; }
 
-.row.variant { padding-left: 34px; }
+.row.variant { padding-left: 33px; }
 .row.variant .name { font-weight: 400; color: var(--fg-dim); }
 
-.variant-toggle {
+.row-lead { align-self: center; }
+
+/* Group expanders reuse the disclosure twisty from the detail pane. */
+.row-twisty, .ref-twisty {
   background: none;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  color: var(--fg-faint);
-  font: 10px var(--mono);
-  padding: 0 5px;
+  border: 0;
+  padding: 0;
   cursor: pointer;
+  color: var(--fg-faint);
 }
-.variant-toggle:hover { color: var(--accent); border-color: var(--accent-dim); }
-.variant-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-dim); }
+.row-twisty:hover, .ref-twisty:hover { color: var(--accent); }
+.row-twisty[aria-expanded="true"], .ref-twisty[aria-expanded="true"] { color: var(--accent); }
+.ref-twisty { margin-left: 3px; vertical-align: baseline; }
+
+.refentry { white-space: nowrap; }
 
 .row {
   display: grid;
-  grid-template-columns: 14px 1fr auto;
+  grid-template-columns: 13px 14px 1fr auto;
   gap: 10px;
   align-items: baseline;
   padding: 7px 16px;
@@ -336,6 +340,7 @@ main {
   transition: transform 0.12s ease;
 }
 .detail details[open] > summary .twisty::before { transform: rotate(90deg); }
+.twisty[aria-expanded="true"]::before { transform: rotate(90deg); }
 
 .detail h3 {
   flex: 1;

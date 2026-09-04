@@ -264,17 +264,37 @@ else console.log('ok    collapse state persists across material selection');
   if (byName === byZ) { console.log(`FAIL name and atomic-number sort agree (${byZ})`); fail++; }
   else console.log(`ok    sort by name -> ${byName}; by atomic number -> ${byZ}`);
 
-  // Variants are hidden until their toggle is pressed.
-  const toggle = [...results.children].flatMap((r) => [...r.walk()])
-    .find((n) => n.className === 'variant-toggle');
-  if (!toggle) { console.log('FAIL no variant toggle rendered'); fail++; }
-  else {
+  // The expander sits in the row's leading column and toggles its variants.
+  const lead = results.children.find((r) => r.children.some(
+    (c) => c.className === 'row-lead' && c.children.length));
+  const toggle = lead && lead.children.find((c) => c.className === 'row-lead').children[0];
+  if (!toggle) { console.log('FAIL no group expander rendered in a row'); fail++; }
+  else if (!/twisty/.test(toggle.className)) {
+    console.log(`FAIL expander is "${toggle.className}", want a twisty`); fail++;
+  } else {
+    const wasOpen = toggle.getAttribute('aria-expanded') === 'true';
     const before = results.children.length;
     toggle.dispatch('click', { stopPropagation() {} });
     const after = results.children.length;
-    const variants = results.children.filter((r) => /\bvariant\b/.test(r.className)).length;
-    if (after <= before || !variants) { console.log('FAIL expanding a group added no variant rows'); fail++; }
-    else console.log(`ok    variant toggle expands ${after - before} rows (${variants} marked variant)`);
+    const moved = wasOpen ? after < before : after > before;
+    if (!moved) { console.log(`FAIL expander did not change the row count (${before} -> ${after})`); fail++; }
+    else console.log(`ok    left-hand expander toggles ${Math.abs(after - before)} variant rows`);
+  }
+
+  // Selecting a row opens its group. Collapse it first so the check is real --
+  // earlier steps in this file have already selected every material.
+  {
+    const isotopeRows = () => results.children
+      .filter((r) => /\bvariant\b/.test(r.className) && /^Uranium-/.test(r.dataset.name)).length;
+    const uraniumRow = results.children.find((r) => r.dataset.name === 'Uranium');
+    const twisty = uraniumRow.children.find((c) => c.className === 'row-lead').children[0];
+    if (twisty.getAttribute('aria-expanded') === 'true') twisty.dispatch('click', { stopPropagation() {} });
+    if (isotopeRows()) { console.log('FAIL could not collapse the Uranium group to set up the check'); fail++; }
+    else {
+      app.select(app.db.byName.get('Uranium'));
+      if (!isotopeRows()) { console.log('FAIL selecting Uranium did not reveal its isotopes'); fail++; }
+      else console.log(`ok    selecting a row expands its group (${isotopeRows()} isotopes revealed)`);
+    }
   }
 }
 globalThis.location.hash = '';

@@ -29,6 +29,12 @@ const expanded = new Set();
 /** Materials in rendered order, for keyboard navigation. */
 let visible = [];
 
+/** Material name -> the group it is rendered in, rebuilt on every render. */
+let groupIndex = new Map();
+
+/** Reference groups whose variants are shown, keyed relationship + group. */
+const expandedRefs = new Set();
+
 /** Sections the reader has collapsed. Mirrored into the URL. */
 const collapsed = new Set();
 
@@ -132,10 +138,9 @@ function matLink(name) {
 
 function runSearch() {
   const t0 = performance.now();
-  // Grouping collapses 1795 materials to ~1000 rows, so the relevance cap would
-  // only ever show a slice of the catalogue when browsing.
-  const grouping = state.sort !== 'relevance';
-  const r = search(db, state.q, { limit: grouping ? Infinity : 250 });
+  // Results are always grouped, so the cap belongs on groups, not materials --
+  // capping materials first would show only a slice of the catalogue.
+  const r = search(db, state.q, { limit: Infinity });
   hits = r.results;
   const ms = performance.now() - t0;
 
@@ -146,10 +151,6 @@ function runSearch() {
   let groupCount = 0;
   if (!hits.length) {
     list.append(el('li', 'empty', state.q ? 'No materials match this query.' : 'No materials.'));
-  } else if (state.sort === 'relevance') {
-    const frag = document.createDocumentFragment();
-    for (const hit of hits) { frag.append(resultRow(hit)); visible.push(hit.m); }
-    list.append(frag);
   } else {
     const built = groupedResults(hits.map((h) => h.m));
     groupCount = built.groupCount;
@@ -158,7 +159,7 @@ function runSearch() {
 
   renderSortControl();
   const parts = [`${r.total.toLocaleString()} of ${db.materials.length.toLocaleString()} materials`];
-  if (grouping && groupCount) {
+  if (groupCount) {
     parts.push(`${groupCount.toLocaleString()} group${groupCount === 1 ? '' : 's'}`);
     if (groupCount > GROUP_LIMIT) parts.push(`showing first ${GROUP_LIMIT}`);
   } else if (visible.length < r.total) {
@@ -176,37 +177,27 @@ const GROUP_LIMIT = 400;
 function groupedResults(materials) {
   const frag = document.createDocumentFragment();
   const groups = buildGroups(materials, db, { sortBy: state.sort });
+  // Relevance interleaves categories by score, so headings would be meaningless.
+  const headings = state.sort !== 'relevance';
   let lastCategory = null;
 
+  groupIndex = new Map();
+  for (const g of groups) for (const m of g.members) groupIndex.set(m.name, g);
+
   for (const g of groups.slice(0, GROUP_LIMIT)) {
-    if (g.category !== lastCategory) {
+    if (headings && g.category !== lastCategory) {
       lastCategory = g.category;
       const count = groups.filter((x) => x.category === g.category).length;
       frag.append(el('li', 'cat-head', `${g.label} (${count})`));
     }
 
-    const variants = g.members.filter((m) => m !== g.head);
-    let toggle = null;
-    if (variants.length) {
-      toggle = el('button', 'variant-toggle', `+${variants.length}`);
-      toggle.title = `${variants.length} variant${variants.length === 1 ? '' : 's'}: ` +
-                     variants.map((m) => m.display).slice(0, 6).join(', ');
-      toggle.setAttribute('aria-expanded', String(expanded.has(g.key)));
-      toggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (expanded.has(g.key)) expanded.delete(g.key);
-        else expanded.add(g.key);
-        runSearch();
-      });
-    }
-    frag.append(resultRow({ m: g.head, why: [] }, toggle));
+    frag.append(resultRow({ m: g.head, why: [] }, { group: g }));
     visible.push(g.head);
 
     if (expanded.has(g.key)) {
-      for (const m of variants) {
-        const v = resultRow({ m, why: [] });
-        v.classList.add('variant');
-        frag.append(v);
+      for (const m of g.members) {
+        if (m === g.head) continue;
+        frag.append(resultRow({ m, why: [] }, { variant: true }));
         visible.push(m);
       }
     }
@@ -242,11 +233,31 @@ function renderSortControl() {
   }
 }
 
-function resultRow(hit, extra) {
+function toggleGroup(key) {
+  if (expanded.has(key)) expanded.delete(key);
+  else expanded.add(key);
+  runSearch();
+}
+
+function resultRow(hit, { group = null, variant = false } = {}) {
   const m = hit.m;
-  const li = el('li', 'row');
+  const li = el('li', variant ? 'row variant' : 'row');
   li.dataset.name = m.name;
   li.setAttribute('role', 'option');
+
+  // Expander column, kept even when empty so every row lines up.
+  const lead = el('span', 'row-lead');
+  const hidden = group ? group.members.length - 1 : 0;
+  if (hidden > 0) {
+    const t = el('button', 'row-twisty twisty');
+    t.setAttribute('aria-expanded', String(expanded.has(group.key)));
+    t.setAttribute('aria-label', `${hidden} more in this group`);
+    t.title = `${hidden} more: ` +
+              group.members.filter((x) => x !== group.head).map((x) => x.display)
+                   .slice(0, 8).join(', ');
+    t.addEventListener('click', (e) => { e.stopPropagation(); toggleGroup(group.key); });
+    lead.append(t);
+  }
 
   const main = el('div', 'row-main');
   const title = el('div', 'row-title');
@@ -261,11 +272,10 @@ function resultRow(hit, extra) {
   if (sub.childNodes.length) main.append(sub);
 
   const right = el('div', 'row-right');
-  if (extra) right.append(extra);
   right.append(stateBadge(m));
   if (m.hidden) right.append(el('span', 'badge hidden', 'hidden'));
 
-  li.append(swatch(m), main, right);
+  li.append(lead, swatch(m), main, right);
   li.addEventListener('click', () => select(m, { push: true }));
   return li;
 }
@@ -418,6 +428,30 @@ function reactionCard(rx, role, self) {
   if (rx.raw.Probability) cond.push(`p=${rx.raw.Probability}`);
   if (cond.length) card.append(el('div', 'rx-cond', cond.join('  ·  ')));
   return card;
+}
+
+/** One entry in a reference list: the group head, expandable to its variants. */
+function refEntry(label, group) {
+  const key = `${label}\u241f${group.key}`;
+  const hidden = group.members.filter((m) => m !== group.head);
+  const wrap = el('span', 'refentry');
+  wrap.append(matLink(group.head.name));
+  if (!hidden.length) return wrap;
+
+  const open = expandedRefs.has(key);
+  const t = el('button', 'ref-twisty twisty');
+  t.setAttribute('aria-expanded', String(open));
+  t.setAttribute('aria-label', `${hidden.length} more like ${group.head.display}`);
+  t.title = hidden.map((m) => m.display).slice(0, 8).join(', ');
+  t.addEventListener('click', () => {
+    if (open) expandedRefs.delete(key);
+    else expandedRefs.add(key);
+    renderDetail(selected);
+  });
+  wrap.append(t);
+  if (!open) wrap.append(el('span', 'label', `+${hidden.length}`));
+  else for (const m of hidden) { wrap.append(el('span', 'label', ',')); wrap.append(matLink(m.name)); }
+  return wrap;
 }
 
 function renderDetail(m) {
@@ -603,9 +637,13 @@ function renderDetail(m) {
       .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
       .map(([label, sources]) => {
         const box = el('div', 'reflist');
-        for (const src of sources.sort((a, b) => a.display.localeCompare(b.display))) {
-          box.append(matLink(src.name));
+        // Group the referencing materials too: Carbon's 129 "made of" entries
+        // are largely molten and gas variants of the same few compounds.
+        for (const rg of buildGroups(sources, db, { sortBy: 'name' })) {
+          box.append(refEntry(label, rg));
         }
+        // The count stays the material count, matching the section header; the
+        // +n expanders account for the difference between that and the rows.
         return subsection(`${label} (${sources.length})`, box);
       });
     mount(pane, section(`Referenced by (${total})`, ...subs));
@@ -617,6 +655,12 @@ function renderDetail(m) {
 function select(m, { push = false } = {}) {
   selected = m;
   state.sel = m ? m.name : null;
+  // Selecting a row reveals what is filed under it.
+  const group = m && groupIndex.get(m.name);
+  if (group && group.members.length > 1 && !expanded.has(group.key)) {
+    expanded.add(group.key);
+    runSearch();
+  }
   renderDetail(m);
   markSelected();
   if (push) writeHash({ replace: true });
