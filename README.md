@@ -152,6 +152,15 @@ carries its isotopes; `And Gate` carries all eight direction/state permutations;
   put — there is no `Arsenic Trioxide`. Roman numerals survive: the `(V)` in
   `Potassium Heptafluoroniobate(V)` is an oxidation state, not a variant.
 
+Back-reference headings spell out their subject — "129 materials are made of
+this" rather than "made of (129)". Read in isolation, the bare relationship name
+means the *opposite* of the identically-worded line in the forward sections:
+"decays into" under Nuclear says what this material becomes, while under
+Referenced by it says what becomes this material. The wording lives in
+`REFERENCE_RELATIONSHIPS` in `src/data.js`, conjugated for one subject and for
+several; the collapse slot stays the bare relationship name, carried on the
+element as `data-slot`.
+
 A group takes its category from its head, except when the head lands in `Other`
 — that is a fallback, not a kind. Harvested `Sugarcane` has no formula and no
 growth rules, but it heads seven Sugarcane stalks, so the group is a plant.

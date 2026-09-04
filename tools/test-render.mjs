@@ -125,8 +125,7 @@ else {
   const sec = [...detail.walk()].find((n) => n.className === 'sec' &&
                                              n.textContent.startsWith('Referenced by'));
   const labels = [...sec.walk()].filter((n) => n.className === 'subsec')
-    .map((n) => n.children.find((c) => c.tagName === 'SUMMARY').textContent
-                 .replace(/\s*\(\d+\)$/, ''));
+    .map((n) => n.dataset.slot.replace(/^subsec:/, ''));
   const expected = [...labels].sort((a, b) => REFERENCE_ORDER.indexOf(a) - REFERENCE_ORDER.indexOf(b));
   if (labels.join(' | ') !== expected.join(' | ')) {
     console.log(`FAIL group order ${labels.join(', ')}\n     want      ${expected.join(', ')}`); fail++;
@@ -143,8 +142,7 @@ else {
     app.select(m);
     for (const n of detail.walk()) {
       if (n.className !== 'sec' && n.className !== 'subsec') continue;
-      const title = n.children.find((c) => c.tagName === 'SUMMARY').textContent;
-      seen.add(collapseKey(n.className, title));
+      seen.add(n.dataset.slot);   // the real slot, not one re-derived from the heading
     }
   }
   const missing = [...seen].filter((k) => !COLLAPSIBLE.includes(k)).sort();
@@ -218,6 +216,31 @@ else {
   } else {
     console.log(`ok    ${nodes.length} construction-time toggle events ignored, 0 history writes`);
   }
+}
+
+// --- back-reference headings state their direction -------------------------
+{
+  app.select(db.byName.get('Carbon'));
+  const sec = [...detail.walk()].find((n) => n.className === 'sec' &&
+                                             n.textContent.startsWith('Referenced by'));
+  const heads = [...sec.walk()].filter((n) => n.className === 'subsec')
+    .map((n) => n.children.find((c) => c.tagName === 'SUMMARY').textContent);
+  const bare = heads.filter((h) => !/^\d+ materials? /.test(h));
+  if (bare.length) { console.log(`FAIL heading does not name its subject: ${bare[0]}`); fail++; }
+  else if (!heads.every((h) => /\bthis$/.test(h))) {
+    console.log('FAIL heading does not end by pointing at this material'); fail++;
+  } else console.log(`ok    back-ref headings read as sentences: "${heads[0]}"`);
+
+  // Singular and plural must agree.
+  const wrong = heads.filter((h) => /^1 materials /.test(h) || /^(?!1 )\d+ material /.test(h));
+  if (wrong.length) { console.log(`FAIL bad plural: ${wrong[0]}`); fail++; }
+
+  app.select(db.byName.get('Water'));
+  const one = [...detail.walk()].filter((n) => n.className === 'subsec')
+    .map((n) => n.children.find((c) => c.tagName === 'SUMMARY').textContent)
+    .find((h) => h.startsWith('1 material '));
+  if (one && !/^1 material [a-z]/.test(one)) { console.log(`FAIL singular form: ${one}`); fail++; }
+  else if (one) console.log(`ok    singular agrees: "${one}"`);
 }
 
 // --- collapsing sticks when you move to another material -------------------

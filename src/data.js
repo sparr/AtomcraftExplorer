@@ -15,29 +15,52 @@ import { parseFormula } from './formula.js';
  * recomputed per build. "dissolves into" is defined but currently unused by any
  * material. Anything not listed sorts to the end alphabetically; the render
  * test asserts the list still covers every relationship in the data.
+ *
+ * Each entry also carries the wording used to head its group, conjugated for
+ * one subject and for several.
  */
-export const REFERENCE_ORDER = [
-  'made of',            // 1692
-  'mines into',         //  490
-  'evaporates into',    //  402
-  'decays into',        //  258
-  'alpha impact',       //  234
-  'neutron impact',     //  228
-  'proton impact',      //  221
-  'ignites into',       //  210
-  'builds into',        //  188
-  'drops',              //  157
-  'rotates left into',  //  147
-  'rotates right into', //  147
-  'condenses into',     //  144
-  'grows into',         //  108
-  'combusts into',      //   88
-  'turns off into',     //   68
-  'turns on into',      //   56
-  'picked up into',     //   40
-  'extinguishes into',  //   28
-  'dissolves into',     //    0
-];
+export const REFERENCE_RELATIONSHIPS = [
+  // label                 subject is one material        subject is several
+  ['made of',            'is made of this',            'are made of this'],            // 1692
+  ['mines into',         'mines into this',            'mine into this'],              //  490
+  ['evaporates into',    'evaporates into this',       'evaporate into this'],         //  402
+  ['decays into',        'decays into this',           'decay into this'],             //  258
+  ['alpha impact',       'becomes this under alpha impact',   'become this under alpha impact'],   // 234
+  ['neutron impact',     'becomes this under neutron impact', 'become this under neutron impact'], // 228
+  ['proton impact',      'becomes this under proton impact',  'become this under proton impact'],  // 221
+  ['ignites into',       'ignites into this',          'ignite into this'],            //  210
+  ['builds into',        'builds into this',           'build into this'],             //  188
+  ['drops',              'drops this',                 'drop this'],                   //  157
+  ['rotates left into',  'rotates left into this',     'rotate left into this'],       //  147
+  ['rotates right into', 'rotates right into this',    'rotate right into this'],      //  147
+  ['condenses into',     'condenses into this',        'condense into this'],          //  144
+  ['grows into',         'grows into this',            'grow into this'],              //  108
+  ['combusts into',      'combusts into this',         'combust into this'],           //   88
+  ['turns off into',     'turns off into this',        'turn off into this'],          //   68
+  ['turns on into',      'turns on into this',         'turn on into this'],           //   56
+  ['picked up into',     'is picked up into this',     'are picked up into this'],     //   40
+  ['extinguishes into',  'extinguishes into this',     'extinguish into this'],        //   28
+  ['dissolves into',     'dissolves into this',        'dissolve into this'],          //    0
+].map(([label, one, many]) => ({ label, one, many }));
+
+/** Just the labels, in order -- the sort key and the collapse-slot identity. */
+export const REFERENCE_ORDER = REFERENCE_RELATIONSHIPS.map((r) => r.label);
+
+const PHRASE = new Map(REFERENCE_RELATIONSHIPS.map((r) => [r.label, r]));
+
+/**
+ * "129 materials are made of this".
+ *
+ * Back-references read in the opposite direction to the forward sections, so
+ * bare "decays into" would mean the reverse of the identically-worded line in
+ * the Nuclear section. Spelling out the subject removes the ambiguity.
+ */
+export function referencePhrase(label, count) {
+  const noun = `${count} material${count === 1 ? '' : 's'}`;
+  const verb = PHRASE.get(label);
+  if (!verb) return `${noun}: ${label}`;
+  return `${noun} ${count === 1 ? verb.one : verb.many}`;
+}
 
 /** Godot Color (0..1 floats) -> CSS. */
 function cssColor(c, alpha) {

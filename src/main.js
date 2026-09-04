@@ -1,5 +1,5 @@
 /** Search UI: query box, element filter, result list, material detail. */
-import { loadData, REFERENCE_ORDER } from './data.js';
+import { loadData, REFERENCE_ORDER, referencePhrase } from './data.js';
 import { collapseKey, packCollapsed, unpackCollapsed } from './collapse.js';
 import { buildGroups, CATEGORIES } from './grouping.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
@@ -344,13 +344,16 @@ function mount(parent, ...nodes) {
  * A <details> disclosure -- native keyboard handling and toggle behaviour, with
  * the twisty drawn on the left of the heading.
  */
-function disclosure(cls, headingTag, title, nodes) {
+function disclosure(cls, headingTag, spec, nodes) {
   const kept = nodes.filter(Boolean);
   if (!kept.length) return null;
 
-  const key = collapseKey(cls, title);
+  // A heading that does not end in "(12)" needs its slot named explicitly.
+  const { title, key: slot } = typeof spec === 'string' ? { title: spec, key: spec } : spec;
+  const key = collapseKey(cls, slot);
   const wantOpen = !collapsed.has(key);
   const d = el('details', cls);
+  d.dataset.slot = key;          // the collapse slot, not the visible wording
   d.open = wantOpen;
 
   const summary = el('summary');
@@ -373,12 +376,12 @@ function disclosure(cls, headingTag, title, nodes) {
   return d;
 }
 
-function section(title, ...nodes) {
-  return disclosure('sec', 'h3', title, nodes);
+function section(spec, ...nodes) {
+  return disclosure('sec', 'h3', spec, nodes);
 }
 
-function subsection(title, ...nodes) {
-  return disclosure('subsec', 'h4', title, nodes);
+function subsection(spec, ...nodes) {
+  return disclosure('subsec', 'h4', spec, nodes);
 }
 
 function phaseLine(t, verb) {
@@ -642,9 +645,9 @@ function renderDetail(m) {
         for (const rg of buildGroups(sources, db, { sortBy: 'name' })) {
           box.append(refEntry(label, rg));
         }
-        // The count stays the material count, matching the section header; the
+        // The count is the material count, matching the section header; the
         // +n expanders account for the difference between that and the rows.
-        return subsection(`${label} (${sources.length})`, box);
+        return subsection({ title: referencePhrase(label, sources.length), key: label }, box);
       });
     mount(pane, section(`Referenced by (${total})`, ...subs));
   }
