@@ -6,6 +6,11 @@ import { patternStrip, recipeFor } from './pattern-render.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
 import { formulaHtml } from './formula.js';
 
+// Material icons are drawn at this many pixels and scaled up by that factor,
+// so they stay crisp. The CSS reads the same two numbers.
+const ICON_TILE = 8;
+const ICON_ZOOM = 4;
+
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -113,7 +118,7 @@ function swatch(m) {
   }
   // Fill with the material's own shading where we can reproduce it, and fall
   // back to the flat colour where we cannot (or where there is no canvas).
-  const strip = patternStrip(m, { size: 16, frames: 1 });
+  const strip = patternStrip(m, { size: ICON_TILE, frames: 1 });
   if (strip) {
     s.style.backgroundImage = `url("${strip.uri}")`;
     s.style.backgroundSize = 'cover';
@@ -127,7 +132,7 @@ function swatch(m) {
 
 /** A bigger tile in the detail pane, running its animation if it has one. */
 function patternPreview(m) {
-  const strip = patternStrip(m, { size: 24, frames: 12 });
+  const strip = patternStrip(m, { size: ICON_TILE, frames: 12 });
   if (!strip) return null;
   const box = el('span', 'pattern-preview');
   box.style.backgroundImage = `url("${strip.uri}")`;

@@ -67,7 +67,9 @@ let html = read('index.html')
   .replace(/^\s*<script type="module"[^>]*><\/script>\s*$/m, () =>
            `<script>\nglobalThis.__ATOMCRAFT_BUNDLE__ = ${safeJson};\n\n${code}\n</script>`);
 
-if (html.includes('src/style.css') || html.includes('src/main.js')) {
+// Check the tags are gone, not that their paths never appear: the inlined CSS
+// and JS may well mention them in a comment.
+if (/<link[^>]+rel="stylesheet"/.test(html) || /<script[^>]+type="module"/.test(html)) {
   throw new Error('index.html markup changed -- bundler could not inline its assets');
 }
 
