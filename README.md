@@ -155,6 +155,12 @@ a place to make a decision: mark something as already in hand, pick a different
 route to it, ban a step you would rather not run, or claim a byproduct as
 something you wanted after all.
 
+**Feeding a byproduct back** makes it an input the plan may use. A furnace
+throwing off steam is a reason to condense the steam rather than fetch snow, so
+saying so drops the snow from the shopping list and puts *Steam condenses into
+Water* in the plan — with the two thirds of the steam it does not need still
+listed as spare, and any shortfall still asked for.
+
 ### Reactions are not enough
 
 681 reactions are not a production graph on their own. 121 of their feedstocks

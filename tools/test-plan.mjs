@@ -736,6 +736,31 @@ console.log('\n--- byproducts ---');
   check(fed.converged, 'crediting it back still settles on a batch size');
   audit('Sulfuric Acid with byproducts fed back', fed);
 }
+{
+  // Feeding a byproduct back has to make it *usable*, not merely cancel demand
+  // for the same material. The furnace throwing off steam is a reason to
+  // condense the steam, not to go and fetch snow.
+  const before = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'] });
+  check(before.frontier.some((f) => f.name === 'Falling Snow'),
+        'left alone, the plan fetches snow to make its water');
+  check(before.byproducts.some((b) => b.name === 'Steam'), 'while throwing steam away');
+
+  const fed = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'],
+                                 credit: ['Steam'] });
+  check(fed.steps.some((s) => s.process.id === 'cond:Steam'),
+        'fed back, the steam is what becomes the water');
+  check(!fed.frontier.some((f) => f.name === 'Falling Snow'), 'and the snow is not wanted');
+  const spare = fed.byproducts.find((b) => b.name === 'Steam');
+  check(spare && rstr(spare.amount) === '2',
+        `with the rest of it still spare (${spare && rstr(spare.amount)} of 3)`);
+  audit('Potassium with the steam fed back', fed);
+
+  // Feeding back what the plan cannot make enough of leaves the shortfall.
+  const short = solvePlan(graph, { targets: [{ name: 'Potassium', amount: 40 }],
+                                   have: ['Lepidolite'], credit: ['Falling Snow'] });
+  const gap = short.frontier.find((f) => f.name === 'Falling Snow');
+  check(!gap || gap.credited, 'a shortfall on something fed back says that is what it is');
+}
 
 /* ---------------------------------------------------- the other way round */
 

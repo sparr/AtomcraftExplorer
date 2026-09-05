@@ -288,6 +288,12 @@ export function solveCosts(graph, spec) {
   /** What it costs to just have one, with no process involved. */
   const acquire = (name) => {
     if (have.has(name)) return 0;
+    // Agreeing to plumb a byproduct back makes it free: the plan is already
+    // making it, and routing through it is the whole point of saying so.
+    // Without this, "feed it back" only cancelled demand for the same material
+    // and could not do the one thing anybody wants it for -- taking the Steam
+    // the furnace is throwing off and condensing it, rather than fetching snow.
+    if (spec.credit.has(name)) return 0;
     if (excludeMaterials.has(name) || spec.closed) return Infinity;
     if (WORLDLY.has(graph.categoryOf(name))) return weights.acquireWorld;
     if (placed(graph, name)) return Infinity;
@@ -397,7 +403,7 @@ export function extract(graph, spec, solved) {
       const pin = spec.pins.get(name);
       if (pin === 'have') return null;
       if (pin) return graph.byId.get(pin) || null;
-      if (spec.have.has(name)) return null;
+      if (spec.have.has(name) || spec.credit.has(name)) return null;
       const id = choice.get(name);
       if (!id) return null;
       // Making it has to actually beat having it, or every plan drags a whole
@@ -413,6 +419,7 @@ export function extract(graph, spec, solved) {
       const node = { name, producer: null, reason: 'acquire', consumers: [], byproductOf: [] };
       materials.set(name, node);
       if (spec.have.has(name) || spec.pins.get(name) === 'have') { node.reason = 'have'; return; }
+      if (spec.credit.has(name)) { node.reason = 'credited'; return; }
       const p = producerFor(name);
       if (!p) { node.reason = graph.producers(name).length ? 'acquire' : 'raw'; return; }
       node.reason = 'produced';
@@ -656,11 +663,15 @@ export function solvePlan(graph, rawSpec) {
   for (const node of dag.materials.values()) {
     const need = at(scaled.demand, node.name);
     const made = at(scaled.supply, node.name);
-    if (node.reason === 'acquire' || node.reason === 'raw' || node.reason === 'have') {
-      if (node.reason !== 'have' && rcmp(need, R0) > 0) {
+    // What the plan cannot cover itself. For most leaves that is all of it;
+    // for one being fed back it is only what its own byproduct falls short by.
+    const shortfall = rsub(need, made);
+    if (['acquire', 'raw', 'credited'].includes(node.reason)) {
+      if (rcmp(shortfall, R0) > 0) {
         frontier.push({
           name: node.name,
-          amount: need,
+          amount: shortfall,
+          credited: node.reason === 'credited',
           raw: node.reason === 'raw',
           // How the world hands this over, for the kinds the plan will not use.
           routes: graph.producers(node.name)

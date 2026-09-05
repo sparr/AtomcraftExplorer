@@ -482,6 +482,7 @@ function renderInspector(box) {
   const role = [];
   if (plan.targets.some((t) => t.name === name)) role.push('something the plan is for');
   if (plan.have.includes(name)) role.push('yours already');
+  else if (node?.reason === 'credited') role.push('surplus, fed back into the plan');
   else if (node?.reason === 'produced') role.push('made here');
   else if (node) role.push('to be fetched');
   else role.push('not in the plan');
@@ -594,6 +595,10 @@ function renderSide() {
       } else if (f.raw) {
         li.append(el('div', 'plan-how', 'found in the world'));
       }
+      if (f.credited) {
+        li.append(el('div', 'plan-how',
+          'the plan makes some of this and it is being fed back, but not enough'));
+      }
       const acts = el('div', 'plan-item-acts');
       // A deposit is never a question. It is in the ground somewhere and you
       // are going to go and find it, so offering to mark it as already had is
@@ -625,8 +630,10 @@ function renderSide() {
       const acts = el('div', 'plan-item-acts');
       acts.append(button('ghost small', 'I want it', 'Count it as something the plan is for',
                          () => edit(addTarget, b.name)));
-      const feed = button('ghost small' + (b.credited ? ' on' : ''), 'Feed it back',
-                          'Let this cover demand for the same material elsewhere',
+      const feed = button('ghost small' + (b.credited ? ' on' : ''),
+                          b.credited ? 'Fed back' : 'Feed it back',
+                          b.credited ? 'Stop using this surplus as an input'
+                                     : 'Let the plan use this surplus instead of fetching more',
                           () => edit(toggle, 'credit', b.name));
       feed.setAttribute('aria-pressed', String(!!b.credited));
       acts.append(feed);
