@@ -120,6 +120,9 @@ const stillListed = nodes($('#plan-side'), 'plan-item')
   .some((n) => n.textContent.includes('Death Moss Spore'));
 check(!stillListed, 'and off the shopping list');
 check(goals().includes('Death Moss Spore'), 'into the goal bar');
+// And the have row says how much of it the plan actually wants.
+check(/1\s*Death Moss Spore/.test(text('#goal-haves')),
+      `saying how much has to be supplied: ${text('#goal-haves').trim()}`);
 
 // Excluding a step has to change the answer, not just grey something out.
 const stepCount = nodes($('#plan-steps'), 'plan-step').length;

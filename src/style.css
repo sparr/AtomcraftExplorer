@@ -905,3 +905,14 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 
 /* Spare output the reader has claimed as a product rather than waste. */
 .plan-panel.kept { border-color: var(--ok); }
+
+/* How much of a material you have to supply. Worked out, not asked for, so it
+   is text where the amounts above it are a box you can type in. */
+.goal-used {
+  font-family: var(--mono);
+  color: var(--accent);
+  border-right: 1px solid var(--line);
+  padding-right: 6px;
+  margin-right: 6px;
+}
+.goal-used.none { color: var(--fg-faint); }

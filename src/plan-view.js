@@ -223,10 +223,22 @@ function renderGoals() {
     wants.append(goalChip('goal-target', '', () => edit(removeTarget, t.name), inner));
   }
 
+  // How much of each you actually have to supply. Not editable, unlike the
+  // amounts above: it is worked out from the plan rather than asked for, and
+  // a zero says the material was declared but never used.
   const haves = $('#goal-haves');
   haves.textContent = '';
   for (const name of plan.have) {
-    haves.append(goalChip('goal-have', '', () => edit(removeHave, name), matLink(name)));
+    const used = solved ? solved.amountOf(name) : null;
+    const inner = document.createDocumentFragment();
+    if (used) {
+      const n = el('span', 'goal-used' + (rcmp(used, R0) > 0 ? '' : ' none'), amount(used));
+      n.title = rcmp(used, R0) > 0 ? `The plan uses ${amount(used)} ${name}`
+                                   : 'The plan does not use this';
+      inner.append(n);
+    }
+    inner.append(matLink(name));
+    haves.append(goalChip('goal-have', '', () => edit(removeHave, name), inner));
   }
 }
 

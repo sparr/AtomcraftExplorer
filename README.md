@@ -146,7 +146,10 @@ shown and overridable.
 
 Start from either end. Name an output and it works backwards; name what you have
 and see what that can become. Both end up in the same plan, and you can add to
-either side at any point.
+either side at any point. The **make** row is what you ask for; the **have** row
+says how much of each you would actually have to supply, worked out from the
+plan rather than typed in — a zero there means the material was named but never
+used.
 
 What comes out is a list of steps with exact amounts, a **shopping list** of
 everything the plan still needs somebody to go and fetch, whatever it leaves
