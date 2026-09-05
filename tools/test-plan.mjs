@@ -1284,17 +1284,33 @@ console.log('\n--- the last of the list, out of the leavings ---');
   // `score` already ranked the closed plan over the open one -- it counts the
   // shopping list before anything else. All this pass had to do was make the
   // candidate exist.
-  check(runs(plan, 'rx:Electrolysis of Carbon Dioxide'),
-        'the spare Hydrogen goes back into the carbon dioxide for the Water');
-  check(plan.priming.map((x) => x.name).sort().join(',') === 'Hydrogen Gas,Potassium Oxide',
+  check(runs(plan, 'rx:Hydrogen Combustion'),
+        'the spare Hydrogen and Oxygen go back together as Steam for the Water');
+  check(plan.priming.map((x) => x.name).sort().join(',') === 'Potassium Oxide,Steam',
         'and what is left is a charge laid in once, not an errand');
 
-  // The pieces are still offered the other way round, which is the plan Sparr
-  // reached by hand: recombine the hydrogen and oxygen as Steam and condense it.
-  const burnt = solvePlan(graph, { ...spec, alsoUse: ['rx:Hydrogen Combustion'],
-                                   pins: { Water: 'cond:Steam' } });
-  check(burnt.frontier.length === 0 && runs(burnt, 'rx:Hydrogen Combustion'),
-        'and burning the hydrogen back to Steam closes it too, if asked');
+  // Which is the whole of it: carbon dioxide in, Carbon out, and the oxygen it
+  // came with. Nothing else is fetched and nothing else is left lying about.
+  check(plan.byproducts.map((b) => b.name).join(',') === 'Oxygen Gas',
+        'so the only thing left over is the oxygen the carbon dioxide came with');
+
+  // There is a shorter way to close the list and it is not taken: a step fewer,
+  // but two Carbon Monoxide to be carried off for as long as the factory runs.
+  // A byproduct is a standing obligation where a step is a one-off.
+  const shorter = solvePlan(graph, { ...spec,
+                                     pins: { Water: 'rx:Electrolysis of Carbon Dioxide' } });
+  check(shorter.frontier.length === 0 && shorter.steps.length < plan.steps.length,
+        `the carbon dioxide electrolysis closes it in fewer steps ` +
+        `(${shorter.steps.length} against ${plan.steps.length})`);
+  check(shorter.byproducts.some((b) => b.name === 'Carbon Monoxide'),
+        'but leaves Carbon Monoxide behind, which is why the longer one wins');
+
+  // Only where this pass is choosing, though. Counting waste everywhere was
+  // tried and it emptied a real feature: Boron Oxide stopped fetching seven
+  // Water to vent six Steam, which is a better plan and left "Prime instead"
+  // with no step in the whole data set to sit on.
+  check(solvePlan(graph, { targets: ['Boron Oxide'] }).brokenLoops.includes('Steam'),
+        'and the ordinary comparison is left as it was');
 
   // Nothing spare is nothing to work with, and the plan stands as it was.
   const bare = solvePlan(graph, { targets: ['Carbon'] });

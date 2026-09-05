@@ -5153,6 +5153,33 @@ const better = (a, b) => {
 };
 
 /**
+ * The same, with what the plan throws away counted above its length.
+ *
+ * A byproduct is a standing obligation where a step is a one-off: something has
+ * to carry the two Carbon Monoxide away for as long as the factory runs, and
+ * one more step to not make any is a bargain.
+ *
+ * Not folded into `score`, which decides every comparison in this file, because
+ * it was tried there and the cost was too specific to ignore. Over 260 targets
+ * it moved three plans, took 364 units of waste out of them and cost one step
+ * in total -- but among the three was the last plan in the whole data set that
+ * still traded a step for a charge, and "Prime instead" is offered on the step
+ * that trade buys. Boron Oxide stopped fetching seven Water to vent six Steam,
+ * which is a better plan and left a real feature with nothing to attach to.
+ *
+ * So it is asked only where the choice is between ways of closing a shopping
+ * list out of the leavings, which is where waste is what the reader is choosing
+ * by. Anything this pass accepts has already had to be better by `score`.
+ *
+ * Kinds rather than amounts: how much comes off scales with the batch, and a
+ * plan is not worse for being asked about in larger numbers.
+ */
+const scoreWaste = (p) => [p.frontier.filter((f) => f.alternatives > 0).length,
+                           p.frontier.length,
+                           p.byproducts.filter((b) => !b.kept).length,
+                           p.steps.length, p.priming.length];
+
+/**
  * Everything the views need, as data.
  *
  * `frontier` is the reader's shopping list and `byproducts` is what the plan
@@ -5359,6 +5386,7 @@ function solvePlan(graph, rawSpec) {
 
     let best = null;
     let bestScore = score(plan);
+    let bestWaste = null;
     let bestSpec = null;
     for (const t of tries.slice(0, SPARE_ROUTES)) {
       const trial = { ...spec,
@@ -5370,8 +5398,14 @@ function solvePlan(graph, rawSpec) {
       // search with a pin on it, and the pin was never the reader's.
       if (t.via && rzero(got.runsOf(t.via))) continue;
       if (rzero(got.runsOf(t.id))) continue;
-      if (!better(score(got), bestScore)) continue;
-      best = got; bestScore = score(got); bestSpec = trial;
+      // Better than the plan we came in with, on the usual measure...
+      if (!better(score(got), score(plan))) continue;
+      // ...and then the least wasteful of the ones that are. Carbon can be had
+      // in six steps leaving two Carbon Monoxide or in seven leaving nothing
+      // but the oxygen the carbon dioxide came with, and the seven-step plan is
+      // the one anybody would rather be handed.
+      if (best && !better(scoreWaste(got), bestWaste)) continue;
+      best = got; bestScore = score(got); bestWaste = scoreWaste(got); bestSpec = trial;
     }
     if (!best) break;
     spec = bestSpec;

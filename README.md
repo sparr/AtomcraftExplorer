@@ -481,15 +481,30 @@ fetched, the ways of making it that the leavings would cover are tried, pinned
 so the price cannot overrule them, with whatever turns the leavings into their
 feed run on the leavings alone. Then the usual comparison picks:
 
-    2×  Carbon Dioxide + Hydrogen Gas → Carbon Monoxide + Water
-        on the spare Hydrogen Gas
+    1×  2 Hydrogen Gas + Oxygen Gas → 2 Steam
+        on the spare Hydrogen Gas and Oxygen Gas, then condensed
 
-— and the shopping list is empty. The whole plan is then three carbon dioxide
-and a charge of two Hydrogen Gas and two Potassium Oxide laid in once, giving a
-Carbon, two Carbon Monoxide and two Oxygen Gas. Burning the hydrogen and oxygen
-back together as Steam and condensing it closes the list just as well and is one
-step longer, so it loses on the same scale — press **Use the spare** on Hydrogen
-Combustion and pin Water to the condensation if you would rather have it.
+— and the shopping list is empty. What the plan comes to is one carbon dioxide
+in, one Carbon out and the oxygen it arrived with; the potassium and the water
+are a charge laid in once and turn on their own after that.
+
+**Where two of these close the list, the one that throws less away wins.** The
+carbon dioxide can take the spare hydrogen back directly — `CO₂ + H₂ → CO + H₂O`
+— which closes the list in six steps rather than seven. It also leaves two
+Carbon Monoxide, and a byproduct is a standing obligation where a step is a
+one-off: something has to carry them away for as long as the factory runs, so a
+seventh step to not make any is a bargain. Waste is counted in kinds rather
+than amounts, because how much comes off scales with the batch and a plan is
+not worse for being asked about in larger numbers.
+
+Only here, though. Counting waste in the ordinary comparison was tried, and over
+260 targets it moved three plans, took 364 units of waste out of them and cost
+one step in total — but one of the three was the last plan in the data that
+still traded a step for a charge, and **Prime instead** is offered on the step
+that trade buys. Boron Oxide stopped fetching seven Water in order to vent six
+Steam, which is a better plan, and it left a real feature with nothing to sit
+on. So waste settles the choice where the choice is about waste, and the general
+ranking is left alone.
 
 Two steps out from the leavings and no further, which is what keeps this from
 becoming a search for something to do with an awkward byproduct.
