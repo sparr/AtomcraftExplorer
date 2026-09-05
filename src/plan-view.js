@@ -12,7 +12,8 @@
  * else is drawn beside it later.
  */
 import { search } from './search.js';
-import { solvePlan, routesFor, usesFor, rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
+import { solvePlan, balanceTargets, routesFor, usesFor,
+         rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
 import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
@@ -20,10 +21,14 @@ import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHa
          removeHave, pin, toggle, toggleKind, setOption,
          selectMaterial, includeProcess, isFedBack, toggleFedBack,
          primeInstead, makeInstead, keepOutput, isKept,
-         useSpare, isUsingSpare } from './plan-state.js';
+         useSpare, isUsingSpare, setOption as setPlanOption,
+         hasPlenty, togglePlenty } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
+
+/** The amounts this render is working in: balanced, or exactly what was typed. */
+let shownTargets = [];
 
 /** The current question, and the answer last worked out from it. */
 let plan = emptyPlan();
@@ -212,16 +217,34 @@ function goalChip(cls, label, onRemove, extra) {
 function renderGoals() {
   const wants = $('#goal-targets');
   wants.textContent = '';
-  for (const t of plan.targets) {
+  for (const t of shownTargets) {
     const n = el('input', 'goal-amount');
     n.type = 'number';
     n.min = '1';
     n.value = String(t.amount);
     n.title = `How many ${t.name}`;
+    n.title = plan.balance
+      ? `How many ${t.name} — worked out to use the feed up. Typing here takes it over.`
+      : `How many ${t.name}`;
     n.addEventListener('change', () => edit(setTargetAmount, t.name, Number(n.value)));
     const inner = document.createDocumentFragment();
     inner.append(n, matLink(t.name));
     wants.append(goalChip('goal-target', '', () => edit(removeTarget, t.name), inner));
+  }
+
+  // One button for the arithmetic nobody wants to do: hold the amounts in the
+  // proportion the feed actually comes out in. It stays on, so adding a
+  // product or ruling a step out re-works them rather than leaving a ratio
+  // that was right for the last question.
+  const bal = $('#goal-balance');
+  bal.textContent = '';
+  if (plan.targets.length) {
+    const b = button('ghost small' + (plan.balance ? ' on' : ''), 'Balanced',
+      plan.balance
+        ? 'Amounts are worked out to use up what you have. Press to keep your own.'
+        : 'Work the amounts out so nothing you have goes to waste',
+      () => edit(setPlanOption, 'balance', !plan.balance));
+    bal.append(b);
   }
 
   // How much of each you actually have to supply. Not editable, unlike the
@@ -248,6 +271,19 @@ function renderGoals() {
       inner.append(n);
     }
     inner.append(matLink(name));
+    // The two kinds of "I have it", and the difference is only ever visible
+    // here: a fixed stock is what the amounts are balanced against, and
+    // something you can go on making is not a limit at all. Both stop the plan
+    // from working out how to make it.
+    const plenty = hasPlenty(plan, name);
+    const mark = button('goal-kind', plenty ? 'as needed' : 'all I have',
+      plenty
+        ? `The plan needs this much ${name} and you can get it. Press if that is all you have.`
+        : `All the ${name} you have, so the amounts are balanced against it. ` +
+          'Press if you can get more.',
+      () => edit(togglePlenty, name));
+    if (plenty) mark.classList.add('on');
+    inner.append(mark);
     haves.append(goalChip('goal-have', '', () => edit(removeHave, name), inner));
   }
 }
@@ -346,7 +382,7 @@ function renderSteps() {
   // Saying only that it was "scaled ×2" leaves the reader to work out what they
   // now get, while the goal bar still says 1.
   if (solved.scale.n !== 1n) {
-    const makes = plan.targets.map((t) => {
+    const makes = shownTargets.map((t) => {
       const m = ctx.db.byName.get(t.name);
       return `${rstr(rmul(rat(t.amount), solved.scale))} ${m ? m.display : t.name}`;
     });
@@ -620,8 +656,8 @@ function renderInspector(box) {
   // Carbon still come off the spare Carbon Monoxide and only the other five
   // are yours to supply.
   const standingIn = solved.sharedPins.get(name);
-  const takeIt = (p) => (standingIn ? useSpare(addHave(p, name), name, standingIn)
-                                    : addHave(p, name));
+  const takeIt = (p) => (standingIn ? useSpare(addHave(p, name, true), name, standingIn)
+                                    : addHave(p, name, true));
   const mineBtn = button('route-pick', '', has ? 'Stop treating this as available'
                                                : 'Treat this as available and plan no further',
                          () => edit(has ? removeHave : takeIt));
@@ -757,7 +793,7 @@ function renderSide() {
       // a button that means nothing.
       if (ctx.graph.categoryOf(f.name) !== 'deposit') {
         acts.append(button('ghost small', 'I have it', 'Stop planning for this one',
-                           () => edit(addHave, f.name)));
+                           () => edit(addHave, f.name, true)));
       }
       acts.append(button('ghost small', 'Other ways', `How else ${f.name} could be got`,
                          () => edit(selectMaterial, f.name)));
@@ -997,6 +1033,34 @@ function renderOptions() {
   $('#plan-feedback').checked = plan.feedBackAll;
 }
 
+/* --------------------------------------------------------------- balancing */
+
+/**
+ * The amounts the plan is actually solved and drawn with.
+ *
+ * Balancing costs a dozen solves, so the answer is kept: it depends on what is
+ * being made and out of what, not on the numbers in the boxes, and those are
+ * the things that change least often. Everything else in the question goes
+ * into the key because it can move the ratio -- ruling a step out changes what
+ * the feed comes to.
+ */
+let balancedFor = null;
+let balancedTo = null;
+
+function targetsFor(spec) {
+  if (!plan.balance || !plan.targets.length) return plan.targets;
+  const key = JSON.stringify([plan.targets.map((t) => t.name), spec.have, spec.plenty,
+                              spec.include,
+                              spec.alsoUse, spec.pins, spec.runs, spec.excludeProcesses,
+                              spec.excludeMaterials, spec.credit, spec.noFeedBack,
+                              spec.feedBackAll, spec.kinds, spec.avoidSideEffects]);
+  if (key !== balancedFor) {
+    balancedFor = key;
+    balancedTo = balanceTargets(ctx.graph, { ...spec, targets: plan.targets });
+  }
+  return balancedTo;
+}
+
 /* ------------------------------------------------------------------ render */
 
 export function render() {
@@ -1007,9 +1071,9 @@ export function render() {
   renderOptions();
   if (empty) { solved = null; return; }
 
-  solved = solvePlan(ctx.graph, {
-    targets: plan.targets,
+  const question = {
     have: plan.have,
+    plenty: plan.plenty,
     pins: plan.pins,
     include: plan.include,
     alsoUse: plan.alsoUse,
@@ -1022,6 +1086,12 @@ export function render() {
     noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,
     avoidSideEffects: plan.avoidSideEffects,
+  };
+  shownTargets = targetsFor(question);
+
+  solved = solvePlan(ctx.graph, {
+    ...question,
+    targets: shownTargets,
   });
 
   renderGoals();

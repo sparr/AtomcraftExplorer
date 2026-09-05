@@ -897,6 +897,16 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 /* The goal rows: chips, then a box to add to them. */
 .goal-chips { display: contents; }
 .goal-add { flex: 1; min-width: 220px; max-width: 420px; }
+/* The balance toggle sits at the end of the make row, past the input, since it
+   is about the amounts already there rather than about adding another. */
+#goal-balance { margin-left: auto; }
+
+/* Which of the two things "I have it" meant. Quiet, since it only matters when
+   the amounts are being balanced, but always legible. */
+.goal-kind { font-size: 11px; color: var(--fg-faint); background: none; border: 0;
+             cursor: pointer; padding: 0 4px; letter-spacing: 0.02em; }
+.goal-kind:hover { color: var(--fg); text-decoration: underline; }
+.goal-kind.on { color: var(--accent); }
 .picker-hit.on { background: var(--bg-sunken); }
 
 /* A reaction that runs alongside another on the same feed. Not chosen, not

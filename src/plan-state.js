@@ -33,6 +33,18 @@ export function emptyPlan() {
   return {
     targets: [],                  // [{name, amount}]
     have: [],                     // names
+    /**
+     * Which of those you can get as much of as you need.
+     *
+     * Both halves of `have` mean the same thing to the solver -- stop here,
+     * this is not to be made -- and differ only to `balanceTargets`. A limited
+     * stock is what the amounts are balanced *against*: three Lepidolite is
+     * two Potassium, two Lithium, two Aluminum and three Silicon, and that is
+     * the question worth asking of it. Something you can make more of as you
+     * go is no constraint at all, and treating it as one caps the plan at
+     * whatever the first guess happened to need.
+     */
+    plenty: [],
     pins: {},                     // material -> process id, or 'have'
     include: [],                  // process ids added going forwards
     /**
@@ -62,6 +74,16 @@ export function emptyPlan() {
     kinds: [...DEFAULT_KINDS],
     avoidSideEffects: true,
     /**
+     * Hold the amounts in the proportion the feed actually comes out in.
+     *
+     * On, because the arithmetic is the planner's job: three Lepidolite make
+     * two Potassium, two Lithium, two Aluminum and three Silicon, and asking
+     * for one of each gets you that anyway with a Molten Silica thrown away.
+     * Typing an amount turns it off -- at that point you have said what you
+     * want and it is not the planner's place to argue.
+     */
+    balance: true,
+    /**
      * Which material is being inspected. Not part of the question -- it is
      * where you are looking -- but it rides along in the URL for the same
      * reason the explorer's selection does: so a link points at the thing you
@@ -90,6 +112,7 @@ export function readPlan(params) {
       : { name: entry, amount: 1 };
   });
   plan.have = list(params.get('h'));
+  plan.plenty = list(params.get('pl'));
   plan.include = list(params.get('i'));
   plan.alsoUse = list(params.get('au'));
   plan.excludeProcesses = list(params.get('x'));
@@ -118,6 +141,7 @@ export function readPlan(params) {
     plan.kinds = list(kinds).filter((k) => known.has(k));
   }
   if (params.get('ss') === '0') plan.avoidSideEffects = false;
+  if (params.get('b') === '0') plan.balance = false;
   plan.selected = params.get('pm') || null;
   return plan;
 }
@@ -129,6 +153,7 @@ export function writePlan(plan, params) {
   put('t', plan.targets
     .map((t) => (t.amount === 1 ? t.name : `${t.name}${AMOUNT}${t.amount}`)).join(SEP));
   put('h', plan.have.join(SEP));
+  put('pl', plan.plenty.join(SEP));
   put('i', plan.include.join(SEP));
   put('au', plan.alsoUse.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
@@ -146,6 +171,7 @@ export function writePlan(plan, params) {
   // turning every kind off has to survive a reload as itself.
   if (!usual) params.set('k', plan.kinds.join(SEP) || NO_KINDS);
   if (!plan.avoidSideEffects) params.set('ss', '0');
+  if (!plan.balance) params.set('b', '0');
   put('pm', plan.selected);
 }
 
@@ -161,6 +187,7 @@ const clone = (p) => ({
   ...p,
   targets: p.targets.map((t) => ({ ...t })),
   have: [...p.have],
+  plenty: [...p.plenty],
   pins: { ...p.pins },
   include: [...p.include],
   alsoUse: [...p.alsoUse],
@@ -190,6 +217,9 @@ export function setTargetAmount(plan, name, amount) {
   const next = clone(plan);
   const found = next.targets.find((t) => t.name === name);
   if (found) found.amount = Math.max(1, Math.round(amount) || 1);
+  // Typing a number is taking the wheel. Balancing would overwrite it on the
+  // next render, which is a box that will not hold what you put in it.
+  next.balance = false;
   return next;
 }
 
@@ -241,9 +271,18 @@ export function removeTarget(plan, name) {
   return next;
 }
 
-export function addHave(plan, name) {
+/**
+ * `plenty` says you can get as much as the plan turns out to need.
+ *
+ * True wherever the reader is waving something off -- "I have it" on a line of
+ * the shopping list is not a statement about how much of it they have -- and
+ * false for the have box, where naming a material is stating your stock and
+ * "how much can I get out of this" is the question being asked.
+ */
+export function addHave(plan, name, plenty = false) {
   const next = clone(plan);
   if (!next.have.includes(name)) next.have.push(name);
+  if (plenty && !next.plenty.includes(name)) next.plenty.push(name);
   next.targets = next.targets.filter((t) => t.name !== name);
   // A pin saying how to make it is moot once you have it.
   delete next.pins[name];
@@ -253,8 +292,13 @@ export function addHave(plan, name) {
 export function removeHave(plan, name) {
   const next = clone(plan);
   next.have = drop(next.have, name);
+  next.plenty = drop(next.plenty, name);
   return next;
 }
+
+/** Between "this is all I have" and "as much as it needs". */
+export const hasPlenty = (plan, name) => plan.plenty.includes(name);
+export const togglePlenty = (plan, name) => toggle(plan, 'plenty', name);
 
 /** Choose which process makes a material, or 'have' to stop expanding there. */
 export function pin(plan, material, processId) {

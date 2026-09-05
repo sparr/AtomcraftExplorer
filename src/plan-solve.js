@@ -212,6 +212,14 @@ export function normalizeSpec(spec = {}) {
     targets: (spec.targets || []).map((t) =>
       (typeof t === 'string' ? { name: t, amount: 1 } : { amount: 1, ...t })),
     have: new Set(spec.have || []),
+    /**
+     * Held materials you can get as much of as the plan turns out to need.
+     *
+     * Nothing to the solver, which stops at anything held either way. It is
+     * `balanceTargets` that cares: a limited stock is what the amounts are
+     * balanced against, and something you can go on making is no constraint.
+     */
+    plenty: new Set(spec.plenty || []),
     /** material -> process id, or 'have' to stop there. */
     pins: new Map(Object.entries(spec.pins || {})),
     /** processes the reader added going forwards, from what they have. */
@@ -1280,6 +1288,120 @@ function solveOnce(graph, spec) {
     },
     runsOf: (id) => rmul(scaled.runs.get(id) || R0, scale),
   };
+}
+
+/**
+ * Amounts that use the feed up rather than leaving half of it on the floor.
+ *
+ * Ask for one each of Potassium, Lithium, Aluminum and Silicon out of
+ * Lepidolite and you get two of each -- a run is a whole thing, so the plan
+ * doubles -- with one Molten Silica left over, because the ore's three
+ * decompositions share a chamber and hand back three Molten Silica whether you
+ * wanted them or not. Two, two, two and *three* is what three Lepidolite
+ * actually comes to, and working that out by hand is arithmetic nobody should
+ * be doing.
+ *
+ * Two things, in order:
+ *
+ *   1. The batch scale is folded in, so the numbers say what you get rather
+ *      than what you asked for before the plan rounded it up.
+ *   2. Each amount is raised as far as it will go without the plan wanting
+ *      more of anything you said you have, and the result reduced to its
+ *      smallest whole numbers.
+ *
+ * The second only applies where there are two products to hold in proportion
+ * *and* something held that they compete for. One product has no ratio to be
+ * in, and a feed nothing draws on is no constraint -- Molten Aluminum out of
+ * Water would climb forever -- so both of those keep the amounts they were
+ * given and take only the scaling.
+ *
+ * The ratio is a property of the question, not of the numbers already in the
+ * box, so the climb starts from one of each. Starting from what was typed lets
+ * a lopsided request keep the oversized feed it committed to: 2/2/2/4 buys
+ * twelve Lepidolite, and filling those gives 8/2/2/12 rather than the 2/2/2/3
+ * that three would have got.
+ */
+export function balanceTargets(graph, rawSpec) {
+  const names = (rawSpec.targets || []).map((t) => (typeof t === 'string' ? t : t.name));
+  const typed = (rawSpec.targets || []).map((t) => (typeof t === 'string' ? 1 : t.amount || 1));
+  if (!names.length) return [];
+
+  /** Solves are the cost here, so they are counted and capped. */
+  let budget = 60;
+  const solve = (a) => (budget-- > 0
+    ? solvePlan(graph, { ...rawSpec, targets: names.map((n, i) => ({ name: n, amount: a[i] })) })
+    : null);
+
+  /**
+   * What the plan asks you to supply of the things you have a fixed stock of.
+   *
+   * Only those: something you can go on making is not a limit, and counting it
+   * as one caps the plan at whatever the first guess happened to need. Say you
+   * have Carbon as well as Lepidolite and the Silicon drops from three to two,
+   * for no better reason than that the third one wanted more Carbon.
+   */
+  const feedOf = (p) => {
+    const feed = new Map();
+    for (const n of p.spec.have) {
+      if (p.spec.plenty.has(n)) continue;
+      const net = rsub(p.amountOf(n), p.madeOf(n));
+      if (rcmp(net, R0) > 0) feed.set(n, net);
+    }
+    return feed;
+  };
+  const costsMore = (was, now) => [...now].some(([n, v]) => rcmp(v, was.get(n) ?? R0) > 0);
+  const gcdN = (a, b) => (b ? gcdN(b, a % b) : a);
+  /** A runaway guard, not a judgement about what anybody might want. */
+  const CEILING = 100000;
+
+  let amounts = [...typed];
+  let plan = solve(amounts);
+  if (!plan) return names.map((name, i) => ({ name, amount: typed[i] }));
+  let feed = feedOf(plan);
+  const ratio = names.length > 1 && feed.size > 0;
+  if (ratio) { amounts = names.map(() => 1); plan = solve(amounts); feed = feedOf(plan); }
+
+  for (let round = 0; round < 3 && plan; round++) {
+    let moved = false;
+    // Say what you get, not what you asked for before it was rounded up.
+    if (plan.scale.n !== 1n) {
+      amounts = amounts.map((a) => a * Number(plan.scale.n));
+      plan = solve(amounts);
+      if (!plan) break;
+      feed = feedOf(plan);
+      moved = true;
+    }
+    if (ratio) {
+      for (let i = 0; i < amounts.length && budget > 0; i++) {
+        // Double until it costs more feed, then halve back onto the edge.
+        let lo = amounts[i], hi = Infinity;
+        for (let step = 1; amounts[i] + step <= CEILING; step *= 2) {
+          const trial = [...amounts]; trial[i] = amounts[i] + step;
+          const q = solve(trial);
+          if (!q || costsMore(feed, feedOf(q))) { hi = amounts[i] + step; break; }
+          lo = amounts[i] + step;
+        }
+        while (Number.isFinite(hi) && hi - lo > 1 && budget > 0) {
+          const mid = Math.floor((lo + hi) / 2);
+          const trial = [...amounts]; trial[i] = mid;
+          const q = solve(trial);
+          if (!q || costsMore(feed, feedOf(q))) hi = mid; else lo = mid;
+        }
+        if (lo !== amounts[i]) { amounts[i] = lo; moved = true; }
+      }
+      const q = solve(amounts);
+      if (q) { plan = q; feed = feedOf(plan); }
+      // Smallest whole numbers, so the same ratio always reads the same way.
+      const g = amounts.reduce(gcdN);
+      if (g > 1) {
+        const smaller = amounts.map((a) => a / g);
+        const r = solve(smaller);
+        if (r && r.scale.n === 1n) { amounts = smaller; plan = r; feed = feedOf(plan); moved = true; }
+      }
+    }
+    if (!moved) break;
+  }
+  return names.map((name, i) => ({ name, amount: amounts[i] }));
 }
 
 /**

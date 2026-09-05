@@ -904,6 +904,16 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 /* The goal rows: chips, then a box to add to them. */
 .goal-chips { display: contents; }
 .goal-add { flex: 1; min-width: 220px; max-width: 420px; }
+/* The balance toggle sits at the end of the make row, past the input, since it
+   is about the amounts already there rather than about adding another. */
+#goal-balance { margin-left: auto; }
+
+/* Which of the two things "I have it" meant. Quiet, since it only matters when
+   the amounts are being balanced, but always legible. */
+.goal-kind { font-size: 11px; color: var(--fg-faint); background: none; border: 0;
+             cursor: pointer; padding: 0 4px; letter-spacing: 0.02em; }
+.goal-kind:hover { color: var(--fg); text-decoration: underline; }
+.goal-kind.on { color: var(--accent); }
 .picker-hit.on { background: var(--bg-sunken); }
 
 /* A reaction that runs alongside another on the same feed. Not chosen, not
@@ -1037,6 +1047,7 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
         <span class="goal-head">make</span>
         <span id="goal-targets" class="goal-chips"></span>
         <span id="goal-make-add" class="goal-add"></span>
+        <span id="goal-balance"></span>
       </div>
       <div class="goal-row">
         <span class="goal-head">have</span>
@@ -3999,6 +4010,18 @@ function emptyPlan() {
   return {
     targets: [],                  // [{name, amount}]
     have: [],                     // names
+    /**
+     * Which of those you can get as much of as you need.
+     *
+     * Both halves of `have` mean the same thing to the solver -- stop here,
+     * this is not to be made -- and differ only to `balanceTargets`. A limited
+     * stock is what the amounts are balanced *against*: three Lepidolite is
+     * two Potassium, two Lithium, two Aluminum and three Silicon, and that is
+     * the question worth asking of it. Something you can make more of as you
+     * go is no constraint at all, and treating it as one caps the plan at
+     * whatever the first guess happened to need.
+     */
+    plenty: [],
     pins: {},                     // material -> process id, or 'have'
     include: [],                  // process ids added going forwards
     /**
@@ -4028,6 +4051,16 @@ function emptyPlan() {
     kinds: [...DEFAULT_KINDS],
     avoidSideEffects: true,
     /**
+     * Hold the amounts in the proportion the feed actually comes out in.
+     *
+     * On, because the arithmetic is the planner's job: three Lepidolite make
+     * two Potassium, two Lithium, two Aluminum and three Silicon, and asking
+     * for one of each gets you that anyway with a Molten Silica thrown away.
+     * Typing an amount turns it off -- at that point you have said what you
+     * want and it is not the planner's place to argue.
+     */
+    balance: true,
+    /**
      * Which material is being inspected. Not part of the question -- it is
      * where you are looking -- but it rides along in the URL for the same
      * reason the explorer's selection does: so a link points at the thing you
@@ -4056,6 +4089,7 @@ function readPlan(params) {
       : { name: entry, amount: 1 };
   });
   plan.have = list(params.get('h'));
+  plan.plenty = list(params.get('pl'));
   plan.include = list(params.get('i'));
   plan.alsoUse = list(params.get('au'));
   plan.excludeProcesses = list(params.get('x'));
@@ -4084,6 +4118,7 @@ function readPlan(params) {
     plan.kinds = list(kinds).filter((k) => known.has(k));
   }
   if (params.get('ss') === '0') plan.avoidSideEffects = false;
+  if (params.get('b') === '0') plan.balance = false;
   plan.selected = params.get('pm') || null;
   return plan;
 }
@@ -4095,6 +4130,7 @@ function writePlan(plan, params) {
   put('t', plan.targets
     .map((t) => (t.amount === 1 ? t.name : `${t.name}${AMOUNT}${t.amount}`)).join(SEP));
   put('h', plan.have.join(SEP));
+  put('pl', plan.plenty.join(SEP));
   put('i', plan.include.join(SEP));
   put('au', plan.alsoUse.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
@@ -4112,6 +4148,7 @@ function writePlan(plan, params) {
   // turning every kind off has to survive a reload as itself.
   if (!usual) params.set('k', plan.kinds.join(SEP) || NO_KINDS);
   if (!plan.avoidSideEffects) params.set('ss', '0');
+  if (!plan.balance) params.set('b', '0');
   put('pm', plan.selected);
 }
 
@@ -4127,6 +4164,7 @@ const clone = (p) => ({
   ...p,
   targets: p.targets.map((t) => ({ ...t })),
   have: [...p.have],
+  plenty: [...p.plenty],
   pins: { ...p.pins },
   include: [...p.include],
   alsoUse: [...p.alsoUse],
@@ -4156,6 +4194,9 @@ function setTargetAmount(plan, name, amount) {
   const next = clone(plan);
   const found = next.targets.find((t) => t.name === name);
   if (found) found.amount = Math.max(1, Math.round(amount) || 1);
+  // Typing a number is taking the wheel. Balancing would overwrite it on the
+  // next render, which is a box that will not hold what you put in it.
+  next.balance = false;
   return next;
 }
 
@@ -4207,9 +4248,18 @@ function removeTarget(plan, name) {
   return next;
 }
 
-function addHave(plan, name) {
+/**
+ * `plenty` says you can get as much as the plan turns out to need.
+ *
+ * True wherever the reader is waving something off -- "I have it" on a line of
+ * the shopping list is not a statement about how much of it they have -- and
+ * false for the have box, where naming a material is stating your stock and
+ * "how much can I get out of this" is the question being asked.
+ */
+function addHave(plan, name, plenty = false) {
   const next = clone(plan);
   if (!next.have.includes(name)) next.have.push(name);
+  if (plenty && !next.plenty.includes(name)) next.plenty.push(name);
   next.targets = next.targets.filter((t) => t.name !== name);
   // A pin saying how to make it is moot once you have it.
   delete next.pins[name];
@@ -4219,8 +4269,13 @@ function addHave(plan, name) {
 function removeHave(plan, name) {
   const next = clone(plan);
   next.have = drop(next.have, name);
+  next.plenty = drop(next.plenty, name);
   return next;
 }
+
+/** Between "this is all I have" and "as much as it needs". */
+const hasPlenty = (plan, name) => plan.plenty.includes(name);
+const togglePlenty = (plan, name) => toggle(plan, 'plenty', name);
 
 /** Choose which process makes a material, or 'have' to stop expanding there. */
 function pin(plan, material, processId) {
@@ -4282,7 +4337,7 @@ function planProcess(plan, process) {
   return next;
 }
 
-return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTarget, setTargetAmount, keepOutput, isKept, isFedBack, toggleFedBack, primeInstead, makeInstead, isPrimedByChoice, selectMaterial, removeTarget, addHave, removeHave, pin, includeProcess, useSpare, isUsingSpare, toggle, toggleKind, setOption, planProcess };
+return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTarget, setTargetAmount, keepOutput, isKept, isFedBack, toggleFedBack, primeInstead, makeInstead, isPrimedByChoice, selectMaterial, removeTarget, addHave, removeHave, hasPlenty, togglePlenty, pin, includeProcess, useSpare, isUsingSpare, toggle, toggleKind, setOption, planProcess };
 })();
 
 const __mod_plan_solve = (() => {
@@ -4500,6 +4555,14 @@ function normalizeSpec(spec = {}) {
     targets: (spec.targets || []).map((t) =>
       (typeof t === 'string' ? { name: t, amount: 1 } : { amount: 1, ...t })),
     have: new Set(spec.have || []),
+    /**
+     * Held materials you can get as much of as the plan turns out to need.
+     *
+     * Nothing to the solver, which stops at anything held either way. It is
+     * `balanceTargets` that cares: a limited stock is what the amounts are
+     * balanced against, and something you can go on making is no constraint.
+     */
+    plenty: new Set(spec.plenty || []),
     /** material -> process id, or 'have' to stop there. */
     pins: new Map(Object.entries(spec.pins || {})),
     /** processes the reader added going forwards, from what they have. */
@@ -5571,6 +5634,120 @@ function solveOnce(graph, spec) {
 }
 
 /**
+ * Amounts that use the feed up rather than leaving half of it on the floor.
+ *
+ * Ask for one each of Potassium, Lithium, Aluminum and Silicon out of
+ * Lepidolite and you get two of each -- a run is a whole thing, so the plan
+ * doubles -- with one Molten Silica left over, because the ore's three
+ * decompositions share a chamber and hand back three Molten Silica whether you
+ * wanted them or not. Two, two, two and *three* is what three Lepidolite
+ * actually comes to, and working that out by hand is arithmetic nobody should
+ * be doing.
+ *
+ * Two things, in order:
+ *
+ *   1. The batch scale is folded in, so the numbers say what you get rather
+ *      than what you asked for before the plan rounded it up.
+ *   2. Each amount is raised as far as it will go without the plan wanting
+ *      more of anything you said you have, and the result reduced to its
+ *      smallest whole numbers.
+ *
+ * The second only applies where there are two products to hold in proportion
+ * *and* something held that they compete for. One product has no ratio to be
+ * in, and a feed nothing draws on is no constraint -- Molten Aluminum out of
+ * Water would climb forever -- so both of those keep the amounts they were
+ * given and take only the scaling.
+ *
+ * The ratio is a property of the question, not of the numbers already in the
+ * box, so the climb starts from one of each. Starting from what was typed lets
+ * a lopsided request keep the oversized feed it committed to: 2/2/2/4 buys
+ * twelve Lepidolite, and filling those gives 8/2/2/12 rather than the 2/2/2/3
+ * that three would have got.
+ */
+function balanceTargets(graph, rawSpec) {
+  const names = (rawSpec.targets || []).map((t) => (typeof t === 'string' ? t : t.name));
+  const typed = (rawSpec.targets || []).map((t) => (typeof t === 'string' ? 1 : t.amount || 1));
+  if (!names.length) return [];
+
+  /** Solves are the cost here, so they are counted and capped. */
+  let budget = 60;
+  const solve = (a) => (budget-- > 0
+    ? solvePlan(graph, { ...rawSpec, targets: names.map((n, i) => ({ name: n, amount: a[i] })) })
+    : null);
+
+  /**
+   * What the plan asks you to supply of the things you have a fixed stock of.
+   *
+   * Only those: something you can go on making is not a limit, and counting it
+   * as one caps the plan at whatever the first guess happened to need. Say you
+   * have Carbon as well as Lepidolite and the Silicon drops from three to two,
+   * for no better reason than that the third one wanted more Carbon.
+   */
+  const feedOf = (p) => {
+    const feed = new Map();
+    for (const n of p.spec.have) {
+      if (p.spec.plenty.has(n)) continue;
+      const net = rsub(p.amountOf(n), p.madeOf(n));
+      if (rcmp(net, R0) > 0) feed.set(n, net);
+    }
+    return feed;
+  };
+  const costsMore = (was, now) => [...now].some(([n, v]) => rcmp(v, was.get(n) ?? R0) > 0);
+  const gcdN = (a, b) => (b ? gcdN(b, a % b) : a);
+  /** A runaway guard, not a judgement about what anybody might want. */
+  const CEILING = 100000;
+
+  let amounts = [...typed];
+  let plan = solve(amounts);
+  if (!plan) return names.map((name, i) => ({ name, amount: typed[i] }));
+  let feed = feedOf(plan);
+  const ratio = names.length > 1 && feed.size > 0;
+  if (ratio) { amounts = names.map(() => 1); plan = solve(amounts); feed = feedOf(plan); }
+
+  for (let round = 0; round < 3 && plan; round++) {
+    let moved = false;
+    // Say what you get, not what you asked for before it was rounded up.
+    if (plan.scale.n !== 1n) {
+      amounts = amounts.map((a) => a * Number(plan.scale.n));
+      plan = solve(amounts);
+      if (!plan) break;
+      feed = feedOf(plan);
+      moved = true;
+    }
+    if (ratio) {
+      for (let i = 0; i < amounts.length && budget > 0; i++) {
+        // Double until it costs more feed, then halve back onto the edge.
+        let lo = amounts[i], hi = Infinity;
+        for (let step = 1; amounts[i] + step <= CEILING; step *= 2) {
+          const trial = [...amounts]; trial[i] = amounts[i] + step;
+          const q = solve(trial);
+          if (!q || costsMore(feed, feedOf(q))) { hi = amounts[i] + step; break; }
+          lo = amounts[i] + step;
+        }
+        while (Number.isFinite(hi) && hi - lo > 1 && budget > 0) {
+          const mid = Math.floor((lo + hi) / 2);
+          const trial = [...amounts]; trial[i] = mid;
+          const q = solve(trial);
+          if (!q || costsMore(feed, feedOf(q))) hi = mid; else lo = mid;
+        }
+        if (lo !== amounts[i]) { amounts[i] = lo; moved = true; }
+      }
+      const q = solve(amounts);
+      if (q) { plan = q; feed = feedOf(plan); }
+      // Smallest whole numbers, so the same ratio always reads the same way.
+      const g = amounts.reduce(gcdN);
+      if (g > 1) {
+        const smaller = amounts.map((a) => a / g);
+        const r = solve(smaller);
+        if (r && r.scale.n === 1n) { amounts = smaller; plan = r; feed = feedOf(plan); moved = true; }
+      }
+    }
+    if (!moved) break;
+  }
+  return names.map((name, i) => ({ name, amount: amounts[i] }));
+}
+
+/**
  * Every way the plan could make a material, best first.
  *
  * The frontier's routes were only ever offered for things left to fetch, which
@@ -5694,7 +5871,7 @@ function reachableFrom(graph, rawSpec) {
   return out;
 }
 
-return { rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rmin, rnum, rzero, rstr, DEFAULT_WEIGHTS, processCost, shareRatio, competitionOf, normalizeSpec, solveCosts, extract, topoOrder, amounts, batchScale, solvePlan, routesFor, usesFor, reachableFrom };
+return { rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rmin, rnum, rzero, rstr, DEFAULT_WEIGHTS, processCost, shareRatio, competitionOf, normalizeSpec, solveCosts, extract, topoOrder, amounts, batchScale, solvePlan, balanceTargets, routesFor, usesFor, reachableFrom };
 })();
 
 const __mod_plan_view = (() => {
@@ -5712,13 +5889,16 @@ const __mod_plan_view = (() => {
  * else is drawn beside it later.
  */
 const {search} = __mod_search;
-const {solvePlan, routesFor, usesFor, rat, rmul, rsub, rstr, rcmp, R0} = __mod_plan_solve;
+const {solvePlan, balanceTargets, routesFor, usesFor, rat, rmul, rsub, rstr, rcmp, R0} = __mod_plan_solve;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
 const {AMBIENT, formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
-const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, setOption, selectMaterial, includeProcess, isFedBack, toggleFedBack, primeInstead, makeInstead, keepOutput, isKept, useSpare, isUsingSpare} = __mod_plan_state;
+const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, setOption, selectMaterial, includeProcess, isFedBack, toggleFedBack, primeInstead, makeInstead, keepOutput, isKept, useSpare, isUsingSpare, setOption: setPlanOption, hasPlenty, togglePlenty} = __mod_plan_state;
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
+
+/** The amounts this render is working in: balanced, or exactly what was typed. */
+let shownTargets = [];
 
 /** The current question, and the answer last worked out from it. */
 let plan = emptyPlan();
@@ -5907,16 +6087,34 @@ function goalChip(cls, label, onRemove, extra) {
 function renderGoals() {
   const wants = $('#goal-targets');
   wants.textContent = '';
-  for (const t of plan.targets) {
+  for (const t of shownTargets) {
     const n = el('input', 'goal-amount');
     n.type = 'number';
     n.min = '1';
     n.value = String(t.amount);
     n.title = `How many ${t.name}`;
+    n.title = plan.balance
+      ? `How many ${t.name} — worked out to use the feed up. Typing here takes it over.`
+      : `How many ${t.name}`;
     n.addEventListener('change', () => edit(setTargetAmount, t.name, Number(n.value)));
     const inner = document.createDocumentFragment();
     inner.append(n, matLink(t.name));
     wants.append(goalChip('goal-target', '', () => edit(removeTarget, t.name), inner));
+  }
+
+  // One button for the arithmetic nobody wants to do: hold the amounts in the
+  // proportion the feed actually comes out in. It stays on, so adding a
+  // product or ruling a step out re-works them rather than leaving a ratio
+  // that was right for the last question.
+  const bal = $('#goal-balance');
+  bal.textContent = '';
+  if (plan.targets.length) {
+    const b = button('ghost small' + (plan.balance ? ' on' : ''), 'Balanced',
+      plan.balance
+        ? 'Amounts are worked out to use up what you have. Press to keep your own.'
+        : 'Work the amounts out so nothing you have goes to waste',
+      () => edit(setPlanOption, 'balance', !plan.balance));
+    bal.append(b);
   }
 
   // How much of each you actually have to supply. Not editable, unlike the
@@ -5943,6 +6141,19 @@ function renderGoals() {
       inner.append(n);
     }
     inner.append(matLink(name));
+    // The two kinds of "I have it", and the difference is only ever visible
+    // here: a fixed stock is what the amounts are balanced against, and
+    // something you can go on making is not a limit at all. Both stop the plan
+    // from working out how to make it.
+    const plenty = hasPlenty(plan, name);
+    const mark = button('goal-kind', plenty ? 'as needed' : 'all I have',
+      plenty
+        ? `The plan needs this much ${name} and you can get it. Press if that is all you have.`
+        : `All the ${name} you have, so the amounts are balanced against it. ` +
+          'Press if you can get more.',
+      () => edit(togglePlenty, name));
+    if (plenty) mark.classList.add('on');
+    inner.append(mark);
     haves.append(goalChip('goal-have', '', () => edit(removeHave, name), inner));
   }
 }
@@ -6041,7 +6252,7 @@ function renderSteps() {
   // Saying only that it was "scaled ×2" leaves the reader to work out what they
   // now get, while the goal bar still says 1.
   if (solved.scale.n !== 1n) {
-    const makes = plan.targets.map((t) => {
+    const makes = shownTargets.map((t) => {
       const m = ctx.db.byName.get(t.name);
       return `${rstr(rmul(rat(t.amount), solved.scale))} ${m ? m.display : t.name}`;
     });
@@ -6315,8 +6526,8 @@ function renderInspector(box) {
   // Carbon still come off the spare Carbon Monoxide and only the other five
   // are yours to supply.
   const standingIn = solved.sharedPins.get(name);
-  const takeIt = (p) => (standingIn ? useSpare(addHave(p, name), name, standingIn)
-                                    : addHave(p, name));
+  const takeIt = (p) => (standingIn ? useSpare(addHave(p, name, true), name, standingIn)
+                                    : addHave(p, name, true));
   const mineBtn = button('route-pick', '', has ? 'Stop treating this as available'
                                                : 'Treat this as available and plan no further',
                          () => edit(has ? removeHave : takeIt));
@@ -6452,7 +6663,7 @@ function renderSide() {
       // a button that means nothing.
       if (ctx.graph.categoryOf(f.name) !== 'deposit') {
         acts.append(button('ghost small', 'I have it', 'Stop planning for this one',
-                           () => edit(addHave, f.name)));
+                           () => edit(addHave, f.name, true)));
       }
       acts.append(button('ghost small', 'Other ways', `How else ${f.name} could be got`,
                          () => edit(selectMaterial, f.name)));
@@ -6692,6 +6903,34 @@ function renderOptions() {
   $('#plan-feedback').checked = plan.feedBackAll;
 }
 
+/* --------------------------------------------------------------- balancing */
+
+/**
+ * The amounts the plan is actually solved and drawn with.
+ *
+ * Balancing costs a dozen solves, so the answer is kept: it depends on what is
+ * being made and out of what, not on the numbers in the boxes, and those are
+ * the things that change least often. Everything else in the question goes
+ * into the key because it can move the ratio -- ruling a step out changes what
+ * the feed comes to.
+ */
+let balancedFor = null;
+let balancedTo = null;
+
+function targetsFor(spec) {
+  if (!plan.balance || !plan.targets.length) return plan.targets;
+  const key = JSON.stringify([plan.targets.map((t) => t.name), spec.have, spec.plenty,
+                              spec.include,
+                              spec.alsoUse, spec.pins, spec.runs, spec.excludeProcesses,
+                              spec.excludeMaterials, spec.credit, spec.noFeedBack,
+                              spec.feedBackAll, spec.kinds, spec.avoidSideEffects]);
+  if (key !== balancedFor) {
+    balancedFor = key;
+    balancedTo = balanceTargets(ctx.graph, { ...spec, targets: plan.targets });
+  }
+  return balancedTo;
+}
+
 /* ------------------------------------------------------------------ render */
 
 function render() {
@@ -6702,9 +6941,9 @@ function render() {
   renderOptions();
   if (empty) { solved = null; return; }
 
-  solved = solvePlan(ctx.graph, {
-    targets: plan.targets,
+  const question = {
     have: plan.have,
+    plenty: plan.plenty,
     pins: plan.pins,
     include: plan.include,
     alsoUse: plan.alsoUse,
@@ -6717,6 +6956,12 @@ function render() {
     noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,
     avoidSideEffects: plan.avoidSideEffects,
+  };
+  shownTargets = targetsFor(question);
+
+  solved = solvePlan(ctx.graph, {
+    ...question,
+    targets: shownTargets,
   });
 
   renderGoals();

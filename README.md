@@ -341,6 +341,55 @@ the page saying what narrowed it. Everything you have kept out is listed under
 to let it back in. The same undo sits on the route itself, which is kept in the
 list past the cut for exactly that reason.
 
+### Amounts that use the feed up
+
+Ask for one each of Potassium, Lithium, Aluminum and Silicon out of Lepidolite
+and you get two of each — a run is a whole thing, so the plan doubles — with
+one Molten Silica left on the floor. The ore's three decompositions share a
+chamber and hand back three Molten Silica whether you wanted them or not, so
+what three Lepidolite actually come to is two, two, two and **three**.
+
+**Balanced**, on the make row and on by default, does that arithmetic. Two
+things, in order: the batch scale is folded in, so the numbers say what you get
+rather than what you asked for before the plan rounded it up; then each amount
+is raised as far as it will go without the plan wanting more of anything you
+said you have, and the result reduced to its smallest whole numbers.
+
+    make    1 Potassium   1 Lithium   1 Aluminum   1 Silicon      [Balanced]
+      →     2 Potassium   2 Lithium   2 Aluminum   3 Silicon
+    have    3 Lepidolite — the same three either way
+
+Because the ratio is a property of the question rather than of the numbers
+already in the box, the search starts from one of each. Otherwise a lopsided
+request keeps the oversized feed it committed to: 2/2/2/4 buys twelve
+Lepidolite, and filling *those* gives 8/2/2/12 rather than the 2/2/2/3 that
+three would have got. So 2/2/2/4, 4/4/4/6 and 9/1/1/1 all come back to the same
+answer, whichever way they were wrong.
+
+Two cases keep the amounts they were given and take only the scaling: one
+product has no ratio to be in, and a feed nothing draws on is no constraint —
+Molten Aluminum out of Water would climb until it ran out of patience. Typing
+an amount turns balancing off, because a box that will not hold what you put in
+it is worse than no box.
+
+**"I have it" means two different things**, and only balancing can tell them
+apart. Lepidolite you have three of, and how much Potassium that comes to is
+the question. Carbon you can go on making, so holding the plan to whatever the
+first guess happened to need costs you the third Silicon for no reason. Each
+chip on the have row says which it is and flips on one press:
+
+    have    3 Lepidolite  all I have      9 Carbon  as needed
+
+Both stop the plan working out how to make the material; the difference is
+only whether the amounts are balanced against it. The number is the same
+either way — all you have, or all it will take. **As needed** is the default
+wherever something is being waved off rather than declared: pressing "I have
+it" on a line of the shopping list is not a statement about how much of it you
+have, and before this it quietly became one.
+
+It costs about a dozen solves, so the answer is kept until the question changes
+— which products, out of what, with which steps ruled out.
+
 ### Running a route on the leavings
 
 Picking a route can mean two things, and a click cannot say which. Ask for

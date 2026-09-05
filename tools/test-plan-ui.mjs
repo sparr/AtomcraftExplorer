@@ -8,7 +8,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { installDom } from './dom-shim.mjs';
-import { emptyPlan, addTarget, addHave, readPlan, writePlan } from '../src/plan-state.js';
+import { emptyPlan, addTarget, addHave, removeTarget,
+         readPlan, writePlan } from '../src/plan-state.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 installDom([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
@@ -90,10 +91,18 @@ check(steps.length === 4, `Vinegar comes out as ${steps.length} steps`);
   // A run is a whole thing, so a plan that would need half of one is multiplied
   // up -- and has to say what that leaves you with, since the goal bar still
   // says what you asked for.
-  app.setPlan(addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite'));
+  const one = addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite');
+  app.setPlan({ ...one, balance: false });
   const head = text('#plan-steps');
   check(head.includes('one batch makes 2 Potassium'),
         `a doubled plan says what a batch makes: ${head.slice(0, 60).trim()}`);
+  // Balanced, the goal bar says 2 in the first place and there is nothing to
+  // explain -- which is most of the point of it being on.
+  app.setPlan(one);
+  // The amount lives in an input, so it is read rather than scraped.
+  const asked = nodes($('#goal-targets'), 'goal-amount')[0];
+  check(asked?.value === '2' && !text('#plan-steps').includes('one batch makes'),
+        `and balanced, it simply asks for the 2 it was always going to make: ${asked?.value}`);
   app.setPlan(addTarget(emptyPlan(), 'Vinegar'));
   check(!text('#plan-steps').includes('one batch makes'),
         'and a plan that comes out whole says nothing about it');
@@ -439,7 +448,7 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
     ...emptyPlan(),
     targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
               { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
-    have: ['Lepidolite'],
+    have: ['Lepidolite'], balance: false,
     pins: { Carbon: 'rx:Boudouard Equilibrium 500-725K' },
     selected: 'Carbon',
   });
@@ -471,7 +480,7 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
     ...emptyPlan(),
     targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
               { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
-    have: ['Lepidolite'],
+    have: ['Lepidolite'], balance: false,
     selected: 'Carbon',
   });
   const row = (label) => nodes($('#plan-side'), 'route-opt')
@@ -500,7 +509,7 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
     ...emptyPlan(),
     targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
               { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
-    have: ['Lepidolite'], pins: { Carbon: BOUD }, selected: 'Carbon',
+    have: ['Lepidolite'], balance: false, pins: { Carbon: BOUD }, selected: 'Carbon',
   });
   nodes(row('I have it'), 'route-pick')[0].click();
   const after = app.getPlan();
@@ -564,6 +573,98 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(!!undo, 'marked as such, and offering to be let back in');
   undo.click();
   check(!app.getPlan().excludeProcesses.length, 'which is the same undo, in the other place');
+}
+
+/* ------------------------------------------------- balancing, on by default */
+
+{
+  const amounts = () => nodes($('#goal-targets'), 'goal-amount').map((n) => n.value).join('/');
+  const balBtn = () => nodes($('#goal-balance'), 'small')[0];
+
+  app.setMode('plan');
+  let p = { ...emptyPlan(), have: ['Lepidolite'],
+            targets: ['Potassium', 'Lithium', 'Aluminum', 'Silicon']
+              .map((name) => ({ name, amount: 1 })) };
+  app.setPlan(p);
+  check(app.getPlan().balance, 'balancing is on to begin with');
+  check(amounts() === '2/2/2/3',
+        `one of each is shown as what three Lepidolite comes to: ${amounts()}`);
+  check(/3\s*Lepidolite/.test(text('#goal-haves')), 'out of the same 3 Lepidolite');
+  check(!/Molten Silica/.test(text('#plan-side')), 'with no Molten Silica left on the floor');
+
+  // Off, and the numbers are yours again.
+  balBtn().click();
+  check(!app.getPlan().balance && amounts() === '1/1/1/1',
+        `pressing it hands the amounts back: ${amounts()}`);
+  check(/Molten Silica/.test(text('#plan-side')), 'waste and all');
+  balBtn().click();
+  check(amounts() === '2/2/2/3', 'and pressing again works them out afresh');
+
+  // It stays on through a change, which is the point of it being a toggle.
+  app.setPlan(removeTarget(app.getPlan(), 'Silicon'));
+  check(app.getPlan().balance && amounts() === '2/2/2',
+        `dropping a product re-works the rest: ${amounts()}`);
+
+  // Typing a number is taking the wheel, and a box that will not hold what you
+  // put in it is worse than no box.
+  app.setPlan({ ...emptyPlan(), have: ['Lepidolite'],
+                targets: [{ name: 'Potassium', amount: 1 }, { name: 'Lithium', amount: 1 }] });
+  const box = nodes($('#goal-targets'), 'goal-amount')[0];
+  box.value = '7';
+  box.dispatch('change');
+  check(!app.getPlan().balance, 'typing an amount turns balancing off');
+  check(amounts().startsWith('7'), `and the number typed is the number kept: ${amounts()}`);
+}
+
+// Off is the only half of it worth writing down, since on is the default.
+{
+  const params = new URLSearchParams();
+  writePlan({ ...emptyPlan(), targets: [{ name: 'Vinegar', amount: 1 }], balance: false }, params);
+  check(params.get('b') === '0' && readPlan(params).balance === false,
+        'balancing off survives a reload');
+  check(readPlan(new URLSearchParams()).balance === true, 'and an old link comes back balanced');
+}
+
+/* ------------------------- a stock, and something you can go on making */
+
+{
+  const amounts = () => nodes($('#goal-targets'), 'goal-amount').map((n) => n.value).join('/');
+  const marks = () => nodes($('#goal-haves'), 'goal-kind');
+  const four = ['Potassium', 'Lithium', 'Aluminum', 'Silicon']
+    .map((name) => ({ name, amount: 1 }));
+
+  app.setMode('plan');
+  app.setPlan({ ...emptyPlan(), have: ['Lepidolite', 'Carbon'], targets: four });
+  check(marks().length === 2 && marks().every((m) => m.textContent === 'all I have'),
+        'a material named in the have box is taken as a stock');
+  check(amounts() === '2/2/2/2', `so the Carbon holds the Silicon back: ${amounts()}`);
+
+  marks()[1].click();
+  check(app.getPlan().plenty.join() === 'Carbon' && marks()[1].textContent === 'as needed',
+        'one press says you can get more of it');
+  check(amounts() === '2/2/2/3', `and the third Silicon comes back: ${amounts()}`);
+  check(/9\s*Carbon/.test(text('#goal-haves')),
+        `with the chip saying how much the plan will want: ${text('#goal-haves')}`);
+
+  // Waving something off the shopping list is not a statement about how much of
+  // it you have, so it must not quietly become a limit.
+  app.setPlan({ ...emptyPlan(), have: ['Lepidolite'], targets: four });
+  check(amounts() === '2/2/2/3', 'starting from the balanced plan');
+  nodes($('#plan-side'), 'small').find((b) => b.textContent === 'I have it').click();
+  check(app.getPlan().plenty.includes('Bitter Oyster Spore'),
+        '"I have it" on the shopping list means as much as it needs');
+  check(amounts() === '2/2/2/3', `so the amounts do not move: ${amounts()}`);
+}
+
+// Only the plentiful ones need writing down; a stock is the plain reading.
+{
+  const params = new URLSearchParams();
+  writePlan({ ...emptyPlan(), targets: [{ name: 'Tantalum', amount: 1 }],
+              have: ['Columbite', 'Carbon'], plenty: ['Carbon'] }, params);
+  check(params.get('pl') === 'Carbon' && readPlan(params).plenty.join() === 'Carbon',
+        'which of them you can get more of survives a reload');
+  check(!readPlan(new URLSearchParams('h=Lepidolite')).plenty.length,
+        'and an old link reads as all stock, which is what it meant');
 }
 
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');

@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS,
          operatingWindow } from '../src/plan-graph.js';
-import { solvePlan, reachableFrom, routesFor, competitionOf, shareRatio, processCost,
+import { solvePlan, balanceTargets, reachableFrom, routesFor, competitionOf, shareRatio, processCost,
          rat, radd, rsub, rmul, rdiv, rcmp, rstr, rzero, R0 } from '../src/plan-solve.js';
 import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
          formatTemperatureRange, heatingNeed, coolingNeed } from '../src/units.js';
@@ -1142,6 +1142,84 @@ console.log('\n--- supplying part of it yourself ---');
   const idle = solvePlan(graph, { ...spec, alsoUse: ['rx:Blending Charcoal'] });
   check(rzero(idle.runsOf('rx:Blending Charcoal')) && !idle.frontier.length,
         'a route with nothing spare to run on stays out of the plan');
+}
+
+console.log('\n--- amounts that use the feed up ---');
+{
+  const amts = (spec) => balanceTargets(graph, spec)
+    .map((t) => `${t.amount} ${t.name}`).join(', ');
+  const four = ['Potassium', 'Lithium', 'Aluminum', 'Silicon'];
+  const at = (ns) => four.map((n, i) => ({ name: n, amount: ns[i] }));
+
+  // Three Lepidolite decompose into one each of potassium oxide, lithium oxide
+  // and alumina, and three Molten Silica. That is 2/2/2/3, and one of each gets
+  // you 2/2/2/2 with a Molten Silica thrown away.
+  const want = '2 Potassium, 2 Lithium, 2 Aluminum, 3 Silicon';
+  check(amts({ targets: at([1, 1, 1, 1]), have: ['Lepidolite'] }) === want,
+        `one of each comes out as ${want}`);
+  check(amts({ targets: at([2, 2, 2, 3]), have: ['Lepidolite'] }) === want,
+        'and asking for that already is left alone');
+  check(amts({ targets: at([4, 4, 4, 6]), have: ['Lepidolite'] }) === want,
+        'a multiple of it comes back to the smallest whole numbers');
+  // The ratio is a property of the question, so a lopsided request does not
+  // get to keep the oversized feed it committed to.
+  check(amts({ targets: at([2, 2, 2, 4]), have: ['Lepidolite'] }) === want,
+        'and one that asks for too much of one thing is cut back to fit');
+  check(amts({ targets: at([9, 1, 1, 1]), have: ['Lepidolite'] }) === want,
+        'whichever thing it was');
+
+  check(amts({ targets: [{ name: 'Tantalum', amount: 7 }, { name: 'Niobium', amount: 3 }],
+               have: ['Columbite', 'Carbon'] }) === '6 Tantalum, 6 Niobium',
+        'Columbite gives Tantalum and Niobium one for one, so 7 and 3 is 6 and 6');
+
+  // One product has no ratio to be in, and a feed nothing draws on is not a
+  // constraint -- Molten Aluminum out of Water would climb until it ran out of
+  // patience. Both keep what they were given and take only the scaling.
+  check(amts({ targets: [{ name: 'Molten Aluminum', amount: 4 }], have: ['Water'] })
+        === '4 Molten Aluminum', 'a feed the plan does not draw on holds nothing back');
+  check(amts({ targets: [{ name: 'Potassium', amount: 5 }], have: ['Lepidolite'] })
+        === '10 Potassium', 'and one product only gets the batch scale folded in');
+  check(amts({ targets: at([1, 1, 1, 1]) }) === '2 Potassium, 2 Lithium, 2 Aluminum, 2 Silicon',
+        'with nothing held there is no feed to match, so it is the scale and no more');
+  check(balanceTargets(graph, { targets: [] }).length === 0, 'nothing to make, nothing to balance');
+
+  // A dozen solves, so the pane keeps the answer -- but it still has to come
+  // back inside a time a person will sit through.
+  const t0 = Date.now();
+  balanceTargets(graph, { targets: at([1, 1, 1, 1]), have: ['Lepidolite'] });
+  const ms = Date.now() - t0;
+  check(ms < 4000, `and it comes back in ${ms} ms`);
+}
+
+console.log('\n--- a stock, and something you can go on making ---');
+{
+  const four = ['Potassium', 'Lithium', 'Aluminum', 'Silicon']
+    .map((name) => ({ name, amount: 1 }));
+  const at = (spec) => balanceTargets(graph, spec).map((t) => t.amount).join('/');
+
+  // Both halves of `have` mean the same thing to the solver. They differ only
+  // to the balancing, and the difference is the whole question: three
+  // Lepidolite is what you have, Carbon is what you can go on making.
+  check(at({ targets: four, have: ['Lepidolite'] }) === '2/2/2/3',
+        'three Lepidolite come to 2/2/2/3');
+  check(at({ targets: four, have: ['Lepidolite', 'Carbon'] }) === '2/2/2/2',
+        'and holding the Carbon to a stock as well costs the third Silicon');
+  check(at({ targets: four, have: ['Lepidolite', 'Carbon'], plenty: ['Carbon'] }) === '2/2/2/3',
+        'which saying you can get more Carbon gets back');
+  check(at({ targets: four, have: ['Lepidolite', 'Bitter Oyster Spore'],
+             plenty: ['Bitter Oyster Spore'] }) === '2/2/2/3',
+        'the same for anything waved off the shopping list');
+
+  // The number on the chip is the same either way; it is what it means that
+  // changes -- all you have, or all it will take.
+  const spec = { targets: balanceTargets(graph, { targets: four, have: ['Lepidolite', 'Carbon'],
+                                                  plenty: ['Carbon'] }),
+                 have: ['Lepidolite', 'Carbon'], plenty: ['Carbon'] };
+  const p = solvePlan(graph, spec);
+  check(rstr(rsub(p.amountOf('Carbon'), p.madeOf('Carbon'))) === '9',
+        'and it still says how much of it the plan will want');
+  check(rstr(rsub(p.amountOf('Lepidolite'), p.madeOf('Lepidolite'))) === '3',
+        'out of the three Lepidolite it was balanced against');
 }
 
 console.log('\n--- determinism ---');
