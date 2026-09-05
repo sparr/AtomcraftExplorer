@@ -597,6 +597,10 @@ console.log('\n--- reactions competing for the same feed ---');
         'the two reactions sharing the chamber are steps of the plan');
   check(plan.steps.filter((s) => s.sharesWith).length === 2,
         'marked as sharing rather than chosen');
+  // One chamber doing three things is read as one chamber doing three things.
+  const at = plan.steps.findIndex((s) => s.process.id === 'rx:Lepidolite Decomposition - Potassium');
+  check(plan.steps[at + 1]?.sharesWith && plan.steps[at + 2]?.sharesWith,
+        'listed right after the reaction they share with, not wherever the sort put them');
   check(rstr(plan.amountOf('Lepidolite')) === '3',
         `three ore in for one reaction's worth out (${rstr(plan.amountOf('Lepidolite'))})`);
   const spare = plan.byproducts.map((b) => b.name);

@@ -4787,6 +4787,28 @@ function solvePlan(graph, rawSpec) {
   const rank = new Map(order.map((id, i) => [id, i]));
   steps.sort((a, b) => (rank.get(a.process.id) ?? 0) - (rank.get(b.process.id) ?? 0));
 
+  // Then a chamber is kept together. Reactions sharing a feed are one piece of
+  // apparatus doing three things, and the topological order has no reason to
+  // put them next to each other -- it dropped the water-making between them.
+  {
+    const bySid = new Map(steps.map((x) => [x.process.id, x]));
+    const shown = new Set();
+    const together = [];
+    for (const step of steps) {
+      if (dag.forced.has(step.process.id)) continue;   // comes in beside its leader
+      together.push(step);
+      shown.add(step.process.id);
+      for (const m of dag.groups.get(step.process.id) || []) {
+        const rival = m.id !== step.process.id && bySid.get(m.id);
+        if (rival) { together.push(rival); shown.add(m.id); }
+      }
+    }
+    // A rival whose leader dropped out would otherwise vanish with it.
+    for (const step of steps) if (!shown.has(step.process.id)) together.push(step);
+    steps.length = 0;
+    steps.push(...together);
+  }
+
   // Described from the steps, in the order they are done, so that attributing
   // an extreme to a step is stable rather than a side effect of how the graph
   // happened to be walked.
