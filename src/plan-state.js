@@ -35,6 +35,14 @@ export function emptyPlan() {
     have: [],                     // names
     pins: {},                     // material -> process id, or 'have'
     include: [],                  // process ids added going forwards
+    /**
+     * Routes to run on what the plan is already throwing away, and no further.
+     *
+     * Not a claim about how anything is made -- that is what `pins` is for --
+     * so the two compose: a route can eat the eight spare Carbon Monoxide for
+     * four Carbon while the other five are still yours to supply.
+     */
+    alsoUse: [],
     runs: {},                     // process id -> batch size set by hand
     excludeProcesses: [],
     excludeMaterials: [],
@@ -83,6 +91,7 @@ export function readPlan(params) {
   });
   plan.have = list(params.get('h'));
   plan.include = list(params.get('i'));
+  plan.alsoUse = list(params.get('au'));
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
   plan.credit = list(params.get('cr'));
@@ -121,6 +130,7 @@ export function writePlan(plan, params) {
     .map((t) => (t.amount === 1 ? t.name : `${t.name}${AMOUNT}${t.amount}`)).join(SEP));
   put('h', plan.have.join(SEP));
   put('i', plan.include.join(SEP));
+  put('au', plan.alsoUse.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
   put('cr', plan.credit.join(SEP));
@@ -153,6 +163,7 @@ const clone = (p) => ({
   have: [...p.have],
   pins: { ...p.pins },
   include: [...p.include],
+  alsoUse: [...p.alsoUse],
   runs: { ...p.runs },
   excludeProcesses: [...p.excludeProcesses],
   excludeMaterials: [...p.excludeMaterials],
@@ -260,6 +271,22 @@ export function includeProcess(plan, id, runs) {
   if (runs) next.runs[id] = runs;
   return next;
 }
+
+/**
+ * Run this route on the plan's leavings, or stop.
+ *
+ * A pin on the same material is cleared: it was standing in for this, and
+ * leaving both would have the material claiming to be made two ways at once.
+ */
+export function useSpare(plan, material, processId) {
+  const next = toggle(plan, 'alsoUse', processId);
+  if (next.alsoUse.includes(processId) && next.pins[material] === processId) {
+    delete next.pins[material];
+  }
+  return next;
+}
+
+export const isUsingSpare = (plan, id) => plan.alsoUse.includes(id);
 
 export function toggle(plan, key, value) {
   const next = clone(plan);

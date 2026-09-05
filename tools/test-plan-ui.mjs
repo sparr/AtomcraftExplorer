@@ -429,5 +429,96 @@ check(!$('#back-to-plan').hidden, 'with a way back, now that there is a plan to 
 app.setPlan(emptyPlan());
 check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
 
+/* ---------------------------------------------- a route run on the leavings */
+
+// Both halves have to be legible: the step that says it is running on what the
+// plan throws off, and the route list where two routes are live at once.
+{
+  app.setMode('plan');
+  app.setPlan({
+    ...emptyPlan(),
+    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
+              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
+    have: ['Lepidolite'],
+    pins: { Carbon: 'rx:Boudouard Equilibrium 500-725K' },
+    selected: 'Carbon',
+  });
+  const steps = text('#plan-steps');
+  check(/on the spare Carbon Monoxide/.test(steps),
+        'the step says it is running on what the plan throws off');
+  check(/the other 5 Carbon come from Bitter Oyster Spore/.test(steps),
+        'and names what makes the rest');
+  const side = text('#plan-side');
+  check(/5 of the 9/.test(side) && /4 of the 9/.test(side),
+        'the route list gives both live routes their share');
+  check(/Stop recycling it/.test(side),
+        'and the charge the loop needs is undone by dropping the route, not by adding a step');
+  // Dropping it puts the plan back where it started.
+  const stop = nodes($('#plan-side'), 'small').find((b) => b.textContent === 'Stop recycling it');
+  stop.click();
+  check(!app.getPlan().pins.Carbon, '"Stop recycling it" clears the pin that put it there');
+  check(!/on the spare Carbon Monoxide/.test(text('#plan-steps')), 'and the step goes with it');
+}
+
+/* --------------------------------------- supplying part of it yourself */
+
+// Two separate statements that have to compose: run this route on the spare,
+// and the rest of that material is mine to bring.
+{
+  const BOUD = 'rx:Boudouard Equilibrium 500-725K';
+  app.setMode('plan');
+  app.setPlan({
+    ...emptyPlan(),
+    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
+              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
+    have: ['Lepidolite'],
+    selected: 'Carbon',
+  });
+  const row = (label) => nodes($('#plan-side'), 'route-opt')
+    .find((li) => li.textContent.includes(label));
+  const spareBtn = () => {
+    const li = row('Boudouard Equilibrium 500-725K');
+    return li && nodes(li, 'small').find((b) => /spare/.test(b.textContent));
+  };
+  check(!!spareBtn(), 'a route the plan could feed from its leavings offers to be run on them');
+
+  spareBtn().click();
+  check(app.getPlan().alsoUse.includes(BOUD), '"Use the spare" is remembered as itself, not as a pin');
+  check(/on the spare Carbon Monoxide/.test(text('#plan-steps')), 'and the step appears');
+
+  // Now hand over the rest yourself.
+  nodes(row('I have it'), 'route-pick')[0].click();
+  check(app.getPlan().have.includes('Carbon'), 'saying you have the Carbon is a separate answer');
+  check(app.getPlan().alsoUse.includes(BOUD), 'which does not turn the route off');
+  check(/5\s*Carbon/.test(text('#goal-haves')),
+        `the have row asks for the 5 you must supply, not the 9 the plan uses: ${text('#goal-haves')}`);
+  check(/Nothing left to fetch/.test(text('#plan-side')), 'and there is nothing left to fetch');
+
+  // A pin that was read as a surplus route is not a claim about how the
+  // material is made, so "I have it" must not take it away with the pin.
+  app.setPlan({
+    ...emptyPlan(),
+    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
+              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
+    have: ['Lepidolite'], pins: { Carbon: BOUD }, selected: 'Carbon',
+  });
+  nodes(row('I have it'), 'route-pick')[0].click();
+  const after = app.getPlan();
+  check(!after.pins.Carbon && after.alsoUse.includes(BOUD),
+        'so it survives "I have it" as a route run on the spare');
+  check(/5\s*Carbon/.test(text('#goal-haves')), 'reaching the same plan from the other side');
+}
+
+// The list of them rides in the URL like everything else the reader chose.
+{
+  const spec = { ...emptyPlan(), targets: [{ name: 'Carbon', amount: 1 }],
+                 alsoUse: ['rx:Boudouard Equilibrium 500-725K'] };
+  const params = new URLSearchParams();
+  writePlan(spec, params);
+  check(readPlan(params).alsoUse.join() === spec.alsoUse.join(),
+        'a route run on the spare survives a reload');
+  check(!readPlan(new URLSearchParams()).alsoUse.length, 'and an old link without one still reads');
+}
+
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

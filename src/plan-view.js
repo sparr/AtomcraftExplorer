@@ -19,7 +19,8 @@ import { AMBIENT, formatTemperature, formatTemperatureRange,
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
          removeHave, pin, toggle, toggleKind, setOption,
          selectMaterial, includeProcess, isFedBack, toggleFedBack,
-         primeInstead, makeInstead, keepOutput, isKept } from './plan-state.js';
+         primeInstead, makeInstead, keepOutput, isKept,
+         useSpare, isUsingSpare } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -226,15 +227,24 @@ function renderGoals() {
   // How much of each you actually have to supply. Not editable, unlike the
   // amounts above: it is worked out from the plan rather than asked for, and
   // a zero says the material was declared but never used.
+  //
+  // Net of anything the plan makes for itself. Nine Carbon go into the two
+  // reductions, but four come back off the spare Carbon Monoxide, so five is
+  // the number you have to find -- and the gross figure was a request for four
+  // you would never be asked for.
   const haves = $('#goal-haves');
   haves.textContent = '';
   for (const name of plan.have) {
-    const used = solved ? solved.amountOf(name) : null;
+    const wanted = solved ? solved.amountOf(name) : null;
+    const own = solved ? solved.madeOf(name) : null;
+    const used = wanted && (rcmp(wanted, own) > 0 ? rsub(wanted, own) : R0);
     const inner = document.createDocumentFragment();
     if (used) {
       const n = el('span', 'goal-used' + (rcmp(used, R0) > 0 ? '' : ' none'), amount(used));
-      n.title = rcmp(used, R0) > 0 ? `The plan uses ${amount(used)} ${name}`
-                                   : 'The plan does not use this';
+      n.title = rcmp(used, R0) <= 0 ? 'The plan does not use this'
+        : rcmp(own, R0) > 0
+          ? `The plan uses ${amount(wanted)} ${name} and makes ${amount(own)} of them itself`
+          : `The plan uses ${amount(used)} ${name}`;
       inner.append(n);
     }
     inner.append(matLink(name));
@@ -353,7 +363,9 @@ function renderSteps() {
   const table = el('table', 'plan-table');
   const tbody = el('tbody');
   for (const step of solved.steps) {
-    const tr = el('tr', 'plan-step' + (step.sharesWith ? ' step-shared' : ''));
+    const onSpare = solved.spec.alsoUse.has(step.process.id);
+    const tr = el('tr', 'plan-step' + (step.sharesWith ? ' step-shared' : '') +
+                        (onSpare ? ' step-spare-run' : ''));
     const kind = KIND.get(step.process.kind);
 
     const runs = el('td', 'step-runs');
@@ -384,6 +396,23 @@ function renderSteps() {
       if (step.share.rounded) note.append(' (roughly)');
       what.append(note);
     }
+    // Running on what the plan already throws off, and no further: it makes
+    // what the spare stretches to and the material's usual route makes up the
+    // difference. Without saying so, a step that plainly could run more times
+    // than it does looks like an arithmetic mistake.
+    if (onSpare) {
+      const note = el('div', 'step-spare');
+      note.append(`on the spare ${listed(step.process.consumes.map((i) => i.name))}`);
+      for (const o of step.process.produces) {
+        const rest = rsub(solved.amountOf(o.name), rmul(step.runs, rat(o.count)));
+        const other = solved.dag.materials.get(o.name)?.producer;
+        if (rcmp(rest, R0) <= 0 || !other) continue;
+        note.append(` — the other ${amount(rest)} ${o.name} ${
+          rcmp(rest, rat(1)) === 0 ? 'comes' : 'come'} from `);
+        note.append(el('span', 'step-share-with', ctx.graph.byId.get(other)?.label ?? other));
+      }
+      what.append(note);
+    }
     what.append(conditions(step));
     tr.append(what);
 
@@ -394,7 +423,12 @@ function renderSteps() {
     // inspector was no use to anyone who did not think to click the output.
     const made = step.process.produces
       .map((o) => o.name)
-      .find((n) => solved.dag.materials.get(n)?.producer === step.process.id);
+      .find((n) => solved.dag.materials.get(n)?.producer === step.process.id) ??
+      // A step running on the leavings is nobody's chosen producer -- it makes
+      // part of the demand and the chosen route makes the rest -- so what it
+      // is here for has to be read off the demand instead.
+      (onSpare ? step.process.produces.map((o) => o.name)
+        .find((n) => rcmp(solved.amountOf(n), R0) > 0) : undefined);
     if (step.sharesWith) {
       // Not a choice, so not offered as one.
       tr.append(el('td', 'step-acts'));
@@ -534,6 +568,12 @@ function renderInspector(box) {
   if (plan.have.includes(name)) role.push('yours already');
   else if (node?.reason === 'credited') role.push('surplus, fed back into the plan');
   else if (node?.reason === 'produced') role.push('made here');
+  // Something nobody chose to make, but which comes out anyway. Only what the
+  // plan cannot cover that way is on the shopping list, so a byproduct that
+  // meets its own demand is not "to be fetched" -- it is already here.
+  else if (node?.reason === 'byproduct' && rcmp(made, need) >= 0) {
+    role.push(rcmp(need, R0) > 0 ? 'a byproduct the plan then uses' : 'a byproduct');
+  }
   else if (node) role.push('to be fetched');
   else role.push('not in the plan');
   if (rcmp(need, R0) > 0) role.push(`${amount(need)} needed`);
@@ -574,9 +614,17 @@ function renderInspector(box) {
   const list = el('ul', 'route-list');
 
   const mine = el('li', 'route-opt' + (has ? ' on' : ''));
+  // Saying you have it drops the pin that said how to make it, which is right
+  // -- unless that pin was read as a route run on the leavings. That is not a
+  // claim about how the material is made, so it survives, as itself: the four
+  // Carbon still come off the spare Carbon Monoxide and only the other five
+  // are yours to supply.
+  const standingIn = solved.sharedPins.get(name);
+  const takeIt = (p) => (standingIn ? useSpare(addHave(p, name), name, standingIn)
+                                    : addHave(p, name));
   const mineBtn = button('route-pick', '', has ? 'Stop treating this as available'
                                                : 'Treat this as available and plan no further',
-                         () => edit(has ? removeHave : addHave, name));
+                         () => edit(has ? removeHave : takeIt));
   mineBtn.append(el('span', 'kind-glyph', '\u2713'));
   mineBtn.append(el('span', 'route-label', has ? 'You have it' : 'I have it'));
   mineBtn.append(el('span', 'route-from', 'nothing to make, nothing to fetch'));
@@ -591,12 +639,28 @@ function renderInspector(box) {
     list.append(auto);
 
     const shown = allRoutes ? routes : routes.slice(0, ROUTES_SHOWN);
+    const shared = routes.some((r) => r.spare);
     for (const r of shown) {
-      const li = el('li', 'route-opt' + (r.chosen ? ' on' : '') + (r.banned ? ' banned' : ''));
+      const li = el('li', 'route-opt' + (r.chosen || r.spare ? ' on' : '') +
+                          (r.banned ? ' banned' : ''));
       const pick = button('route-pick', '', `Make ${m.display} this way`,
                           () => edit(pin, name, r.process.id));
       pick.append(el('span', 'kind-glyph', KIND.get(r.process.kind)?.glyph || ''));
       pick.append(el('span', 'route-label', r.process.label));
+      // Two routes can be live at once: one running on what the plan throws
+      // off, and the usual one making up the difference. Saying which is
+      // which, and by how much, is the whole of the difference between them.
+      if (shared && (r.chosen || r.spare)) {
+        const much = el('span', 'route-share');
+        much.append(`${amount(r.covers)} of the ${amount(solved.amountOf(name))}`);
+        if (r.spare) {
+          const on = r.process.consumes.map((i) => i.name);
+          much.append(el('span', 'faint', ` — on the spare ${listed(on)}`));
+          much.title = 'Only what the plan is already throwing off feeds this, ' +
+                       'so it makes what that stretches to and no more.';
+        }
+        pick.append(much);
+      }
       const from = el('span', 'route-from');
       if (r.inputs.length) {
         r.inputs.forEach((i, k) => {
@@ -611,6 +675,21 @@ function renderInspector(box) {
       }
       pick.append(from);
       li.append(pick);
+      // The other thing a route can be: not how the material is made, but a
+      // use for what the plan is already throwing away. Offered wherever the
+      // plan has some of what it eats, since that is when it can do anything.
+      const on = isUsingSpare(plan, r.process.id);
+      if (!r.chosen && (on || r.runnable)) {
+        const acts = el('div', 'route-acts');
+        acts.append(button('ghost small' + (on ? ' on' : ''),
+          on ? 'On the spare' : 'Use the spare',
+          `Run ${r.process.label} on whatever the plan leaves over, and no further`,
+          () => edit(useSpare, name, r.process.id)));
+        if (on && !r.spare) {
+          acts.append(el('span', 'faint', 'nothing spare to run it on'));
+        }
+        li.append(acts);
+      }
       list.append(li);
     }
   }
@@ -702,9 +781,23 @@ function renderSide() {
       // the moment it arises: make the material outright instead of taking it
       // back off the loop.
       const acts = el('div', 'plan-item-acts');
-      acts.append(button('ghost small', 'Make it instead',
-                         `Add a step that makes ${item.name}, rather than laying some in`,
-                         () => edit(makeInstead, item.name)));
+      // A charge that exists because a route was set to run on the leavings is
+      // undone by dropping that route, not by adding a step: the step is
+      // already there. Turning the four spare Carbon Monoxide back into Carbon
+      // costs four Carbon to set the loop turning, and the reader may decide
+      // that is not worth it.
+      const recycles = [...solved.sharedPins].find(([mat, id]) =>
+        mat === item.name && solved.spec.alsoUse.has(id));
+      if (recycles) {
+        acts.append(button('ghost small', 'Stop recycling it',
+          `Drop ${ctx.graph.byId.get(recycles[1])?.label ?? recycles[1]}, which is ` +
+          `what the charge is for`,
+          () => edit(pin, item.name, null)));
+      } else {
+        acts.append(button('ghost small', 'Make it instead',
+                           `Add a step that makes ${item.name}, rather than laying some in`,
+                           () => edit(makeInstead, item.name)));
+      }
       li.append(acts);
       ul.append(li);
     }
@@ -849,6 +942,7 @@ export function render() {
     have: plan.have,
     pins: plan.pins,
     include: plan.include,
+    alsoUse: plan.alsoUse,
     runs: plan.runs,
     excludeProcesses: plan.excludeProcesses,
     excludeMaterials: plan.excludeMaterials,
