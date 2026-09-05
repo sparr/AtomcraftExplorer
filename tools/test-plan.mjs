@@ -609,6 +609,39 @@ console.log('\n--- reactions competing for the same feed ---');
   audit('Potassium from Lepidolite', plan);
 }
 
+/* ------------------------------------------------------------ closed loops */
+
+console.log('\n--- a material that comes back ---');
+{
+  // Chlorine goes into the hydrochloric acid and comes straight back out of
+  // the lithium electrolysis, in the same amount. Over a cycle the plan needs
+  // none of it -- but it cannot turn over without some to begin with.
+  const plan = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'] });
+  check(!plan.steps.some((s) => s.process.id === 'rx:Vanadinite Decomposition'),
+        'nothing is fetched to make a material the plan already hands back');
+  check(!plan.frontier.length,
+        `so there is nothing to fetch at all (${plan.frontier.map((f) => f.name).join(', ')})`);
+
+  const primed = plan.priming.map((x) => x.name);
+  check(primed.includes('Chlorine Gas'), `the chlorine is a priming charge instead: ${primed}`);
+  const cl = plan.priming.find((x) => x.name === 'Chlorine Gas');
+  check(rstr(cl.amount) === '1', 'of exactly what the loop is short of at its deepest');
+  check(rcmp(plan.madeOf('Chlorine Gas'), plan.amountOf('Chlorine Gas')) >= 0,
+        'and the plan makes back everything it takes');
+
+  // Steam is used and made too, but made first, so nothing has to be laid in.
+  check(!primed.includes('Steam'),
+        'a byproduct made before it is wanted needs no priming');
+
+  const off = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'],
+                                 feedBackAll: false });
+  check(off.frontier.some((f) => f.name === 'Vanadinite'),
+        'while a plan told to feed nothing back goes and fetches Vanadinite for it');
+  check(off.steps.length > plan.steps.length,
+        `and is longer for it (${off.steps.length} steps against ${plan.steps.length})`);
+  audit('Potassium and Lithium from Lepidolite', plan);
+}
+
 /* ------------------------------------------------------- what can be moved */
 
 console.log('\n--- working where a thing lies ---');

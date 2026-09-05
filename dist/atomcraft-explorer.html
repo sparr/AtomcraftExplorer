@@ -905,6 +905,10 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .step-share { font-size: 12px; color: var(--warm); margin-top: 2px; }
 .step-share-with { color: var(--fg-dim); }
 
+/* The charge a closed loop needs before it will turn over. Not a shopping
+   list: none of it is spent. */
+.priming { border-color: var(--ok); }
+
 </style>
 </head>
 <body>
@@ -4794,9 +4798,17 @@ function solvePlan(graph, rawSpec) {
   for (let round = 0; round < 8; round++) {
     const credit = new Set(spec.credit);
     for (const node of plan.dag.materials.values()) {
-      if (node.reason !== 'byproduct' && node.reason !== 'credited') continue;
       if (wanted.has(node.name) || spec.noFeedBack.has(node.name)) continue;
       if (overdrawn.has(node.name)) continue;
+      // Something being made on purpose is normally left alone -- crediting it
+      // would make it a leaf and delete the step that makes it. Unless the
+      // rest of the plan already hands back as much as it uses, in which case
+      // deleting that step is the point: chlorine used to make the acid comes
+      // straight back out of the electrolysis downstream, and fetching
+      // Vanadinite to make more of it is work for nothing.
+      const own = node.reason === 'byproduct' || node.reason === 'credited';
+      const covered = rcmp(plan.otherSupplyOf(node.name), plan.amountOf(node.name)) >= 0;
+      if (!own && !(node.reason === 'produced' && covered)) continue;
       if (rcmp(plan.madeOf(node.name), R0) > 0) credit.add(node.name);
     }
     if (key(credit) === last) break;
@@ -4950,8 +4962,40 @@ function solveOnce(graph, spec) {
   apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
   apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
 
+  /**
+   * How much of a material has to be in the chamber before any of this runs.
+   *
+   * A material can be consumed early and handed back later in the same
+   * quantity -- chlorine goes into the hydrochloric acid and comes out of the
+   * lithium electrolysis -- so over a whole cycle the plan neither needs nor
+   * makes any. It still cannot start without some. Walking the steps in order
+   * and taking the deepest the running balance goes gives exactly that: the
+   * charge you put in once and never spend.
+   */
+  const priming = [];
+  for (const node of dag.materials.values()) {
+    let balance = R0;
+    let deepest = R0;
+    for (const { process: p, runs } of steps) {
+      for (const i of p.consumes) {
+        if (i.name === node.name) balance = rsub(balance, rmul(runs, rat(i.count)));
+      }
+      if (rcmp(balance, deepest) < 0) deepest = balance;
+      for (const o of p.produces) {
+        if (o.name === node.name) balance = radd(balance, rmul(runs, rat(o.count)));
+      }
+    }
+    if (rcmp(deepest, R0) >= 0) continue;
+    const charge = rsub(R0, deepest);
+    // Only a loop: something the plan ends up supplying for itself. Anything it
+    // is genuinely short of belongs on the shopping list instead.
+    if (rcmp(at(scaled.supply, node.name), at(scaled.demand, node.name)) < 0) continue;
+    priming.push({ name: node.name, amount: charge });
+  }
+  priming.sort((a, b) => a.name.localeCompare(b.name));
+
   return {
-    spec, graph, dag, order, stuck,
+    spec, graph, dag, order, stuck, priming,
     cost: solved.cost,
     choice: solved.choice,
     scale,
@@ -4984,6 +5028,27 @@ function solveOnce(graph, spec) {
     /** Amounts, already scaled to the whole-number batch. */
     amountOf: (name) => at(scaled.demand, name),
     madeOf: (name) => at(scaled.supply, name),
+    /**
+     * What comes out of steps that are not this material's chosen producer.
+     *
+     * The measure of whether that producer is needed at all. Lithium's chlorine
+     * comes back out of the electrolysis further down the chain, so the step
+     * fetching Vanadinite to make some is redundant -- but only this tells the
+     * difference between that and a material genuinely being made on purpose.
+     */
+    otherSupplyOf: (name) => {
+      const node = dag.materials.get(name);
+      if (!node) return R0;
+      let spare = R0;
+      for (const id of node.byproductOf) {
+        const q = dag.processes.get(id);
+        const n = scaled.runs.get(id) || R0;
+        for (const o of q?.produces || []) {
+          if (o.name === name) spare = radd(spare, rmul(n, rat(o.count)));
+        }
+      }
+      return rmul(spare, scale);
+    },
     runsOf: (id) => rmul(scaled.runs.get(id) || R0, scale),
   };
 }
@@ -5703,6 +5768,31 @@ function renderSide() {
     front.append(ul);
   }
   box.append(front);
+
+  // --- what has to be in there before it starts ---------------------------
+  //
+  // Not a shopping list: none of this is spent. The plan hands back as much
+  // chlorine as it takes, so over a cycle it needs none -- but it cannot turn
+  // over without some in the chamber to begin with.
+  if (solved.priming.length) {
+    const prime = el('section', 'plan-panel priming');
+    prime.append(el('h2', null, 'To get it going'));
+    prime.append(el('p', 'muted',
+      'The plan gives all of this back as fast as it uses it, so it needs none ' +
+      'of it over a cycle — but it cannot start without some in the chamber.'));
+    const ul = el('ul', 'plan-list');
+    for (const item of solved.priming) {
+      const li = el('li', 'plan-item');
+      li.dataset.material = item.name;
+      const line = el('div', 'plan-item-main');
+      line.append(el('span', 'amount', amount(item.amount)), ' ', matLink(item.name));
+      li.append(line);
+      li.append(el('div', 'plan-how', 'put in once, never spent'));
+      ul.append(li);
+    }
+    prime.append(ul);
+    box.append(prime);
+  }
 
   // --- what it leaves lying around ---------------------------------------
   if (solved.byproducts.length) {

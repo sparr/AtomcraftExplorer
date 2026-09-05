@@ -897,3 +897,7 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .step-shared .step-what { border-left: 2px solid var(--line); padding-left: 8px; }
 .step-share { font-size: 12px; color: var(--warm); margin-top: 2px; }
 .step-share-with { color: var(--fg-dim); }
+
+/* The charge a closed loop needs before it will turn over. Not a shopping
+   list: none of it is spent. */
+.priming { border-color: var(--ok); }

@@ -616,6 +616,31 @@ function renderSide() {
   }
   box.append(front);
 
+  // --- what has to be in there before it starts ---------------------------
+  //
+  // Not a shopping list: none of this is spent. The plan hands back as much
+  // chlorine as it takes, so over a cycle it needs none -- but it cannot turn
+  // over without some in the chamber to begin with.
+  if (solved.priming.length) {
+    const prime = el('section', 'plan-panel priming');
+    prime.append(el('h2', null, 'To get it going'));
+    prime.append(el('p', 'muted',
+      'The plan gives all of this back as fast as it uses it, so it needs none ' +
+      'of it over a cycle — but it cannot start without some in the chamber.'));
+    const ul = el('ul', 'plan-list');
+    for (const item of solved.priming) {
+      const li = el('li', 'plan-item');
+      li.dataset.material = item.name;
+      const line = el('div', 'plan-item-main');
+      line.append(el('span', 'amount', amount(item.amount)), ' ', matLink(item.name));
+      li.append(line);
+      li.append(el('div', 'plan-how', 'put in once, never spent'));
+      ul.append(li);
+    }
+    prime.append(ul);
+    box.append(prime);
+  }
+
   // --- what it leaves lying around ---------------------------------------
   if (solved.byproducts.length) {
     const by = el('section', 'plan-panel');
