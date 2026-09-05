@@ -1,11 +1,24 @@
 # Problems in Atomcraft's materials and reactions
 
-An audit of the shipped game data — 1871 materials and 687 reactions, as baked into
-`data/atomcraft.json` from the Steam `Atomcraft.pck` build of 2026-09-05.
+An audit of the shipped game data — 1871 materials and 687 reactions, read from
+`Data/AllMaterials.json` and `Data/AllReactions.json` inside the Steam `AtomCraft.pck` build
+of 2026-09-05.
 
 Everything below is a defect in the **game's** data, not in this explorer. Each claim was
 derived mechanically from the data; the scripts that produced the numbers are described at
 the end.
+
+The findings were first developed against `data/atomcraft.json`, this repo's condensed bake
+of those two files, and then re-checked against the game's originals — because the bake
+drops nulls, falses and default zeroes, and several findings below turn on a field being
+zero or absent. The bake proved to be a faithful subset: 22,464 material scalars, 3,655
+nested scalars, 1,977 reaction scalars and 2,061 input/output/catalyst maps compare equal,
+and the four fields it never emits (`DissolvesInto`, `OverrideActorCollision`,
+`IsCarryingSignal`, `GrowthMedium`) are null in all 1871 materials. So every value cited
+here is the game's own. Two things did change on re-check, and both are corrected below:
+the `MassNumber` used in §7 is computed by the bake rather than shipped, and
+`ProgrammableDelegate` — a material link the bake drops — turns out to carry two dangling
+references of its own (§10).
 
 ---
 
@@ -627,9 +640,13 @@ Heavy Oil Vapor (Burning)  State: Liquid
 
 ## 7. Nuclear data
 
-324 isotopes. `ProtonNumber + NeutronNumber == MassNumber` holds for all of them, and all
-654 neutron/proton/alpha impact products are arithmetically correct. The decay chains are
-not.
+324 isotopes. The game ships `ProtonNumber` and `NeutronNumber`; the mass number used below
+is their sum, which the explorer's bake computes — so there is no Z+N-against-A check to be
+made, and none is claimed here. What the game *does* ship independently is each isotope's
+**name**, and every one of the 324 agrees with its own Z and N: no material called
+`Lead-212` carries neutrons for a different nuclide, and no `ProtonNumber` disagrees with
+the element its name gives. All 654 neutron/proton/alpha impact products are arithmetically
+correct too. The decay chains are not.
 
 Of 305 decay entries:
 
@@ -805,7 +822,7 @@ element.
 
 ## 10. Dangling references
 
-43 named materials do not exist. 36 are nuclear (§7e). The other seven:
+43 named materials do not exist. 30 are nuclides (§7e). The other 13:
 
 | missing | referenced by |
 |---|---|
@@ -819,13 +836,35 @@ element.
 | `Molten Carbide Steel` | `Vanadium Carbide Steel.Evaporation` |
 | `Naptha Vapor` | `Kerosene (Burning)` and `Kerosene Vapor (Burning)` combustion products |
 | `Pulsar-On` | `Bits of Pulsar.BuildsInto` |
-| `Temperature Sensor` | `Temperature Sensor (1000).RotatesLeftInto` |
-| `Heating Element` | referenced but not reachable from any scanned field |
+| `Temperature Sensor` | `Temperature Sensor (1000).RotatesLeftInto`, and the `ProgrammableDelegate` of all 4 `Temperature Sensor (…)` variants |
+| `Heating Element` | the `ProgrammableDelegate` of all 12 `Heating Element (…)` variants |
 | `+` | four `Composition.Elements` entries (`Aqua Regia`, `Compacted Dirt`, `Hydrofluoric Acid Crystals`, `Hydrofluoric Acid`) |
 
 `Ancient Corundum Wall` and `Laurite Deposit` cannot be mined. `Bits of Pulsar` cannot be
 built. `Temperature Sensor (1000)` cannot be rotated left. `Vanadium Carbide Steel` cannot
 be melted.
+
+`ProgrammableDelegate` names the material a programmable machine defers its behaviour to.
+It takes six values, and the pattern breaks in exactly half of them:
+
+| delegate | exists | used by |
+|---|---|---|
+| `Cooling Element` | yes | 6 `Cooling Element (…)` variants |
+| `Sensor` | yes | `Sensor` |
+| `Match Filter` | yes | `Match Filter` |
+| `Nonmatch Filter` | yes | `Nonmatch Filter` |
+| **`Heating Element`** | **no** | 12 `Heating Element (…)` variants |
+| **`Temperature Sensor`** | **no** | 4 `Temperature Sensor (…)` variants |
+
+The cooling elements have a base material to defer to and the heating elements do not,
+though the two families are otherwise built the same way. Sixteen machines defer to
+something that isn't there.
+
+One near-miss worth recording so nobody re-finds it: `ColorDelegate` looks like the same
+kind of link and is not. Its 19 values are renderer names — `Bark`, `CheckerPulse`,
+`Crystal`, `Gravel`, `Lava`, `MetalBits`, `SparklyMetal`, `LeftConveyor`, `RightConveyor` —
+which merely collide with material names in the other ten cases (`Sand`, `Granite`,
+`Limestone`, `Ruby`, …). Nothing dangles there.
 
 The `"+"` entries are a parsing artefact in the source data: a composition written as
 `X + H2O` was split on the `+` and the separator was kept as a component.
@@ -877,7 +916,8 @@ Combustion and carbothermal carbide formation do not need a current.
 | phase transitions with no target | 4 |
 | decay entries with a defect | 108 of 305 |
 | isotopes that never decay | 19 |
-| dangling material references | 43 |
+| dangling material references | 43 (30 nuclides, 13 other) |
+| machines whose `ProgrammableDelegate` target does not exist | 16 |
 
 ---
 
@@ -975,8 +1015,15 @@ Wood Gasification                       9 Wood -> 4 Wood + CO + CO₂ + H₂ + M
 
 ## Method
 
-Every figure above came from reading `data/atomcraft.json` directly.
+Every figure above came from reading the game's `Data/AllMaterials.json` and
+`Data/AllReactions.json`, extracted from the `.pck` with `godotpcktool`.
 
+- **Provenance.** The work was done twice: once against `data/atomcraft.json` (this repo's
+  bake) and once against the game's originals, comparing the two field by field first. See
+  the note at the top for what that comparison found. Anything resting on a zero or an
+  absent field — `Mass` of 0, a null `Evaporation.TargetMaterialName`, an empty-string
+  `Formula` — was confirmed literal in the game's own JSON rather than inferred from the
+  bake's omissions.
 - **Composition resolution.** `Composition.Elements` was walked recursively, resolving
   non-element `Item1` values as material names (with cycle detection), falling back to
   `Formula` parsed by `src/formula.js` when no composition exists. A material counts as
