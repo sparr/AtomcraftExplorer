@@ -1,5 +1,5 @@
 /** Search UI: query box, element filter, result list, material detail. */
-import { loadData, REFERENCE_ORDER, referencePhrase } from './data.js';
+import { loadData, REFERENCE_ORDER, referencePhrase, phaseChange } from './data.js';
 import { collapseKey, packCollapsed, unpackCollapsed } from './collapse.js';
 import { buildGroups, filterGroups, CATEGORIES } from './grouping.js';
 import { patternStrip, recipeFor } from './pattern-render.js';
@@ -799,8 +799,14 @@ function renderDetail(m) {
 
   // --- thermal -----------------------------------------------------------
   const thermal = [];
-  if (r.Condensation) thermal.push(['Condensation', phaseLine(r.Condensation, 'to')]);
-  if (r.Evaporation) thermal.push(['Evaporation', phaseLine(r.Evaporation, 'to')]);
+  // Headed by what the change actually is: most of the game's "Evaporation"
+  // entries are a solid melting.
+  for (const [field, dir] of [['Condensation', 'cool'], ['Evaporation', 'heat']]) {
+    const t = r[field];
+    if (!t) continue;
+    const to = db.byName.get(t.TargetMaterialName);
+    thermal.push([phaseChange(m.state, to?.state, dir).label, phaseLine(t, 'to')]);
+  }
   if (r.Ignition) {
     // Temperature 0 is no threshold at all rather than a cryogenic one, so say
     // what actually sets it off instead of printing "at 0 K".

@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS,
          operatingWindow } from '../src/plan-graph.js';
-import { solvePlan, reachableFrom,
+import { solvePlan, reachableFrom, routesFor,
          rat, radd, rsub, rmul, rdiv, rcmp, rstr, R0 } from '../src/plan-solve.js';
 import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
          formatTemperatureRange, heatingNeed, coolingNeed } from '../src/units.js';
@@ -72,6 +72,69 @@ check(formatTemperatureRange(null, 973) === '≤ 700 °C', 'and a ceiling as a c
   check(heatingNeed(200) === 'none', 'a floor below anything the air reaches needs nothing');
   check(coolingNeed(195) === 'always', 'a -78 °C ceiling is a cooler, always');
   check(coolingNeed(1400) === 'none', 'a ceiling above the air needs nothing');
+}
+
+/* ------------------------------------------- a run of changes as one step */
+
+console.log('\n--- phase chains ---');
+{
+  // Steam does not stop at Water on the way to Ice. Cool it far enough and it
+  // goes all the way, so listing two steps describes one chamber at one
+  // temperature as though it were two.
+  const chain = graph.byId.get('chain:cool:Steam#2');
+  check(!!chain, 'a run of changes in one direction is offered as one step');
+  check(chain.label === 'Steam condenses and solidifies into Ice', `named "${chain.label}"`);
+  check(chain.consumes[0].name === 'Steam' && chain.produces[0].name === 'Ice',
+        'with the middle of it inside');
+  check(chain.conditions.via.includes('Water'), 'though it says what it goes through');
+
+  // The limit is the tightest of the parts: past every threshold on the way.
+  const steam = graph.byId.get('cond:Steam').conditions.maxTemperature;
+  const water = graph.byId.get('cond:Water').conditions.maxTemperature;
+  check(chain.conditions.maxTemperature === Math.min(steam, water),
+        `and it must be under the lower of the two (${chain.conditions.maxTemperature} K, ` +
+        `from ${steam} K and ${water} K)`);
+
+  // Its own hops are not side effects of itself.
+  check(!chain.window.unavoidable.length,
+        'a chain is not accused of setting off the very changes it is made of');
+
+  const plan = solvePlan(graph, { targets: ['Ice'], have: ['Steam'] });
+  check(plan.steps.length === 1 && plan.steps[0].process.id === chain.id,
+        'so cooling steam to ice is one step by default');
+  const routes = routesFor(plan, 'Ice');
+  check(routes.some((r) => r.process.id === 'cond:Water'),
+        'and stopping at water is still there to be chosen');
+  const split = solvePlan(graph, { targets: ['Ice'], have: ['Steam'],
+                                   pins: { Ice: 'cond:Water' } });
+  check(split.steps.length === 2, 'choosing it gives the two-step version back');
+}
+
+/* --------------------------------------------------- naming what happens */
+
+console.log('\n--- phase changes are named for what they are ---');
+{
+  // The game keeps one field for going up in temperature and one for coming
+  // down, and calls them evaporation and condensation whatever the states.
+  // Most are not: 287 of them are a solid melting.
+  const named = (id) => graph.byId.get(id)?.label;
+  check(named('evap:Alumina') === 'Alumina melts into Molten Alumina',
+        'a solid going to liquid melts');
+  check(named('evap:Water') === 'Water evaporates into Steam',
+        'a liquid going to gas still evaporates');
+  check(named('cond:Water') === 'Water solidifies into Ice',
+        'a liquid going to solid solidifies');
+  check(named('cond:Steam') === 'Steam condenses into Water',
+        'and a gas going to liquid still condenses');
+  const verbs = new Map();
+  for (const p of graph.processes) {
+    if (p.kind !== 'phase') continue;
+    const v = p.label.match(/ (\w+) into /);
+    if (v) verbs.set(v[1], (verbs.get(v[1]) || 0) + 1);
+  }
+  check((verbs.get('melts') || 0) > (verbs.get('evaporates') || 0),
+        `melting is the commonest of them (${verbs.get('melts')} against ` +
+        `${verbs.get('evaporates')} that really evaporate)`);
 }
 
 /* ----------------------------------------------------------------- graph */
@@ -140,7 +203,7 @@ check(!graph.processes.some((p) => [...p.consumes, ...p.produces, ...p.requires]
   // "Kelp Stalk grows Kelp Stalk" means, and it is true.
   const saysNothing = graph.processes.filter((p) => {
     if (p.kind === 'grow') return false;
-    const m = p.label.match(/^(.+?) (?:evaporates|condenses|ignites|burns|extinguishes|decays|mines|builds|is picked up as|dissolves|turns on|turns off|rotates left|rotates right) (?:into |as )?(.+)$/);
+    const m = p.label.match(/^(.+?) (?:melts|evaporates|sublimates|ionises|solidifies|condenses|freezes|recombines|turns|ignites|burns|extinguishes|decays|mines|builds|is picked up as|dissolves|turns on|turns off|rotates left|rotates right) (?:into |as )?(.+)$/);
     return m && m[1] === m[2];
   });
   check(!saysNothing.length,
@@ -493,6 +556,58 @@ console.log('\n--- side reactions ---');
   const wine = on.sideEffects.find((e) => e.id === 'rx:Wine into Vinegar');
   check(wine && wine.inPlan, 'a side reaction the plan wants elsewhere is marked as such');
   check(on.sideEffects.some((e) => !e.inPlan), 'while the genuinely unwanted ones are not');
+}
+
+/* ------------------------------------------------------- what can be moved */
+
+console.log('\n--- working where a thing lies ---');
+{
+  // A deposit is Static: you cannot pipe it into a furnace, you go and heat it
+  // in the ground. The game allows that and it is nobody's production line, so
+  // the ore route has to win wherever there is one.
+  const melt = graph.byId.get('evap:Corundum Deposit');
+  check(melt?.inPlace, 'melting a deposit counts as working on it where it lies');
+  check(!graph.byId.get('rx:Alumina Reduction').inPlace,
+        'while a reaction between loose materials does not');
+  check(!graph.processes.some((p) => p.kind === 'mine' && p.inPlace),
+        'and mining is exempt, being the thing you do to placed stuff');
+
+  const plan = solvePlan(graph, { targets: [{ name: 'Molten Aluminum', amount: 4 }],
+                                  have: ['Water'] });
+  check(!plan.steps.some((s) => s.process.inPlace),
+        `Molten Aluminum is planned without melting anything in the ground: ` +
+        plan.steps.map((s) => s.process.label).join(' ; '));
+  check(plan.frontier.some((f) => f.name === 'Bauxite'),
+        'it asks for the ore instead, which is what a player would be providing');
+}
+
+/* ------------------------------------------------------------ alternatives */
+
+console.log('\n--- other ways to make a thing ---');
+{
+  const plan = solvePlan(graph, { targets: ['Molten Aluminum'], have: ['Water'] });
+  const routes = routesFor(plan, 'Carbon');
+  check(routes.length > 20, `${routes.length} ways to make Carbon, so they have to be ranked`);
+  check(routes[0].chosen, 'the one in use sorts first');
+  check(routes.every((r, i) => i === 0 || r.cost >= routes[i - 1].cost || r.banned),
+        'and the rest by what they cost');
+  const known = routes.filter((r) => r.ready);
+  check(known.length > 0, `${known.length} of them need something already in the plan or in hand`);
+
+  // Choosing one has to actually take effect, which is the whole point.
+  const other = routes.find((r) => !r.chosen);
+  const redirected = solvePlan(graph, { targets: ['Molten Aluminum'], have: ['Water'],
+                                        pins: { Carbon: other.process.id } });
+  check(redirected.dag.materials.get('Carbon')?.producer === other.process.id,
+        'and picking one is what the plan then does');
+
+  // A banned route is still listed, at the bottom, rather than vanishing.
+  const banned = solvePlan(graph, { targets: ['Molten Aluminum'], have: ['Water'],
+                                    excludeProcesses: [routes[0].process.id] });
+  const after = routesFor(banned, 'Carbon');
+  const wasBanned = after.find((r) => r.process.id === routes[0].process.id);
+  check(wasBanned?.banned && after[after.length - 1].banned,
+        'a banned route stays visible, sorted to the bottom');
 }
 
 /* ------------------------------------------------------------------ kinds */

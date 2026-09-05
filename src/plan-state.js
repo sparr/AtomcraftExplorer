@@ -41,6 +41,13 @@ export function emptyPlan() {
     credit: [],                   // byproducts agreed to be plumbed back
     kinds: [...DEFAULT_KINDS],
     avoidSideEffects: true,
+    /**
+     * Which material is being inspected. Not part of the question -- it is
+     * where you are looking -- but it rides along in the URL for the same
+     * reason the explorer's selection does: so a link points at the thing you
+     * wanted to show somebody.
+     */
+    selected: null,
   };
 }
 
@@ -87,6 +94,7 @@ export function readPlan(params) {
     plan.kinds = list(kinds).filter((k) => known.has(k));
   }
   if (params.get('ss') === '0') plan.avoidSideEffects = false;
+  plan.selected = params.get('pm') || null;
   return plan;
 }
 
@@ -110,6 +118,7 @@ export function writePlan(plan, params) {
   // turning every kind off has to survive a reload as itself.
   if (!usual) params.set('k', plan.kinds.join(SEP) || NO_KINDS);
   if (!plan.avoidSideEffects) params.set('ss', '0');
+  put('pm', plan.selected);
 }
 
 /* ------------------------------------------------------------- editing it */
@@ -151,6 +160,11 @@ export function setTargetAmount(plan, name, amount) {
   const found = next.targets.find((t) => t.name === name);
   if (found) found.amount = Math.max(1, Math.round(amount) || 1);
   return next;
+}
+
+/** Look at a material: what it is for, how it is being made, and what else could. */
+export function selectMaterial(plan, name) {
+  return { ...clone(plan), selected: name || null };
 }
 
 export function removeTarget(plan, name) {

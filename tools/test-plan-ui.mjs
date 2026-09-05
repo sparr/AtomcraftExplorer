@@ -32,6 +32,7 @@ const check = (cond, msg) => (cond ? ok(msg) : bad(msg));
 const $ = (sel) => document.querySelector(sel);
 const nodes = (root, cls) => [...root.walk()].filter((n) => n.classList.contains(cls));
 const text = (sel) => $(sel).textContent;
+const goals = () => text('#goal-targets') + ' ' + text('#goal-haves');
 
 console.log(`booted with ${app.db.materials.length} materials and ` +
             `${app.graph.processes.length} processes\n`);
@@ -70,15 +71,31 @@ app.setPlan(addTarget(emptyPlan(), 'Vinegar'));
 app.setMode('plan');
 check($('#plan-empty').hidden && !$('#plan-work').hidden, 'a plan with a target shows the table');
 
+// Every side reaction says when it would happen, since a step may dodge
+// several and only one of them explains the limit it ended up with.
+const avoided = nodes($('#plan-steps'), 'rx-avoids');
+check(avoided.length > 0 && avoided.every((n) => /°C/.test(n.textContent)),
+      'each dodged side reaction names the temperature it starts at');
+check(avoided.some((n) => n.textContent.includes('sets the limit')),
+      'and the one that set the step\'s limit says so');
+const also = nodes($('#plan-steps'), 'rx-also');
+check(also.every((n) => /°C|any temperature/.test(n.textContent)),
+      'so does one that cannot be dodged');
+check(also.some((n) => /a step of this plan|no temperature in range/.test(n.textContent)),
+      'and it says why it could not be');
+
 const steps = nodes($('#plan-steps'), 'plan-step');
 check(steps.length === 4, `Vinegar comes out as ${steps.length} steps`);
 check(text('#plan-steps').includes('Acetic Acid'), 'naming the materials along the way');
-check(text('#plan-goals').includes('Vinegar'), 'and the goal bar says what it is for');
+check(goals().includes('Vinegar'), 'and the goal bar says what it is for');
 check(text('#plan-side').includes('Death Moss Spore'), 'the side lists what to go and fetch');
-check(text('#plan-side').includes('Blender'),
-      'and the apparatus, which is where a catalyst belongs');
-check(!nodes($('#plan-side'), 'plan-item').some((n) => n.textContent.startsWith('1 Blender')),
-      'rather than on the shopping list');
+// A catalyst belongs on the step that needs it, named once. Not on the
+// shopping list, since nothing consumes it, and not repeated in the summary.
+check(text('#plan-steps').includes('needs Blender'), 'a catalyst is named on its step');
+check(!nodes($('#plan-side'), 'plan-item').some((n) => n.textContent.includes('Blender')),
+      'not on the shopping list, since nothing consumes it');
+check(!text('#plan-side').includes('needs Blender'),
+      'and not said a second time in the summary');
 
 // The frontier's "I have it" is the loop the whole mode is built around.
 const fetchList = nodes($('#plan-side'), 'plan-item');
@@ -87,8 +104,10 @@ const haveIt = nodes(spore, 'small').find((b) => b.textContent === 'I have it');
 check(!!haveIt, 'each thing to fetch offers "I have it"');
 haveIt.click();
 check(app.getPlan().have.includes('Death Moss Spore'), 'pressing it moves the material to have');
-check(!text('#plan-side').includes('Death Moss Spore'), 'and off the shopping list');
-check(text('#plan-goals').includes('Death Moss Spore'), 'into the goal bar');
+const stillListed = nodes($('#plan-side'), 'plan-item')
+  .some((n) => n.textContent.includes('Death Moss Spore'));
+check(!stillListed, 'and off the shopping list');
+check(goals().includes('Death Moss Spore'), 'into the goal bar');
 
 // Excluding a step has to change the answer, not just grey something out.
 const stepCount = nodes($('#plan-steps'), 'plan-step').length;
@@ -97,6 +116,136 @@ notThis.click();
 check(app.getPlan().excludeProcesses.length === 1, '"Not this" bans a process');
 check(nodes($('#plan-steps'), 'plan-step').length !== stepCount ||
       text('#plan-steps') !== '', 'and the plan is worked out again around it');
+
+/* ------------------------------------------------------------- adding one */
+
+console.log('\n--- adding a material ---');
+{
+  app.setPlan(emptyPlan());
+  app.setMode('plan');
+  // A box on each goal row, so adding to one is not a trip to the top bar and
+  // a choice of button afterwards.
+  const box = nodes($('#goal-have-add'), 'picker-input')[0];
+  check(!!box, 'the have row has a box of its own');
+  check(!!nodes($('#goal-make-add'), 'picker-input')[0], 'and so does the make row');
+
+  box.value = 'lepidolite';
+  box.dispatch('input');
+  const hits = nodes($('#goal-have-add'), 'picker-hit');
+  check(hits.length > 0, `typing offers ${hits.length} matches`);
+  check(hits[0].classList.contains('on'), 'with the first one already picked out');
+
+  // The row is the button. Finding a small one to the right of the thing you
+  // just chose is a second decision where there was only one.
+  hits[0].click();
+  check(app.getPlan().have.includes('Lepidolite'), 'and clicking the row adds it');
+  check(!nodes($('#goal-have-add'), 'picker-hit').length, 'the suggestions close behind it');
+
+  // Arrow keys and Enter do the same without the mouse.
+  const make = nodes($('#goal-make-add'), 'picker-input')[0];
+  make.value = 'potassium';
+  make.dispatch('input');
+  make.dispatch('keydown', { key: 'ArrowDown' });
+  const second = nodes($('#goal-make-add'), 'picker-hit')[1];
+  check(second.classList.contains('on'), 'arrow keys move down the list');
+  make.dispatch('keydown', { key: 'Enter' });
+  check(app.getPlan().targets.length === 1, 'and Enter takes the one that is picked out');
+  make.value = 'x';
+  make.dispatch('input');
+  make.dispatch('keydown', { key: 'Escape' });
+  check(!nodes($('#goal-make-add'), 'picker-hit').length, 'Escape puts them away');
+}
+
+/* --------------------------------------------------------- the other way */
+
+console.log('\n--- what you can do with what you have ---');
+{
+  // Naming one thing you have is a question, and answering it with an empty
+  // table says nothing.
+  app.setPlan(addHave(emptyPlan(), 'Lepidolite'));
+  check(!$('#plan-work').hidden, 'naming something you have is enough of a plan to show');
+  check(text('#plan-steps').includes('you could do with that'),
+        'and it asks what you want to do with it');
+  const uses = nodes($('#plan-steps'), 'use-opt');
+  check(uses.length > 0, `listing the ${uses.length} processes that would take it`);
+  check(uses[0].textContent.includes('Lepidolite'), 'each one saying what it takes and makes');
+  check(uses.some((u) => u.classList.contains('ready')),
+        'and marking the ones that could be run as things stand');
+
+  nodes(uses[0], 'route-pick')[0].click();
+  check(app.getPlan().include.length === 1, 'picking one puts it in the plan');
+  check(nodes($('#plan-steps'), 'plan-step').length === 1, 'as a step');
+}
+
+/* ------------------------------------------------------------- redirecting */
+
+console.log('\n--- changing how something is made ---');
+app.setPlan(addHave(addTarget(emptyPlan(), 'Molten Aluminum'), 'Water'));
+app.setMode('plan');
+{
+  // The material you most want to redirect is one already being made, which
+  // before the inspector could only be reached by banning steps one at a time.
+  const carbon = nodes($('#plan-steps'), 'matlink').find((n) => n.textContent === 'Carbon');
+  check(!!carbon, 'a material the plan already makes is a link like any other');
+  carbon.click();
+  const panel = nodes($('#plan-side'), 'inspector')[0];
+  check(!!panel, 'and opens in the inspector');
+  check(panel.textContent.includes('made here'), 'saying what it is doing in the plan');
+
+  const options = nodes(panel, 'route-opt');
+  const labelled = (o) => nodes(o, 'route-pick')[0].textContent;
+  check(options.length > 2, `offering ${options.length} ways to get it`);
+  // Having one is an alternative to every way of making one, so it heads the
+  // list rather than sitting in a row of buttons above it.
+  check(labelled(options[0]).includes('I have it'), '"I have it" is the first of them');
+  check(labelled(options[1]).includes('Let the planner choose'),
+        'then handing the choice back');
+  check(panel.textContent.includes('Show all'),
+        'with the rest a press away rather than 149 rows deep');
+
+  const before = nodes($('#plan-steps'), 'plan-step').length;
+  const other = options.find((o) => !/I have it|Let the planner/.test(labelled(o)) &&
+                                    !o.classList.contains('on'));
+  nodes(other, 'route-pick')[0].click();
+  check(Object.keys(app.getPlan().pins).includes('Carbon'), 'picking one pins it');
+  check(nodes($('#plan-steps'), 'plan-step').length !== before ||
+        text('#plan-steps').includes('Carbon'), 'and the plan is rebuilt around the choice');
+
+  // And it reaches things that were never on the shopping list at all.
+  const again = nodes($('#plan-steps'), 'matlink').find((n) => n.textContent === 'Carbon');
+  if (again) again.click();
+  const haveIt = nodes(nodes($('#plan-side'), 'inspector')[0], 'route-opt')
+    .map((o) => nodes(o, 'route-pick')[0])
+    .find((b) => b.textContent.includes('I have it'));
+  check(!!haveIt, 'a material the plan makes can still be declared already had');
+  haveIt.click();
+  check(app.getPlan().have.includes('Carbon'), 'which is how you say "I have Carbon"');
+  check(!/(melts|evaporates) into Carbon/.test(text('#plan-steps')),
+        'and the steps that made it drop out');
+}
+{
+  // Heating something where it lies is a real route and a terrible plan: you
+  // cannot pipe a deposit into a furnace. The ore route should win.
+  app.setPlan(addTarget(emptyPlan(), 'Molten Alumina'));
+  const fetching = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
+  check(fetching.includes('Bauxite'),
+        `Molten Alumina goes through the ore: ${fetching.join(', ')}`);
+  check(!fetching.some((n) => app.graph.categoryOf(n) === 'deposit'),
+        'and not by melting a deposit in the ground');
+  check(text('#plan-side').includes('Bauxite Deposit mines into Bauxite'),
+        'though it still says which deposit the ore comes out of');
+}
+{
+  // Where a deposit is genuinely the only way, it is stated rather than asked
+  // about: there is no "I have it" to press, you are going to go and find one.
+  app.setPlan(addTarget(emptyPlan(), 'Amethyst Deposit'));
+  const item = nodes($('#plan-side'), 'plan-item')
+    .find((n) => app.graph.categoryOf(n.dataset.material) === 'deposit');
+  check(!!item, 'a plan that needs a deposit lists it');
+  check(!nodes(item, 'small').some((b) => b.textContent === 'I have it'),
+        'without offering it as something you might already have');
+  check(item.textContent.includes('go and find one'), 'because that is what you do with a deposit');
+}
 
 /* ------------------------------------------------------------------ links */
 
@@ -149,12 +298,18 @@ const pinned = Object.values(app.getPlan().pins);
 check(pinned.some((id) => id.startsWith('rx:')),
       '"Plan this" holds the plan to that reaction rather than any route to its product');
 
-// Back the other way: a material named in the plan opens in the explorer.
+// Back the other way: a material in the plan opens in the inspector, and the
+// explorer is one press further on.
 app.setMode('plan');
 const link = nodes($('#plan-steps'), 'matlink')[0];
 check(!!link, 'the plan links its materials');
 link.click();
-check(!$('#explore-main').hidden, 'and following one goes to the explorer');
+const inspector = nodes($('#plan-side'), 'inspector')[0];
+check(!!inspector, 'clicking one opens it in the inspector rather than leaving the mode');
+check(!$('#plan-main').hidden, 'so you are still looking at the plan');
+const lookUp = nodes(inspector, 'small').find((b) => b.textContent === 'Look up');
+lookUp.click();
+check(!$('#explore-main').hidden, 'and "Look up" is what goes to the explorer');
 check(!$('#back-to-plan').hidden, 'with a way back, now that there is a plan to go back to');
 
 app.setPlan(emptyPlan());

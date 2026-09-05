@@ -97,6 +97,12 @@ export const DEFAULT_WEIGHTS = {
   byHand: 10,
   /** Per side reaction no temperature can dodge: a mild nudge toward clean routes. */
   sideEffect: 0.5,
+  /**
+   * Working on something where it lies, because it cannot be moved. Heating a
+   * deposit in the ground does produce the melt, and it is nobody's idea of a
+   * production line -- the ore route wins unless there is not one.
+   */
+  inPlace: 4,
   perKelvin: 1 / 1200,     // a 2400 K furnace costs 2 more than a warm one
   slowness: 0.5,           // per decade of the probability divisor
   spark: 0.25,
@@ -141,6 +147,7 @@ export function processCost(p, w = DEFAULT_WEIGHTS, avoid = true) {
   if (cond.requiresSpark) c += w.spark;
   if (cond.probability > 1) c += w.slowness * Math.log10(cond.probability);
   if (cond.places) c += w.byHand;
+  if (p.inPlace) c += w.inPlace;
   c += w.catalyst * (cond.catalysts?.length || 0);
   return c;
 }
@@ -274,7 +281,13 @@ export function solveCosts(graph, spec) {
       for (const { name } of p.requires) c += requireCost(name);
       if (!Number.isFinite(c)) continue;
       for (const { name } of p.produces) {
-        if (pins.has(name)) continue;               // the reader already chose
+        // A pin narrows the field to one process; it must not stop the cost
+        // being worked out. Left out of the relaxation entirely, a pinned
+        // material kept the price of merely acquiring one -- so pinning how to
+        // make Carbon made Carbon look expensive, and the plan went off to melt
+        // down aluminium wire instead of smelting the ore.
+        const chosen = pins.get(name);
+        if (chosen && chosen !== p.id) continue;
         if ((made.get(name) ?? Infinity) <= c) continue;
         made.set(name, c);
         choice.set(name, p.id);
@@ -285,12 +298,15 @@ export function solveCosts(graph, spec) {
     if (!changed) break;
   }
 
-  // Honour the pins that name a process, whatever the search preferred.
+  // Honour the pins that name a process, whatever the search preferred. The
+  // relaxation above already priced them; this only settles the choice for a
+  // pin whose process could not be costed at all, so extraction still follows
+  // it and reports what that leaves unresolved.
   for (const [name, target] of pins) {
     if (target === 'have') { choice.delete(name); made.delete(name); continue; }
     if (!graph.byId.has(target)) continue;
     choice.set(name, target);
-    made.set(name, made.get(name) ?? 0);
+    if (!made.has(name)) made.set(name, weights.acquire);
   }
 
   return { cost, made, choice, acquire, allowed };
@@ -577,44 +593,6 @@ export function solvePlan(graph, rawSpec) {
   frontier.sort((a, b) => a.name.localeCompare(b.name));
   byproducts.sort((a, b) => a.name.localeCompare(b.name));
 
-  const apparatus = { /**
-                       * The most demanding step in each direction -- and they
-                       * are rarely the same step. A plan that smelts iron and
-                       * ferments beer needs a furnace *and* a cold room, not
-                       * one chamber somehow at both temperatures.
-                       */
-                      hottestFloor: 0, lowestCeiling: null,
-                      /** 'always' | 'sometimes' | 'none' -- how much kit that implies. */
-                      heating: 'none', cooling: 'none',
-                      electrolysis: false, spark: false, byHand: false,
-                      /** A range was cut down to dodge something, or could not be. */
-                      narrowedBySideEffects: false, sideEffects: false,
-                      catalysts: new Map(), kinds: new Set(), slowest: null,
-                      /** Some step's yield is an average over a random draw. */
-                      stochastic: false };
-  for (const p of dag.processes.values()) {
-    if (rzero(scaled.runs.get(p.id) || R0) && !spec.include.has(p.id)) continue;
-    apparatus.kinds.add(p.kind);
-    const c = p.conditions || {};
-    const w = operatingWindow(p, spec.avoidSideEffects);
-    if (w.lo) apparatus.hottestFloor = Math.max(apparatus.hottestFloor, w.lo);
-    if (Number.isFinite(w.hi)) {
-      apparatus.lowestCeiling = Math.min(apparatus.lowestCeiling ?? Infinity, w.hi);
-    }
-    if (w.narrowed) apparatus.narrowedBySideEffects = true;
-    if (w.unavoidable.length) apparatus.sideEffects = true;
-    if (c.electrolysis) apparatus.electrolysis = true;
-    if (c.requiresSpark) apparatus.spark = true;
-    if (c.places) apparatus.byHand = true;
-    for (const { name, count } of c.catalysts || []) {
-      apparatus.catalysts.set(name, Math.max(apparatus.catalysts.get(name) || 0, count));
-    }
-    if (c.stochastic) apparatus.stochastic = true;
-    if (c.probability > (apparatus.slowest?.conditions?.probability ?? 0)) apparatus.slowest = p;
-  }
-  apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
-  apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
-
   const steps = [...dag.processes.values()]
     .filter((p) => !rzero(scaled.runs.get(p.id) || R0))
     .map((p) => ({ process: p, runs: rmul(scaled.runs.get(p.id), scale),
@@ -622,6 +600,60 @@ export function solvePlan(graph, rawSpec) {
   // Presentation order is the order you would actually do them in.
   const rank = new Map(order.map((id, i) => [id, i]));
   steps.sort((a, b) => (rank.get(a.process.id) ?? 0) - (rank.get(b.process.id) ?? 0));
+
+  // Described from the steps, in the order they are done, so that attributing
+  // an extreme to a step is stable rather than a side effect of how the graph
+  // happened to be walked.
+  const apparatus = { /**
+                       * The most demanding step in each direction -- and they
+                       * are rarely the same step. A plan that smelts iron and
+                       * ferments beer needs a furnace *and* a cold room, not
+                       * one chamber somehow at both temperatures.
+                       */
+                      hottestFloor: 0, lowestCeiling: null,
+                      hottestStep: null, coolestStep: null,
+                      /** How many steps sit at that extreme: naming one of six is a lie. */
+                      hottestShared: 0, coolestShared: 0,
+                      /** 'always' | 'sometimes' | 'none' -- how much kit that implies. */
+                      heating: 'none', cooling: 'none',
+                      electrolysis: false, spark: false, byHand: false,
+                      catalysts: new Map(), kinds: new Set(), slowest: null,
+                      /** A range was cut down to dodge something, or could not be. */
+                      narrowedBySideEffects: false, sideEffects: false,
+                      /** Some step's yield is an average over a random draw. */
+                      stochastic: false };
+  for (const { process: p, window: w } of steps) {
+    apparatus.kinds.add(p.kind);
+    const c = p.conditions || {};
+    if (w.lo > apparatus.hottestFloor) {
+      apparatus.hottestFloor = w.lo;
+      apparatus.hottestStep = p;
+      apparatus.hottestShared = 1;
+    } else if (w.lo && w.lo === apparatus.hottestFloor) {
+      apparatus.hottestShared++;
+    }
+    if (Number.isFinite(w.hi)) {
+      if (w.hi < (apparatus.lowestCeiling ?? Infinity)) {
+        apparatus.lowestCeiling = w.hi;
+        apparatus.coolestStep = p;
+        apparatus.coolestShared = 1;
+      } else if (w.hi === apparatus.lowestCeiling) {
+        apparatus.coolestShared++;
+      }
+    }
+    if (c.electrolysis) apparatus.electrolysis = true;
+    if (c.requiresSpark) apparatus.spark = true;
+    if (c.places) apparatus.byHand = true;
+    for (const { name, count } of c.catalysts || []) {
+      apparatus.catalysts.set(name, Math.max(apparatus.catalysts.get(name) || 0, count));
+    }
+    if (w.narrowed) apparatus.narrowedBySideEffects = true;
+    if (w.unavoidable.length) apparatus.sideEffects = true;
+    if (c.stochastic) apparatus.stochastic = true;
+    if (c.probability > (apparatus.slowest?.conditions?.probability ?? 0)) apparatus.slowest = p;
+  }
+  apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
+  apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
 
   return {
     spec, graph, dag, order, stuck,
@@ -659,6 +691,82 @@ export function solvePlan(graph, rawSpec) {
     madeOf: (name) => at(scaled.supply, name),
     runsOf: (id) => rmul(scaled.runs.get(id) || R0, scale),
   };
+}
+
+/**
+ * Every way the plan could make a material, best first.
+ *
+ * The frontier's routes were only ever offered for things left to fetch, which
+ * is the wrong half: the material you most want to redirect is one the plan has
+ * already decided how to make. Steam has 108 producers and Carbon 20, so the
+ * list has to say enough to choose by -- what each one costs, what it would
+ * need, and how much of that is already to hand.
+ */
+export function routesFor(plan, name) {
+  const { graph, spec, cost } = plan;
+  const inPlan = plan.dag.materials;
+  const chosen = plan.dag.materials.get(name)?.producer;
+
+  const routes = graph.producers(name)
+    .filter((p) => spec.kinds.has(p.kind) || p.id === chosen)
+    .map((p) => {
+      const inputs = [...p.consumes, ...p.requires].map((i) => ({
+        ...i,
+        have: spec.have.has(i.name),
+        inPlan: inPlan.has(i.name),
+      }));
+      let c = processCost(p, spec.weights, spec.avoidSideEffects);
+      for (const i of inputs) c += cost.get(i.name) ?? Infinity;
+      return {
+        process: p,
+        cost: c,
+        inputs,
+        chosen: p.id === chosen,
+        banned: spec.excludeProcesses.has(p.id),
+        /** How much of what it needs you would not have to go on and plan. */
+        ready: inputs.filter((i) => i.have || i.inPlan).length,
+      };
+    });
+
+  routes.sort((a, b) => Number(a.banned) - Number(b.banned) ||
+                        a.cost - b.cost ||
+                        a.process.label.localeCompare(b.process.label));
+  return routes;
+}
+
+/**
+ * What could be done with the materials in hand, best first.
+ *
+ * The other half of `routesFor`. Naming one thing you have is not a plan and
+ * should not be answered with an empty table -- it is a question, and the
+ * answer is the list of processes that would take it.
+ *
+ * Ranked by how much of each one you could already supply, because a reaction
+ * needing three things you have not got is not really an option yet.
+ */
+export function usesFor(plan, available) {
+  const has = new Set(available);
+  const seen = new Set();
+  const uses = [];
+  for (const name of has) {
+    for (const p of plan.graph.consumers(name)) {
+      if (seen.has(p.id) || !plan.spec.kinds.has(p.kind)) continue;
+      if (plan.spec.excludeProcesses.has(p.id)) continue;
+      seen.add(p.id);
+      const inputs = [...p.consumes, ...p.requires].map((i) => ({ ...i, have: has.has(i.name) }));
+      uses.push({
+        process: p,
+        inputs,
+        ready: inputs.every((i) => i.have),
+        missing: inputs.filter((i) => !i.have).length,
+        cost: processCost(p, plan.spec.weights, plan.spec.avoidSideEffects),
+        included: plan.spec.include.has(p.id),
+      });
+    }
+  }
+  uses.sort((a, b) => a.missing - b.missing || a.cost - b.cost ||
+                      a.process.label.localeCompare(b.process.label));
+  return uses;
 }
 
 /**

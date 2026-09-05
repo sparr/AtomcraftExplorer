@@ -174,6 +174,33 @@ Placing a block is the exception. No machine builds an Aluminum Wall, so a
 plan for a loose material never places anything; but ask for the wall itself and
 the plan smelts the iron and ends with you putting it down.
 
+### Saying what you mean
+
+Click any material in a plan and the inspector says what it is doing there and
+every way of getting it, best first — with **I have it** at the top, because
+having one is an alternative to every way of making one. That is how you say "I
+have water" about a material the plan had already decided to synthesise, and how
+you take a different route to something without banning steps one at a time
+until it gives up.
+
+Deposits are not offered that way. A deposit is in the ground somewhere and you
+are going to go and find it, so it is stated rather than asked about.
+
+### Naming what actually happens
+
+The game keeps one field for going up in temperature and one for coming down,
+and calls them evaporation and condensation whatever the states involved. Most
+are neither: of 431 transitions, 287 are a solid becoming a liquid. So the verb
+comes from the pair of states — **melts**, **evaporates**, **sublimates**,
+**solidifies**, **condenses**, **freezes** — and both the planner and the
+material detail pane use it.
+
+A run of transitions in the same direction is one step, too. Steam does not stop
+at Water on the way to Ice, so cooling it far enough is *Steam condenses and
+solidifies into Ice*, held below the tighter of the two thresholds. Stopping at
+the middle is still there in the alternatives, since asking for Water is what
+that means.
+
 ### Choosing the route
 
 178 materials have more than one producing reaction — Steam has 108 — so the
@@ -189,6 +216,11 @@ you could make is dear, so the plan works backwards through it. Two things
 cannot be had at all: a wall exists only where it was placed, and a machine part
 is manufactured rather than found, so neither is ever fed into a furnace for its
 metal.
+
+Working on something where it lies costs extra for the same reason. Heating a
+Corundum Deposit in the ground really does produce the melt, and it is nobody's
+production line — so the ore route wins wherever there is one, and what you are
+asked for is the Bauxite you would actually be carrying.
 
 ### One reaction at a time
 

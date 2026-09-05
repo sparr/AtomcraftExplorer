@@ -14,6 +14,7 @@
  * it can say "there is a way, but it needs mining".
  */
 import { makeClassifier } from './grouping.js';
+import { phaseChange } from './data.js';
 
 /**
  * Process kinds, in the order they appear in the options panel.
@@ -178,13 +179,18 @@ function materialProcesses(db) {
     };
 
     // --- phase: a temperature crossing, both directions ----------------------
-    for (const [field, verb] of [['Evaporation', 'evaporates'], ['Condensation', 'condenses']]) {
+    for (const field of ['Evaporation', 'Condensation']) {
       const t = raw[field];
       if (!t?.TargetMaterialName) continue;
+      const heating = field === 'Evaporation';
+      // Named for what actually happens between those two states, not for the
+      // field it was stored in.
+      const { verb } = phaseChange(m.state, db.byName.get(t.TargetMaterialName)?.state,
+                                   heating ? 'heat' : 'cool');
       add({
-        id: `${field === 'Evaporation' ? 'evap' : 'cond'}:${m.name}`,
+        id: `${heating ? 'evap' : 'cond'}:${m.name}`,
         kind: 'phase',
-        label: `${m.label} ${verb} into ${lbl(t.TargetMaterialName)}`,
+        label: `${m.label} ${verb} ${lbl(t.TargetMaterialName)}`,
         inputs: self(),
         outputs: one(t.TargetMaterialName, t.Amount || 1),
         requires: [],
@@ -194,10 +200,9 @@ function materialProcesses(db) {
         // *cooling* through it, so recording that as a floor would have a plan
         // telling you to fire up a furnace to freeze something.
         conditions: {
-          ...(field === 'Evaporation' ? { temperature: t.Temperature }
-                                      : { maxTemperature: t.Temperature }),
+          ...(heating ? { temperature: t.Temperature } : { maxTemperature: t.Temperature }),
           probability: t.Probability,
-          direction: field === 'Evaporation' ? 'heat' : 'cool',
+          direction: heating ? 'heat' : 'cool',
         },
         source: m,
       });
@@ -379,6 +384,76 @@ function materialProcesses(db) {
 }
 
 /**
+ * A run of phase changes in the same direction, as one step.
+ *
+ * Steam does not stop at Water on the way to Ice. Cool it far enough and it
+ * goes all the way, so a plan that lists "Steam condenses into Water" and then
+ * "Water solidifies into Ice" is describing one chamber held at one
+ * temperature as though it were two.
+ *
+ * The chain's limit is the tightest of its parts -- to reach the end you must
+ * be past every threshold on the way, so cooling takes the lowest and heating
+ * the highest. Each length is offered separately, so stopping at the middle
+ * is still there to be chosen: the two-step route is what you get by asking
+ * for the intermediate.
+ */
+const CHAIN_MAX = 4;
+
+function phaseChains(db) {
+  const out = [];
+  const lbl = (name) => db.byName.get(name)?.label ?? name;
+
+  for (const field of ['Evaporation', 'Condensation']) {
+    const heating = field === 'Evaporation';
+    for (const start of db.materials) {
+      if (PSEUDO.has(start.name)) continue;
+      const hops = [];
+      const seen = new Set([start.name]);
+      let cur = start;
+      while (hops.length < CHAIN_MAX) {
+        const t = cur.raw[field];
+        const next = t?.TargetMaterialName && db.byName.get(t.TargetMaterialName);
+        if (!next || seen.has(next.name) || PSEUDO.has(next.name)) break;
+        hops.push({ to: next, t, from: cur });
+        seen.add(next.name);
+        cur = next;
+        if (hops.length < 2) continue;
+
+        const last = hops[hops.length - 1].to;
+        const amount = hops.reduce((n, h) => n * (h.t.Amount || 1), 1);
+        const limit = hops.map((h) => h.t.Temperature ?? (heating ? 0 : Infinity));
+        const verbs = hops.map((h) =>
+          phaseChange(h.from.state, h.to.state, heating ? 'heat' : 'cool').verb.replace(/ into$/, ''));
+        const said = verbs.length > 1
+          ? `${verbs.slice(0, -1).join(', ')} and ${verbs[verbs.length - 1]}`
+          : verbs[0];
+        out.push(makeProcess({
+          id: `chain:${heating ? 'heat' : 'cool'}:${start.name}#${hops.length}`,
+          kind: 'phase',
+          label: `${start.label} ${said} into ${lbl(last.name)}`,
+          inputs: [{ name: start.name, count: 1 }],
+          outputs: [{ name: last.name, count: amount }],
+          requires: [],
+          conditions: {
+            ...(heating ? { temperature: Math.max(...limit) }
+                        : { maxTemperature: Math.min(...limit) }),
+            direction: heating ? 'heat' : 'cool',
+            probability: Math.max(...hops.map((h) => h.t.Probability || 0)) || undefined,
+            // Present in the chamber on the way through, so they count when
+            // working out what else the temperature would set off.
+            via: hops.slice(0, -1).map((h) => h.to.name),
+            // Its own hops, which are not side effects of itself.
+            parts: hops.map((h) => `${heating ? 'evap' : 'cond'}:${h.from.name}`),
+          },
+          source: start,
+        }));
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Kinds that fire on temperature, and so can go off by accident.
  *
  * Decay ignores temperature entirely, and mining, growth and handling are
@@ -427,6 +502,7 @@ function temperatureWindow(graph, p) {
   // Everything standing in the chamber while this runs.
   const present = new Set();
   for (const { name } of [...p.inputs, ...p.outputs, ...p.requires]) present.add(name);
+  for (const name of p.conditions.via || []) present.add(name);
   const catalysts = new Set((p.conditions.catalysts || []).map((c) => c.name));
   for (const name of catalysts) present.add(name);
 
@@ -435,12 +511,16 @@ function temperatureWindow(graph, p) {
   // ingredients, and none of them is present unless this reaction brought it:
   // a catalyst, a current, and a spark. Without these, every reaction touching
   // water reads as if Electrolysis of Water were going off in it.
-  const seen = new Set([p.id]);
+  // Its own steps are not side effects of itself, and a chain is a composition
+  // of transitions already counted one by one -- listing it as well would have
+  // every chamber holding water accused of freezing twice.
+  const seen = new Set([p.id, ...(p.conditions.parts || [])]);
   const candidates = [];
   for (const name of present) {
     for (const q of graph.consumers(name)) {
       if (seen.has(q.id) || !TEMPERATURE_DRIVEN.has(q.kind)) continue;
       seen.add(q.id);
+      if (q.conditions.parts) continue;
       if (![...q.consumes, ...q.requires].every((i) => present.has(i.name))) continue;
       if (!(q.conditions.catalysts || []).every((c) => catalysts.has(c.name))) continue;
       if (q.conditions.electrolysis && !p.conditions.electrolysis) continue;
@@ -466,6 +546,13 @@ function temperatureWindow(graph, p) {
   window.hi = operating[1];
   window.narrowed = window.lo !== base[0] || window.hi !== base[1];
   window.alternatives = ranges.filter((r) => r !== operating);
+  // Several side reactions may be dodged at once and only one of them decides
+  // the limit -- blending spores keeps under 101 °C because the spores go at
+  // 102 °C, not because the Blender melts at 1538 °C. Both are worth listing;
+  // only one explains the number.
+  for (const a of window.avoided) {
+    a.binding = a.range[0] === window.hi + 1 || a.range[1] === window.lo - 1;
+  }
   return window;
 }
 
@@ -486,7 +573,7 @@ export function operatingWindow(p, avoid = true) {
  * the solver filters, so that a disabled route is still visible as one.
  */
 export function buildProcessGraph(db) {
-  const processes = [...reactionProcesses(db), ...materialProcesses(db)];
+  const processes = [...reactionProcesses(db), ...materialProcesses(db), ...phaseChains(db)];
 
   // The explorer's own categoriser, reused. The planner needs it because how a
   // material is *had* differs by kind of thing: an ore is dug up, a wall is
@@ -537,6 +624,17 @@ export function buildProcessGraph(db) {
     consumers: (name) => consumersOf.get(name) || [],
     kindsThatProduce: (name) => new Set((producersOf.get(name) || []).map((p) => p.kind)),
   };
+
+  // A process that eats something Static happens where that thing sits: you
+  // cannot pipe a Corundum Deposit into a furnace, you have to go and heat it
+  // in the ground. It is a real route and the game allows it, but it is not
+  // how a production line is built -- the player mines the deposit and feeds
+  // the ore. Mining and handling are exempt, being player actions on placed
+  // things by their nature.
+  for (const p of processes) {
+    p.inPlace = p.kind !== 'mine' && p.kind !== 'handling' &&
+                p.consumes.some((i) => state.get(i.name) === 'Static');
+  }
 
   // Depends on the finished index, so it runs last. Plan-independent: what a
   // chamber's contents would also do is a fact about the game, not about what

@@ -65,6 +65,40 @@ export function referencePhrase(label, count) {
   return `${noun} ${count === 1 ? verb.one : verb.many}`;
 }
 
+/**
+ * What a phase change should be called.
+ *
+ * The game keeps two fields, `Evaporation` for going up in temperature and
+ * `Condensation` for coming down, and uses those two words for every
+ * transition either way. Most of them are not evaporation: 287 of the 431 are
+ * a solid becoming a liquid, which is melting, and 99 are the reverse.
+ *
+ * So the verb comes from the pair of states rather than the field it was
+ * stored in. Static counts as solid here -- a placed block that melts is
+ * melting.
+ */
+const SOLID = new Set(['Solid', 'Static']);
+
+export function phaseChange(from, to, direction) {
+  const solid = (x) => SOLID.has(x);
+  if (direction === 'heat') {
+    if (solid(from) && to === 'Liquid') return { verb: 'melts into', label: 'Melts' };
+    if (from === 'Liquid' && to === 'Gas') return { verb: 'evaporates into', label: 'Evaporates' };
+    if (solid(from) && to === 'Gas') return { verb: 'sublimates into', label: 'Sublimates' };
+    if (to === 'Plasma') return { verb: 'ionises into', label: 'Ionises' };
+  } else {
+    if (from === 'Liquid' && solid(to)) return { verb: 'solidifies into', label: 'Solidifies' };
+    if (from === 'Gas' && to === 'Liquid') return { verb: 'condenses into', label: 'Condenses' };
+    if (from === 'Gas' && solid(to)) return { verb: 'freezes into', label: 'Freezes' };
+    if (from === 'Plasma') return { verb: 'recombines into', label: 'Recombines' };
+  }
+  // Same phase either way -- heating one solid into another is a decomposition
+  // as often as not, and this is not the place to guess which.
+  return direction === 'heat'
+    ? { verb: 'turns into', label: 'On heating' }
+    : { verb: 'turns into', label: 'On cooling' };
+}
+
 /** Godot Color (0..1 floats) -> CSS. */
 function cssColor(c, alpha) {
   if (!c) return null;

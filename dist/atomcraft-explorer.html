@@ -740,6 +740,9 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 }
 .rx-avoids { color: var(--warm); }
 .rx-also { color: var(--danger); }
+/* Which of several dodged reactions is the one that set the limit. */
+.rx-binding { color: var(--fg-dim); }
+.rx-why { color: var(--fg-faint); }
 /* A side reaction the plan wants anyway, somewhere else. */
 .rx-also.wanted { color: var(--fg-faint); }
 
@@ -771,7 +774,11 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .plan-item-main { display: flex; align-items: baseline; gap: 4px; }
 .plan-item-acts { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 .plan-how { font-size: 12px; color: var(--fg-faint); }
-.plan-kit { padding: 3px 0; }
+/* The demanding bits: a term, what it is, and which step wants it. */
+.plan-kit { margin: 0; }
+.plan-kit dt { color: var(--fg-dim); font-size: 12px; }
+.plan-kit dd { margin: 0 0 8px; }
+.plan-kit-why { display: block; font-size: 12px; color: var(--fg-faint); }
 .amount { font-family: var(--mono); color: var(--accent); }
 
 .route {
@@ -804,6 +811,91 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .matlink { color: var(--accent); text-decoration: none; }
 .matlink:hover { text-decoration: underline; }
 .matlink.dangling { color: var(--fg-faint); text-decoration: line-through; }
+
+/* ---------- the material inspector ---------- */
+
+/* One material: what it is doing in the plan, and every other way to get it.
+   Clicking a material anywhere in the plan opens this rather than leaving for
+   the explorer, because redirecting a material is the commoner thing to want. */
+.inspector { border-color: var(--accent-dim); }
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.inspector-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  color: var(--fg);
+}
+.inspector-role { margin: 0 0 8px; font-size: 12px; color: var(--fg-dim); }
+.inspector-sub {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  font-weight: 600;
+}
+
+.matlink.on { color: var(--fg); background: var(--accent-dim); border-radius: 3px; padding: 0 3px; }
+
+/* ---------- choosing a route ---------- */
+
+.route-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.route-opt + .route-opt { border-top: 1px solid var(--line-soft); }
+.route-opt.on { background: var(--bg-sunken); }
+.route-opt.banned { opacity: 0.45; text-decoration: line-through; }
+
+.route-pick {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--fg-dim);
+  font: inherit;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+.route-pick:hover { background: var(--bg-sunken); color: var(--fg); }
+.route-opt.on .route-pick { color: var(--accent); }
+
+.route-label { display: inline; }
+.route-from { display: block; font-size: 12px; color: var(--fg-faint); margin-top: 2px; }
+/* What a route would need, and how much of it you would not have to chase. */
+.route-in.have { color: var(--ok); }
+.route-in.inplan { color: var(--accent); }
+
+/* ---------- what you could do with what you have ---------- */
+
+/* Naming a material you have is a question. This is the answer: the processes
+   that would take it, the ones you could run now first. */
+/* Set apart from the steps above it, when there are steps above it. */
+.plan-uses-head { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 12px; }
+.use-list { list-style: none; margin: 0; padding: 0; }
+.use-opt + .use-opt { border-top: 1px solid var(--line-soft); }
+.use-opt.ready .route-label { color: var(--fg); }
+.use-opt.on { background: var(--bg-sunken); }
+.use-opt.on .route-pick { color: var(--accent); }
+.route-out { color: var(--fg-dim); }
+
+/* The goal rows: chips, then a box to add to them. */
+.goal-chips { display: contents; }
+.goal-add { flex: 1; min-width: 220px; max-width: 420px; }
+.picker-hit.on { background: var(--bg-sunken); }
 
 </style>
 </head>
@@ -889,7 +981,18 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
   </div>
 
   <div id="plan-work" class="plan-work" hidden>
-    <div id="plan-goals" class="plan-goals"></div>
+    <div class="plan-goals">
+      <div class="goal-row">
+        <span class="goal-head">make</span>
+        <span id="goal-targets" class="goal-chips"></span>
+        <span id="goal-make-add" class="goal-add"></span>
+      </div>
+      <div class="goal-row">
+        <span class="goal-head">have</span>
+        <span id="goal-haves" class="goal-chips"></span>
+        <span id="goal-have-add" class="goal-add"></span>
+      </div>
+    </div>
     <div class="plan-columns">
       <div id="plan-steps" class="plan-steps"></div>
       <aside id="plan-side" class="plan-side"></aside>
@@ -1186,6 +1289,40 @@ function referencePhrase(label, count) {
   return `${noun} ${count === 1 ? verb.one : verb.many}`;
 }
 
+/**
+ * What a phase change should be called.
+ *
+ * The game keeps two fields, `Evaporation` for going up in temperature and
+ * `Condensation` for coming down, and uses those two words for every
+ * transition either way. Most of them are not evaporation: 287 of the 431 are
+ * a solid becoming a liquid, which is melting, and 99 are the reverse.
+ *
+ * So the verb comes from the pair of states rather than the field it was
+ * stored in. Static counts as solid here -- a placed block that melts is
+ * melting.
+ */
+const SOLID = new Set(['Solid', 'Static']);
+
+function phaseChange(from, to, direction) {
+  const solid = (x) => SOLID.has(x);
+  if (direction === 'heat') {
+    if (solid(from) && to === 'Liquid') return { verb: 'melts into', label: 'Melts' };
+    if (from === 'Liquid' && to === 'Gas') return { verb: 'evaporates into', label: 'Evaporates' };
+    if (solid(from) && to === 'Gas') return { verb: 'sublimates into', label: 'Sublimates' };
+    if (to === 'Plasma') return { verb: 'ionises into', label: 'Ionises' };
+  } else {
+    if (from === 'Liquid' && solid(to)) return { verb: 'solidifies into', label: 'Solidifies' };
+    if (from === 'Gas' && to === 'Liquid') return { verb: 'condenses into', label: 'Condenses' };
+    if (from === 'Gas' && solid(to)) return { verb: 'freezes into', label: 'Freezes' };
+    if (from === 'Plasma') return { verb: 'recombines into', label: 'Recombines' };
+  }
+  // Same phase either way -- heating one solid into another is a decomposition
+  // as often as not, and this is not the place to guess which.
+  return direction === 'heat'
+    ? { verb: 'turns into', label: 'On heating' }
+    : { verb: 'turns into', label: 'On cooling' };
+}
+
 /** Godot Color (0..1 floats) -> CSS. */
 function cssColor(c, alpha) {
   if (!c) return null;
@@ -1376,7 +1513,7 @@ async function loadData(url = './data/atomcraft.json') {
   };
 }
 
-return { REFERENCE_RELATIONSHIPS, REFERENCE_ORDER, referencePhrase, loadData };
+return { REFERENCE_RELATIONSHIPS, REFERENCE_ORDER, referencePhrase, phaseChange, loadData };
 })();
 
 const __mod_grouping = (() => {
@@ -3005,6 +3142,7 @@ const __mod_plan_graph = (() => {
  * it can say "there is a way, but it needs mining".
  */
 const {makeClassifier} = __mod_grouping;
+const {phaseChange} = __mod_data;
 
 /**
  * Process kinds, in the order they appear in the options panel.
@@ -3169,13 +3307,18 @@ function materialProcesses(db) {
     };
 
     // --- phase: a temperature crossing, both directions ----------------------
-    for (const [field, verb] of [['Evaporation', 'evaporates'], ['Condensation', 'condenses']]) {
+    for (const field of ['Evaporation', 'Condensation']) {
       const t = raw[field];
       if (!t?.TargetMaterialName) continue;
+      const heating = field === 'Evaporation';
+      // Named for what actually happens between those two states, not for the
+      // field it was stored in.
+      const { verb } = phaseChange(m.state, db.byName.get(t.TargetMaterialName)?.state,
+                                   heating ? 'heat' : 'cool');
       add({
-        id: `${field === 'Evaporation' ? 'evap' : 'cond'}:${m.name}`,
+        id: `${heating ? 'evap' : 'cond'}:${m.name}`,
         kind: 'phase',
-        label: `${m.label} ${verb} into ${lbl(t.TargetMaterialName)}`,
+        label: `${m.label} ${verb} ${lbl(t.TargetMaterialName)}`,
         inputs: self(),
         outputs: one(t.TargetMaterialName, t.Amount || 1),
         requires: [],
@@ -3185,10 +3328,9 @@ function materialProcesses(db) {
         // *cooling* through it, so recording that as a floor would have a plan
         // telling you to fire up a furnace to freeze something.
         conditions: {
-          ...(field === 'Evaporation' ? { temperature: t.Temperature }
-                                      : { maxTemperature: t.Temperature }),
+          ...(heating ? { temperature: t.Temperature } : { maxTemperature: t.Temperature }),
           probability: t.Probability,
-          direction: field === 'Evaporation' ? 'heat' : 'cool',
+          direction: heating ? 'heat' : 'cool',
         },
         source: m,
       });
@@ -3370,6 +3512,76 @@ function materialProcesses(db) {
 }
 
 /**
+ * A run of phase changes in the same direction, as one step.
+ *
+ * Steam does not stop at Water on the way to Ice. Cool it far enough and it
+ * goes all the way, so a plan that lists "Steam condenses into Water" and then
+ * "Water solidifies into Ice" is describing one chamber held at one
+ * temperature as though it were two.
+ *
+ * The chain's limit is the tightest of its parts -- to reach the end you must
+ * be past every threshold on the way, so cooling takes the lowest and heating
+ * the highest. Each length is offered separately, so stopping at the middle
+ * is still there to be chosen: the two-step route is what you get by asking
+ * for the intermediate.
+ */
+const CHAIN_MAX = 4;
+
+function phaseChains(db) {
+  const out = [];
+  const lbl = (name) => db.byName.get(name)?.label ?? name;
+
+  for (const field of ['Evaporation', 'Condensation']) {
+    const heating = field === 'Evaporation';
+    for (const start of db.materials) {
+      if (PSEUDO.has(start.name)) continue;
+      const hops = [];
+      const seen = new Set([start.name]);
+      let cur = start;
+      while (hops.length < CHAIN_MAX) {
+        const t = cur.raw[field];
+        const next = t?.TargetMaterialName && db.byName.get(t.TargetMaterialName);
+        if (!next || seen.has(next.name) || PSEUDO.has(next.name)) break;
+        hops.push({ to: next, t, from: cur });
+        seen.add(next.name);
+        cur = next;
+        if (hops.length < 2) continue;
+
+        const last = hops[hops.length - 1].to;
+        const amount = hops.reduce((n, h) => n * (h.t.Amount || 1), 1);
+        const limit = hops.map((h) => h.t.Temperature ?? (heating ? 0 : Infinity));
+        const verbs = hops.map((h) =>
+          phaseChange(h.from.state, h.to.state, heating ? 'heat' : 'cool').verb.replace(/ into$/, ''));
+        const said = verbs.length > 1
+          ? `${verbs.slice(0, -1).join(', ')} and ${verbs[verbs.length - 1]}`
+          : verbs[0];
+        out.push(makeProcess({
+          id: `chain:${heating ? 'heat' : 'cool'}:${start.name}#${hops.length}`,
+          kind: 'phase',
+          label: `${start.label} ${said} into ${lbl(last.name)}`,
+          inputs: [{ name: start.name, count: 1 }],
+          outputs: [{ name: last.name, count: amount }],
+          requires: [],
+          conditions: {
+            ...(heating ? { temperature: Math.max(...limit) }
+                        : { maxTemperature: Math.min(...limit) }),
+            direction: heating ? 'heat' : 'cool',
+            probability: Math.max(...hops.map((h) => h.t.Probability || 0)) || undefined,
+            // Present in the chamber on the way through, so they count when
+            // working out what else the temperature would set off.
+            via: hops.slice(0, -1).map((h) => h.to.name),
+            // Its own hops, which are not side effects of itself.
+            parts: hops.map((h) => `${heating ? 'evap' : 'cond'}:${h.from.name}`),
+          },
+          source: start,
+        }));
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Kinds that fire on temperature, and so can go off by accident.
  *
  * Decay ignores temperature entirely, and mining, growth and handling are
@@ -3418,6 +3630,7 @@ function temperatureWindow(graph, p) {
   // Everything standing in the chamber while this runs.
   const present = new Set();
   for (const { name } of [...p.inputs, ...p.outputs, ...p.requires]) present.add(name);
+  for (const name of p.conditions.via || []) present.add(name);
   const catalysts = new Set((p.conditions.catalysts || []).map((c) => c.name));
   for (const name of catalysts) present.add(name);
 
@@ -3426,12 +3639,16 @@ function temperatureWindow(graph, p) {
   // ingredients, and none of them is present unless this reaction brought it:
   // a catalyst, a current, and a spark. Without these, every reaction touching
   // water reads as if Electrolysis of Water were going off in it.
-  const seen = new Set([p.id]);
+  // Its own steps are not side effects of itself, and a chain is a composition
+  // of transitions already counted one by one -- listing it as well would have
+  // every chamber holding water accused of freezing twice.
+  const seen = new Set([p.id, ...(p.conditions.parts || [])]);
   const candidates = [];
   for (const name of present) {
     for (const q of graph.consumers(name)) {
       if (seen.has(q.id) || !TEMPERATURE_DRIVEN.has(q.kind)) continue;
       seen.add(q.id);
+      if (q.conditions.parts) continue;
       if (![...q.consumes, ...q.requires].every((i) => present.has(i.name))) continue;
       if (!(q.conditions.catalysts || []).every((c) => catalysts.has(c.name))) continue;
       if (q.conditions.electrolysis && !p.conditions.electrolysis) continue;
@@ -3457,6 +3674,13 @@ function temperatureWindow(graph, p) {
   window.hi = operating[1];
   window.narrowed = window.lo !== base[0] || window.hi !== base[1];
   window.alternatives = ranges.filter((r) => r !== operating);
+  // Several side reactions may be dodged at once and only one of them decides
+  // the limit -- blending spores keeps under 101 °C because the spores go at
+  // 102 °C, not because the Blender melts at 1538 °C. Both are worth listing;
+  // only one explains the number.
+  for (const a of window.avoided) {
+    a.binding = a.range[0] === window.hi + 1 || a.range[1] === window.lo - 1;
+  }
   return window;
 }
 
@@ -3477,7 +3701,7 @@ function operatingWindow(p, avoid = true) {
  * the solver filters, so that a disabled route is still visible as one.
  */
 function buildProcessGraph(db) {
-  const processes = [...reactionProcesses(db), ...materialProcesses(db)];
+  const processes = [...reactionProcesses(db), ...materialProcesses(db), ...phaseChains(db)];
 
   // The explorer's own categoriser, reused. The planner needs it because how a
   // material is *had* differs by kind of thing: an ore is dug up, a wall is
@@ -3528,6 +3752,17 @@ function buildProcessGraph(db) {
     consumers: (name) => consumersOf.get(name) || [],
     kindsThatProduce: (name) => new Set((producersOf.get(name) || []).map((p) => p.kind)),
   };
+
+  // A process that eats something Static happens where that thing sits: you
+  // cannot pipe a Corundum Deposit into a furnace, you have to go and heat it
+  // in the ground. It is a real route and the game allows it, but it is not
+  // how a production line is built -- the player mines the deposit and feeds
+  // the ore. Mining and handling are exempt, being player actions on placed
+  // things by their nature.
+  for (const p of processes) {
+    p.inPlace = p.kind !== 'mine' && p.kind !== 'handling' &&
+                p.consumes.some((i) => state.get(i.name) === 'Static');
+  }
 
   // Depends on the finished index, so it runs last. Plan-independent: what a
   // chamber's contents would also do is a fact about the game, not about what
@@ -3584,6 +3819,13 @@ function emptyPlan() {
     credit: [],                   // byproducts agreed to be plumbed back
     kinds: [...DEFAULT_KINDS],
     avoidSideEffects: true,
+    /**
+     * Which material is being inspected. Not part of the question -- it is
+     * where you are looking -- but it rides along in the URL for the same
+     * reason the explorer's selection does: so a link points at the thing you
+     * wanted to show somebody.
+     */
+    selected: null,
   };
 }
 
@@ -3630,6 +3872,7 @@ function readPlan(params) {
     plan.kinds = list(kinds).filter((k) => known.has(k));
   }
   if (params.get('ss') === '0') plan.avoidSideEffects = false;
+  plan.selected = params.get('pm') || null;
   return plan;
 }
 
@@ -3653,6 +3896,7 @@ function writePlan(plan, params) {
   // turning every kind off has to survive a reload as itself.
   if (!usual) params.set('k', plan.kinds.join(SEP) || NO_KINDS);
   if (!plan.avoidSideEffects) params.set('ss', '0');
+  put('pm', plan.selected);
 }
 
 /* ------------------------------------------------------------- editing it */
@@ -3694,6 +3938,11 @@ function setTargetAmount(plan, name, amount) {
   const found = next.targets.find((t) => t.name === name);
   if (found) found.amount = Math.max(1, Math.round(amount) || 1);
   return next;
+}
+
+/** Look at a material: what it is for, how it is being made, and what else could. */
+function selectMaterial(plan, name) {
+  return { ...clone(plan), selected: name || null };
 }
 
 function removeTarget(plan, name) {
@@ -3761,7 +4010,7 @@ function planProcess(plan, process) {
   return next;
 }
 
-return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, includeProcess, toggle, toggleKind, setOption, planProcess };
+return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTarget, setTargetAmount, selectMaterial, removeTarget, addHave, removeHave, pin, includeProcess, toggle, toggleKind, setOption, planProcess };
 })();
 
 const __mod_plan_solve = (() => {
@@ -3864,6 +4113,12 @@ const DEFAULT_WEIGHTS = {
   byHand: 10,
   /** Per side reaction no temperature can dodge: a mild nudge toward clean routes. */
   sideEffect: 0.5,
+  /**
+   * Working on something where it lies, because it cannot be moved. Heating a
+   * deposit in the ground does produce the melt, and it is nobody's idea of a
+   * production line -- the ore route wins unless there is not one.
+   */
+  inPlace: 4,
   perKelvin: 1 / 1200,     // a 2400 K furnace costs 2 more than a warm one
   slowness: 0.5,           // per decade of the probability divisor
   spark: 0.25,
@@ -3908,6 +4163,7 @@ function processCost(p, w = DEFAULT_WEIGHTS, avoid = true) {
   if (cond.requiresSpark) c += w.spark;
   if (cond.probability > 1) c += w.slowness * Math.log10(cond.probability);
   if (cond.places) c += w.byHand;
+  if (p.inPlace) c += w.inPlace;
   c += w.catalyst * (cond.catalysts?.length || 0);
   return c;
 }
@@ -4041,7 +4297,13 @@ function solveCosts(graph, spec) {
       for (const { name } of p.requires) c += requireCost(name);
       if (!Number.isFinite(c)) continue;
       for (const { name } of p.produces) {
-        if (pins.has(name)) continue;               // the reader already chose
+        // A pin narrows the field to one process; it must not stop the cost
+        // being worked out. Left out of the relaxation entirely, a pinned
+        // material kept the price of merely acquiring one -- so pinning how to
+        // make Carbon made Carbon look expensive, and the plan went off to melt
+        // down aluminium wire instead of smelting the ore.
+        const chosen = pins.get(name);
+        if (chosen && chosen !== p.id) continue;
         if ((made.get(name) ?? Infinity) <= c) continue;
         made.set(name, c);
         choice.set(name, p.id);
@@ -4052,12 +4314,15 @@ function solveCosts(graph, spec) {
     if (!changed) break;
   }
 
-  // Honour the pins that name a process, whatever the search preferred.
+  // Honour the pins that name a process, whatever the search preferred. The
+  // relaxation above already priced them; this only settles the choice for a
+  // pin whose process could not be costed at all, so extraction still follows
+  // it and reports what that leaves unresolved.
   for (const [name, target] of pins) {
     if (target === 'have') { choice.delete(name); made.delete(name); continue; }
     if (!graph.byId.has(target)) continue;
     choice.set(name, target);
-    made.set(name, made.get(name) ?? 0);
+    if (!made.has(name)) made.set(name, weights.acquire);
   }
 
   return { cost, made, choice, acquire, allowed };
@@ -4344,44 +4609,6 @@ function solvePlan(graph, rawSpec) {
   frontier.sort((a, b) => a.name.localeCompare(b.name));
   byproducts.sort((a, b) => a.name.localeCompare(b.name));
 
-  const apparatus = { /**
-                       * The most demanding step in each direction -- and they
-                       * are rarely the same step. A plan that smelts iron and
-                       * ferments beer needs a furnace *and* a cold room, not
-                       * one chamber somehow at both temperatures.
-                       */
-                      hottestFloor: 0, lowestCeiling: null,
-                      /** 'always' | 'sometimes' | 'none' -- how much kit that implies. */
-                      heating: 'none', cooling: 'none',
-                      electrolysis: false, spark: false, byHand: false,
-                      /** A range was cut down to dodge something, or could not be. */
-                      narrowedBySideEffects: false, sideEffects: false,
-                      catalysts: new Map(), kinds: new Set(), slowest: null,
-                      /** Some step's yield is an average over a random draw. */
-                      stochastic: false };
-  for (const p of dag.processes.values()) {
-    if (rzero(scaled.runs.get(p.id) || R0) && !spec.include.has(p.id)) continue;
-    apparatus.kinds.add(p.kind);
-    const c = p.conditions || {};
-    const w = operatingWindow(p, spec.avoidSideEffects);
-    if (w.lo) apparatus.hottestFloor = Math.max(apparatus.hottestFloor, w.lo);
-    if (Number.isFinite(w.hi)) {
-      apparatus.lowestCeiling = Math.min(apparatus.lowestCeiling ?? Infinity, w.hi);
-    }
-    if (w.narrowed) apparatus.narrowedBySideEffects = true;
-    if (w.unavoidable.length) apparatus.sideEffects = true;
-    if (c.electrolysis) apparatus.electrolysis = true;
-    if (c.requiresSpark) apparatus.spark = true;
-    if (c.places) apparatus.byHand = true;
-    for (const { name, count } of c.catalysts || []) {
-      apparatus.catalysts.set(name, Math.max(apparatus.catalysts.get(name) || 0, count));
-    }
-    if (c.stochastic) apparatus.stochastic = true;
-    if (c.probability > (apparatus.slowest?.conditions?.probability ?? 0)) apparatus.slowest = p;
-  }
-  apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
-  apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
-
   const steps = [...dag.processes.values()]
     .filter((p) => !rzero(scaled.runs.get(p.id) || R0))
     .map((p) => ({ process: p, runs: rmul(scaled.runs.get(p.id), scale),
@@ -4389,6 +4616,60 @@ function solvePlan(graph, rawSpec) {
   // Presentation order is the order you would actually do them in.
   const rank = new Map(order.map((id, i) => [id, i]));
   steps.sort((a, b) => (rank.get(a.process.id) ?? 0) - (rank.get(b.process.id) ?? 0));
+
+  // Described from the steps, in the order they are done, so that attributing
+  // an extreme to a step is stable rather than a side effect of how the graph
+  // happened to be walked.
+  const apparatus = { /**
+                       * The most demanding step in each direction -- and they
+                       * are rarely the same step. A plan that smelts iron and
+                       * ferments beer needs a furnace *and* a cold room, not
+                       * one chamber somehow at both temperatures.
+                       */
+                      hottestFloor: 0, lowestCeiling: null,
+                      hottestStep: null, coolestStep: null,
+                      /** How many steps sit at that extreme: naming one of six is a lie. */
+                      hottestShared: 0, coolestShared: 0,
+                      /** 'always' | 'sometimes' | 'none' -- how much kit that implies. */
+                      heating: 'none', cooling: 'none',
+                      electrolysis: false, spark: false, byHand: false,
+                      catalysts: new Map(), kinds: new Set(), slowest: null,
+                      /** A range was cut down to dodge something, or could not be. */
+                      narrowedBySideEffects: false, sideEffects: false,
+                      /** Some step's yield is an average over a random draw. */
+                      stochastic: false };
+  for (const { process: p, window: w } of steps) {
+    apparatus.kinds.add(p.kind);
+    const c = p.conditions || {};
+    if (w.lo > apparatus.hottestFloor) {
+      apparatus.hottestFloor = w.lo;
+      apparatus.hottestStep = p;
+      apparatus.hottestShared = 1;
+    } else if (w.lo && w.lo === apparatus.hottestFloor) {
+      apparatus.hottestShared++;
+    }
+    if (Number.isFinite(w.hi)) {
+      if (w.hi < (apparatus.lowestCeiling ?? Infinity)) {
+        apparatus.lowestCeiling = w.hi;
+        apparatus.coolestStep = p;
+        apparatus.coolestShared = 1;
+      } else if (w.hi === apparatus.lowestCeiling) {
+        apparatus.coolestShared++;
+      }
+    }
+    if (c.electrolysis) apparatus.electrolysis = true;
+    if (c.requiresSpark) apparatus.spark = true;
+    if (c.places) apparatus.byHand = true;
+    for (const { name, count } of c.catalysts || []) {
+      apparatus.catalysts.set(name, Math.max(apparatus.catalysts.get(name) || 0, count));
+    }
+    if (w.narrowed) apparatus.narrowedBySideEffects = true;
+    if (w.unavoidable.length) apparatus.sideEffects = true;
+    if (c.stochastic) apparatus.stochastic = true;
+    if (c.probability > (apparatus.slowest?.conditions?.probability ?? 0)) apparatus.slowest = p;
+  }
+  apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
+  apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
 
   return {
     spec, graph, dag, order, stuck,
@@ -4429,6 +4710,82 @@ function solvePlan(graph, rawSpec) {
 }
 
 /**
+ * Every way the plan could make a material, best first.
+ *
+ * The frontier's routes were only ever offered for things left to fetch, which
+ * is the wrong half: the material you most want to redirect is one the plan has
+ * already decided how to make. Steam has 108 producers and Carbon 20, so the
+ * list has to say enough to choose by -- what each one costs, what it would
+ * need, and how much of that is already to hand.
+ */
+function routesFor(plan, name) {
+  const { graph, spec, cost } = plan;
+  const inPlan = plan.dag.materials;
+  const chosen = plan.dag.materials.get(name)?.producer;
+
+  const routes = graph.producers(name)
+    .filter((p) => spec.kinds.has(p.kind) || p.id === chosen)
+    .map((p) => {
+      const inputs = [...p.consumes, ...p.requires].map((i) => ({
+        ...i,
+        have: spec.have.has(i.name),
+        inPlan: inPlan.has(i.name),
+      }));
+      let c = processCost(p, spec.weights, spec.avoidSideEffects);
+      for (const i of inputs) c += cost.get(i.name) ?? Infinity;
+      return {
+        process: p,
+        cost: c,
+        inputs,
+        chosen: p.id === chosen,
+        banned: spec.excludeProcesses.has(p.id),
+        /** How much of what it needs you would not have to go on and plan. */
+        ready: inputs.filter((i) => i.have || i.inPlan).length,
+      };
+    });
+
+  routes.sort((a, b) => Number(a.banned) - Number(b.banned) ||
+                        a.cost - b.cost ||
+                        a.process.label.localeCompare(b.process.label));
+  return routes;
+}
+
+/**
+ * What could be done with the materials in hand, best first.
+ *
+ * The other half of `routesFor`. Naming one thing you have is not a plan and
+ * should not be answered with an empty table -- it is a question, and the
+ * answer is the list of processes that would take it.
+ *
+ * Ranked by how much of each one you could already supply, because a reaction
+ * needing three things you have not got is not really an option yet.
+ */
+function usesFor(plan, available) {
+  const has = new Set(available);
+  const seen = new Set();
+  const uses = [];
+  for (const name of has) {
+    for (const p of plan.graph.consumers(name)) {
+      if (seen.has(p.id) || !plan.spec.kinds.has(p.kind)) continue;
+      if (plan.spec.excludeProcesses.has(p.id)) continue;
+      seen.add(p.id);
+      const inputs = [...p.consumes, ...p.requires].map((i) => ({ ...i, have: has.has(i.name) }));
+      uses.push({
+        process: p,
+        inputs,
+        ready: inputs.every((i) => i.have),
+        missing: inputs.filter((i) => !i.have).length,
+        cost: processCost(p, plan.spec.weights, plan.spec.avoidSideEffects),
+        included: plan.spec.include.has(p.id),
+      });
+    }
+  }
+  uses.sort((a, b) => a.missing - b.missing || a.cost - b.cost ||
+                      a.process.label.localeCompare(b.process.label));
+  return uses;
+}
+
+/**
  * Everything the reader could make from what they have, cheapest first.
  *
  * This is the other way into a plan: rather than naming an output and working
@@ -4449,7 +4806,7 @@ function reachableFrom(graph, rawSpec) {
   return out;
 }
 
-return { rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rnum, rzero, rstr, DEFAULT_WEIGHTS, processCost, normalizeSpec, solveCosts, extract, topoOrder, amounts, batchScale, solvePlan, reachableFrom };
+return { rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rnum, rzero, rstr, DEFAULT_WEIGHTS, processCost, normalizeSpec, solveCosts, extract, topoOrder, amounts, batchScale, solvePlan, routesFor, usesFor, reachableFrom };
 })();
 
 const __mod_plan_view = (() => {
@@ -4467,10 +4824,10 @@ const __mod_plan_view = (() => {
  * else is drawn beside it later.
  */
 const {search} = __mod_search;
-const {solvePlan, rstr, rcmp, R0} = __mod_plan_solve;
+const {solvePlan, routesFor, usesFor, rstr, rcmp, R0} = __mod_plan_solve;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
-const {formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
-const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, setOption} = __mod_plan_state;
+const {AMBIENT, formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
+const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, setOption, selectMaterial, includeProcess} = __mod_plan_state;
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -4510,13 +4867,24 @@ function button(cls, label, title, onClick) {
   return b;
 }
 
-/** A material, as a link into the explorer. */
+/**
+ * A material, anywhere in the plan.
+ *
+ * Clicking one opens it in the inspector rather than leaving for the explorer.
+ * That is the difference between a plan you can steer and a plan you can only
+ * read: the material you most want to redirect is one already being made, and
+ * before this the only way to say "not like that" was to ban the step it
+ * happened to pick and see what it picked next. The explorer is one press
+ * further on, from the inspector.
+ */
 function matLink(name) {
   const m = ctx.db.byName.get(name);
-  const a = el('a', 'matlink' + (m ? '' : ' dangling'), m ? m.display : name);
+  const a = el('a', 'matlink' + (m ? '' : ' dangling') + (name === plan.selected ? ' on' : ''),
+                m ? m.display : name);
   a.href = '#';
-  a.title = m ? `Look up ${m.display}` : `${name} is named but never defined`;
-  if (m) a.addEventListener('click', (e) => { e.preventDefault(); ctx.openInExplorer(m); });
+  a.title = m ? `What ${m.display} is for, and how else to get it`
+              : `${name} is named but never defined`;
+  if (m) a.addEventListener('click', (e) => { e.preventDefault(); edit(selectMaterial, name); });
   return a;
 }
 
@@ -4535,10 +4903,35 @@ function side(parts) {
 const amount = (r) => rstr(r);
 
 /**
+ * The temperatures at which a side reaction goes off.
+ *
+ * Worth spelling out on every line: a step may dodge several at once and only
+ * one of them explains the limit it ended up with.
+ */
+function firesAt([lo, hi]) {
+  const open = !Number.isFinite(hi);
+  if (lo > 0 && open) return `${formatTemperature(lo)} and above`;
+  if (lo > 0) return `${formatTemperature(lo)}–${formatTemperature(hi)}`;
+  if (!open) return `${formatTemperature(hi)} and below`;
+  return 'any temperature';
+}
+
+/**
+ * Everything currently showing suggestions, so a click elsewhere can put them
+ * all away. There is no `contains` check: each picker stops clicks inside
+ * itself from reaching the document, so anything that gets here was outside.
+ */
+const openPickers = [];
+
+/**
  * A material picker: type, and pick one of the matches.
  *
  * It runs the explorer's own query parser, so `el:Au`, `state:gas` and a plain
  * name all work here too and there is only one search grammar to learn.
+ *
+ * The whole row is the target. Making people find a small button to the right
+ * of the thing they just picked out is a second decision where there was only
+ * one, and arrow keys and Enter do the same without the mouse at all.
  */
 function picker({ placeholder, actions }) {
   const box = el('div', 'picker');
@@ -4550,11 +4943,15 @@ function picker({ placeholder, actions }) {
   const list = el('ul', 'picker-hits');
   box.append(input, list);
 
-  // Kept rather than looked up again, so Enter works without a DOM query.
-  let firstAction = null;
-  const clear = () => { list.textContent = ''; firstAction = null; };
+  let rows = [];
+  let active = -1;
+
+  const close = () => { list.textContent = ''; rows = []; active = -1; };
+  const highlight = () => rows.forEach((r, i) =>
+    (i === active ? r.li.classList.add('on') : r.li.classList.remove('on')));
+
   const run = () => {
-    clear();
+    close();
     const q = input.value.trim();
     if (!q) return;
     for (const { m } of search(ctx.db, q).results.slice(0, 8)) {
@@ -4562,27 +4959,42 @@ function picker({ placeholder, actions }) {
       const name = el('span', 'picker-name');
       name.append(ctx.swatch(m), el('span', 'picker-label', m.display));
       li.append(name);
+
+      const take = (run2) => () => { input.value = ''; close(); run2(m.name); };
       const acts = el('span', 'picker-acts');
       for (const [label, hint, run2] of actions) {
-        const b = button('ghost small', label, hint, () => {
-          input.value = '';
-          clear();
-          run2(m.name);
-        });
-        firstAction = firstAction || b;
-        acts.append(b);
+        acts.append(button('ghost small', label, hint, take(run2)));
       }
-      li.append(acts);
+      // One action: the buttons are noise, since the row is the button.
+      if (actions.length > 1) li.append(acts);
+      li.addEventListener('click', take(actions[0][2]));
+      li.addEventListener('mouseenter', () => {
+        active = rows.findIndex((r) => r.li === li);
+        highlight();
+      });
+      rows.push({ li, take: take(actions[0][2]) });
       list.append(li);
     }
+    active = rows.length ? 0 : -1;
+    highlight();
   };
+
   input.addEventListener('input', run);
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { input.value = ''; clear(); }
-    // Enter takes the first action on the first match, which is the one people
-    // mean when they have typed a name in full and stopped.
-    if (e.key === 'Enter' && firstAction) firstAction.click();
+    if (e.key === 'Escape') { input.value = ''; close(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!rows.length) return;
+      active = e.key === 'ArrowDown' ? Math.min(rows.length - 1, active + 1)
+                                     : Math.max(0, active - 1);
+      highlight();
+      return;
+    }
+    if (e.key === 'Enter' && rows[active]) { e.preventDefault(); rows[active].take(); }
   });
+  // Clicks inside a picker are its own business; everything else dismisses it.
+  box.addEventListener('click', (e) => e.stopPropagation());
+  openPickers.push(close);
   return box;
 }
 
@@ -4596,12 +5008,13 @@ function goalChip(cls, label, onRemove, extra) {
   return chip;
 }
 
+/**
+ * The chips only. Each row's input is built once at boot and left alone, so
+ * typing into it survives the plan being solved again on every keystroke.
+ */
 function renderGoals() {
-  const box = $('#plan-goals');
-  box.textContent = '';
-
-  const wants = el('div', 'goal-row');
-  wants.append(el('span', 'goal-head', 'Make'));
+  const wants = $('#goal-targets');
+  wants.textContent = '';
   for (const t of plan.targets) {
     const n = el('input', 'goal-amount');
     n.type = 'number';
@@ -4609,20 +5022,16 @@ function renderGoals() {
     n.value = String(t.amount);
     n.title = `How many ${t.name}`;
     n.addEventListener('change', () => edit(setTargetAmount, t.name, Number(n.value)));
-    wants.append(goalChip('goal-target', '', () => edit(removeTarget, t.name),
-                          (() => { const f = document.createDocumentFragment();
-                                   f.append(n, matLink(t.name)); return f; })()));
+    const inner = document.createDocumentFragment();
+    inner.append(n, matLink(t.name));
+    wants.append(goalChip('goal-target', '', () => edit(removeTarget, t.name), inner));
   }
-  if (!plan.targets.length) wants.append(el('span', 'muted', 'nothing yet'));
-  box.append(wants);
 
-  const haves = el('div', 'goal-row');
-  haves.append(el('span', 'goal-head', 'Have'));
+  const haves = $('#goal-haves');
+  haves.textContent = '';
   for (const name of plan.have) {
     haves.append(goalChip('goal-have', '', () => edit(removeHave, name), matLink(name)));
   }
-  if (!plan.have.length) haves.append(el('span', 'muted', 'nothing yet'));
-  box.append(haves);
 }
 
 /* ------------------------------------------------------------------ steps */
@@ -4656,23 +5065,36 @@ function conditions(step) {
       o.chance < 0.01 ? 2 : 0)}%`).join(' / '));
     out.append(odds);
   }
+  // Kept out of this range: what would happen, and where.
   for (const a of w.avoided) {
-    out.append(el('span', 'rx-avoids', `avoids ${a.label}`));
-  }
-  for (const u of w.unavoidable) {
-    const also = el('span', 'rx-also', `also runs ${u.label}`);
-    if (solved.dag.processes.has(u.id)) {
-      also.classList.add('wanted');
-      also.title = 'Which this plan wants anyway, elsewhere';
+    const line = el('span', 'rx-avoids');
+    line.append(`avoids ${a.label}, which starts at ${firesAt(a.range)}`);
+    if (a.binding) {
+      line.append(el('span', 'rx-binding', ' — this is what sets the limit'));
     }
-    out.append(also);
+    line.title = a.binding
+      ? "The step's range stops just short of this."
+      : 'Also dodged, though something else is the tighter limit.';
+    out.append(line);
+  }
+  // Not kept out: no temperature in the range avoids these, so they happen.
+  for (const u of w.unavoidable) {
+    const wanted = solved.dag.processes.has(u.id);
+    const line = el('span', 'rx-also');
+    line.append(`this also runs ${u.label} (${firesAt(u.range)})`);
+    line.append(el('span', 'rx-why',
+      wanted ? ' — which is a step of this plan anyway'
+             : ' — no temperature in range avoids it'));
+    if (wanted) line.classList.add('wanted');
+    line.title = 'The same chamber contents drive this too, at every temperature ' +
+      'the step can be run at.';
+    out.append(line);
   }
   return out;
 }
 
 function renderSteps() {
   const box = $('#plan-steps');
-  box.textContent = '';
 
   if (solved.unreachable.length) {
     const warn = el('div', 'plan-warn');
@@ -4689,10 +5111,8 @@ function renderSteps() {
       `A choice loops back on itself at ${solved.cycles.join(', ')}, so it was left open.`));
   }
 
-  if (!solved.steps.length) {
-    box.append(el('p', 'muted', isEmptyPlan(plan)
-      ? 'Add something to make.'
-      : 'Nothing to do yet — everything asked for is already in hand.'));
+  if (!solved.steps.length && plan.targets.length) {
+    box.append(el('p', 'muted', 'Nothing to do — everything asked for is already in hand.'));
     return;
   }
 
@@ -4736,32 +5156,192 @@ function renderSteps() {
   box.append(table);
 }
 
+/**
+ * What you could do with what you have.
+ *
+ * Naming one thing you have is a question, not a plan, and answering it with
+ * an empty table says nothing. This is the list of processes that would take
+ * it, nearest first: the ones you could run right now come before the ones
+ * still short of an ingredient.
+ */
+function renderUses() {
+  const box = $('#plan-steps');
+  const available = new Set(plan.have);
+  for (const id of plan.include) {
+    for (const o of ctx.graph.byId.get(id)?.produces || []) available.add(o.name);
+  }
+  const uses = usesFor(solved, available);
+
+  const head = el('div', 'plan-steps-head plan-uses-head');
+  head.append(el('h2', null, uses.length
+    ? `${uses.length} thing${uses.length === 1 ? '' : 's'} you could do with that`
+    : 'Nothing the plan is allowed to use takes any of that'));
+  head.append(el('span', 'muted', 'or name something to make, above'));
+  box.append(head);
+  if (!uses.length) return;
+
+  const ready = uses.filter((u) => u.ready).length;
+  if (ready) {
+    box.append(el('p', 'muted',
+      `${ready} you could run as things stand; the rest are short of something.`));
+  }
+
+  const list = el('ul', 'use-list');
+  for (const u of uses.slice(0, allUses ? uses.length : USES_SHOWN)) {
+    const li = el('li', 'use-opt' + (u.ready ? ' ready' : '') + (u.included ? ' on' : ''));
+    const pick = button('route-pick', '', 'Put this step in the plan',
+                        () => edit(includeProcess, u.process.id));
+    pick.append(el('span', 'kind-glyph', KIND.get(u.process.kind)?.glyph || ''));
+    pick.append(el('span', 'route-label', u.process.label));
+    const eq = el('span', 'route-from');
+    u.inputs.forEach((i, k) => {
+      if (k) eq.append(' + ');
+      const tag = el('span', 'route-in' + (i.have ? ' have' : ''));
+      tag.append((i.count !== 1 ? `${i.count} ` : '') + i.name);
+      eq.append(tag);
+    });
+    eq.append(' → ');
+    u.process.produces.forEach((o, k) => {
+      if (k) eq.append(' + ');
+      eq.append(el('span', 'route-out', (o.count !== 1 ? `${o.count} ` : '') + o.name));
+    });
+    pick.append(eq);
+    li.append(pick);
+    list.append(li);
+  }
+  box.append(list);
+  if (uses.length > USES_SHOWN) {
+    box.append(button('ghost small', allUses ? 'Show fewer' : `Show all ${uses.length}`, null,
+                      () => { allUses = !allUses; render(); }));
+  }
+}
+
 /* ------------------------------------------------------------------- side */
 
-/** Which processes could make this, so the reader can take a different one. */
-function producerChoice(name) {
-  const options = ctx.graph.producers(name).filter((p) => plan.kinds.includes(p.kind));
-  if (!options.length) return null;
-  const sel = el('select', 'route');
-  const none = el('option', null, options.length === 1 ? 'make it' : `${options.length} ways to make it`);
-  none.value = '';
-  sel.append(none);
-  for (const p of options) {
-    const o = el('option', null, `${KIND.get(p.kind)?.glyph || ''} ${p.label}`);
-    o.value = p.id;
-    if (plan.pins[name] === p.id) o.selected = true;
-    sel.append(o);
+/** How many routes to show before the list has to be asked for in full. */
+const ROUTES_SHOWN = 6;
+let allRoutes = false;
+const USES_SHOWN = 12;
+let allUses = false;
+
+/**
+ * One material: what it is doing here, and every other way to get it.
+ *
+ * The list of routes is the answer to "not like that, like this". It is sorted
+ * by what each costs, marks the one in use, and says which of a route's inputs
+ * you already have -- with 149 ways to make Carbon, that is the only way to
+ * choose between them at a glance.
+ */
+function renderInspector(box) {
+  const name = plan.selected;
+  if (!name) return;
+  const m = ctx.db.byName.get(name);
+  if (!m) return;
+  const node = solved.dag.materials.get(name);
+
+  const panel = el('section', 'plan-panel inspector');
+  const head = el('div', 'inspector-head');
+  const title = el('h2', 'inspector-name');
+  title.append(ctx.swatch(m), el('span', null, m.display));
+  head.append(title);
+  head.append(button('ghost small', 'Look up', `Open ${m.display} in the explorer`,
+                     () => ctx.openInExplorer(m)));
+  head.append(button('goal-x', '×', 'Close', () => edit(selectMaterial, null)));
+  panel.append(head);
+
+  const need = solved.amountOf(name);
+  const made = solved.madeOf(name);
+  const role = [];
+  if (plan.targets.some((t) => t.name === name)) role.push('something the plan is for');
+  if (plan.have.includes(name)) role.push('yours already');
+  else if (node?.reason === 'produced') role.push('made here');
+  else if (node) role.push('to be fetched');
+  else role.push('not in the plan');
+  if (rcmp(need, R0) > 0) role.push(`${amount(need)} needed`);
+  if (rcmp(made, R0) > 0) role.push(`${amount(made)} made`);
+  panel.append(el('p', 'inspector-role', role.join(' · ')));
+
+  const acts = el('div', 'plan-item-acts');
+  if (!plan.targets.some((t) => t.name === name)) {
+    acts.append(button('ghost small', 'I want it', 'Count it as something the plan is for',
+                       () => edit(addTarget, name)));
   }
-  sel.addEventListener('change', () => {
-    // An empty choice still means "make it": pin the one the solver would pick.
-    edit(pin, name, sel.value || solved.choice.get(name) || options[0].id);
-  });
-  return sel;
+  const banned = plan.excludeMaterials.includes(name);
+  acts.append(button('ghost small' + (banned ? ' on' : ''), 'Never use it',
+                     'Keep this material out of the plan entirely',
+                     () => edit(toggle, 'excludeMaterials', name)));
+
+  // --- how to get it -------------------------------------------------------
+  //
+  // Having one is the first and best answer, so it heads the list rather than
+  // sitting in a row of buttons above it: "I have water" is an alternative to
+  // every way of making water, not a different kind of thing.
+  const routes = routesFor(solved, name);
+  const has = plan.have.includes(name);
+  panel.append(el('h3', 'inspector-sub', routes.length
+    ? `${routes.length + 1} ways to get it` : 'How to get it'));
+  const list = el('ul', 'route-list');
+
+  const mine = el('li', 'route-opt' + (has ? ' on' : ''));
+  const mineBtn = button('route-pick', '', has ? 'Stop treating this as available'
+                                               : 'Treat this as available and plan no further',
+                         () => edit(has ? removeHave : addHave, name));
+  mineBtn.append(el('span', 'kind-glyph', '\u2713'));
+  mineBtn.append(el('span', 'route-label', has ? 'You have it' : 'I have it'));
+  mineBtn.append(el('span', 'route-from', 'nothing to make, nothing to fetch'));
+  mine.append(mineBtn);
+  list.append(mine);
+
+  if (routes.length) {
+    const pinned = plan.pins[name];
+    const auto = el('li', 'route-opt' + (!pinned && !has ? ' on' : ''));
+    auto.append(button('route-pick', 'Let the planner choose',
+                       'Undo a choice made here', () => edit(pin, name, null)));
+    list.append(auto);
+
+    const shown = allRoutes ? routes : routes.slice(0, ROUTES_SHOWN);
+    for (const r of shown) {
+      const li = el('li', 'route-opt' + (r.chosen ? ' on' : '') + (r.banned ? ' banned' : ''));
+      const pick = button('route-pick', '', `Make ${m.display} this way`,
+                          () => edit(pin, name, r.process.id));
+      pick.append(el('span', 'kind-glyph', KIND.get(r.process.kind)?.glyph || ''));
+      pick.append(el('span', 'route-label', r.process.label));
+      const from = el('span', 'route-from');
+      if (r.inputs.length) {
+        r.inputs.forEach((i, k) => {
+          if (k) from.append(' + ');
+          const tag = el('span', 'route-in' + (i.have ? ' have' : i.inPlan ? ' inplan' : ''));
+          tag.append((i.count !== 1 ? `${i.count} ` : '') + i.name);
+          tag.title = i.have ? 'You have this' : i.inPlan ? 'Already in the plan' : 'Would have to be got';
+          from.append(tag);
+        });
+      } else {
+        from.append('nothing else');
+      }
+      pick.append(from);
+      li.append(pick);
+      list.append(li);
+    }
+  }
+  panel.append(list);
+  if (routes.length > ROUTES_SHOWN) {
+    panel.append(button('ghost small', allRoutes ? 'Show fewer'
+                        : `Show all ${routes.length}`, null,
+                        () => { allRoutes = !allRoutes; render(); }));
+  }
+  if (!routes.length) {
+    panel.append(el('p', 'muted', 'Nothing the plan is allowed to make this with, so it has ' +
+      'to be found — or another kind of process switched on under Options.'));
+  }
+
+  panel.append(acts);
+  box.append(panel);
 }
 
 function renderSide() {
   const box = $('#plan-side');
   box.textContent = '';
+  renderInspector(box);
 
   // --- what you still have to go and get ---------------------------------
   const front = el('section', 'plan-panel');
@@ -4771,6 +5351,7 @@ function renderSide() {
     const ul = el('ul', 'plan-list');
     for (const f of solved.frontier) {
       const li = el('li', 'plan-item');
+      li.dataset.material = f.name;
       const line = el('div', 'plan-item-main');
       line.append(el('span', 'amount', amount(f.amount)), ' ', matLink(f.name));
       li.append(line);
@@ -4780,14 +5361,21 @@ function renderSide() {
         const kind = KIND.get(f.routes[0].kind);
         how.append(`${kind?.glyph || ''} ${f.routes[0].label}`);
         li.append(how);
+      } else if (ctx.graph.categoryOf(f.name) === 'deposit') {
+        li.append(el('div', 'plan-how', 'out there somewhere — go and find one'));
       } else if (f.raw) {
         li.append(el('div', 'plan-how', 'found in the world'));
       }
       const acts = el('div', 'plan-item-acts');
-      acts.append(button('ghost small', 'I have it', 'Stop planning for this one',
-                         () => edit(addHave, f.name)));
-      const route = producerChoice(f.name);
-      if (route) acts.append(route);
+      // A deposit is never a question. It is in the ground somewhere and you
+      // are going to go and find it, so offering to mark it as already had is
+      // a button that means nothing.
+      if (ctx.graph.categoryOf(f.name) !== 'deposit') {
+        acts.append(button('ghost small', 'I have it', 'Stop planning for this one',
+                           () => edit(addHave, f.name)));
+      }
+      acts.append(button('ghost small', 'Other ways', `How else ${f.name} could be got`,
+                         () => edit(selectMaterial, f.name)));
       li.append(acts);
       ul.append(li);
     }
@@ -4802,6 +5390,7 @@ function renderSide() {
     const ul = el('ul', 'plan-list');
     for (const b of solved.byproducts) {
       const li = el('li', 'plan-item');
+      li.dataset.material = b.name;
       const line = el('div', 'plan-item-main');
       line.append(el('span', 'amount', amount(b.amount)), ' ', matLink(b.name));
       li.append(line);
@@ -4824,30 +5413,53 @@ function renderSide() {
     box.append(by);
   }
 
-  // --- what you have to build before any of it works ----------------------
+  // --- the extremes, and which step is responsible for each ---------------
+  //
+  // A summary of conditions the steps already state, so it earns its place
+  // only by picking out the demanding ones and saying which chamber they are
+  // about. Catalysts are deliberately not repeated here: they are named on the
+  // step that needs them, and a second listing says nothing new.
   const a = solved.apparatus;
   const kit = [];
-  if (a.hottestFloor) {
-    kit.push({ always: 'A furnace reaching ', sometimes: 'Holding ',
-               none: 'Working at ' }[a.heating] + formatTemperature(a.hottestFloor));
+  // Naming one step of six that all want the same thing would be a lie.
+  const which = (p, shared) =>
+    (shared > 1 ? `${shared} steps, the first being ${p.label}` : (p ? p.label : ''));
+  const ambient = `ambient runs ${formatTemperature(AMBIENT.min)} to ` +
+                  `${formatTemperature(AMBIENT.max)}`;
+
+  if (a.heating === 'always') {
+    kit.push(['Heating', `to ${formatTemperature(a.hottestFloor)}`,
+              which(a.hottestStep, a.hottestShared)]);
+  } else if (a.heating === 'sometimes') {
+    kit.push(['No furnace', `the hottest step only wants ${formatTemperature(a.hottestFloor)}`,
+              `${which(a.hottestStep, a.hottestShared)} — ${ambient}, so this is about ` +
+              'insulating it from anything colder rather than heating it']);
   }
-  if (a.lowestCeiling) {
-    kit.push({ always: 'Cooling below ', sometimes: 'A chamber kept under ',
-               none: 'A chamber under ' }[a.cooling] + formatTemperature(a.lowestCeiling));
+  if (a.cooling === 'always') {
+    kit.push(['Cooling', `below ${formatTemperature(a.lowestCeiling)}`,
+              which(a.coolestStep, a.coolestShared)]);
+  } else if (a.lowestCeiling) {
+    kit.push(['A ceiling', `${formatTemperature(a.lowestCeiling)}, not to be gone over`,
+              which(a.coolestStep, a.coolestShared)]);
   }
-  if (a.electrolysis) kit.push('Electrolysis');
-  if (a.spark) kit.push('A spark');
-  if (a.byHand) kit.push('Placing it yourself');
-  for (const [name, count] of a.catalysts) kit.push(`${count > 1 ? count + ' ' : ''}${name}`);
+  if (a.electrolysis) kit.push(['Electrolysis', 'a current in the chamber', '']);
+  if (a.spark) kit.push(['A spark', 'to set something off', '']);
+  if (a.byHand) kit.push(['You', 'placing the last of it yourself', '']);
+
   if (kit.length) {
     const app = el('section', 'plan-panel');
-    app.append(el('h2', null, 'What it takes'));
-    const ul = el('ul', 'plan-list');
-    for (const line of kit) ul.append(el('li', 'plan-kit', line));
-    app.append(ul);
-    if (a.hottestFloor && a.lowestCeiling && a.hottestFloor > a.lowestCeiling) {
-      app.append(el('p', 'muted',
-        'The hottest and coldest of those are different steps, so they are different chambers.'));
+    app.append(el('h2', null, 'The demanding bits'));
+    const dl = el('dl', 'plan-kit');
+    for (const [term, value, why] of kit) {
+      dl.append(el('dt', null, term));
+      const dd = el('dd');
+      dd.append(value);
+      if (why) dd.append(el('span', 'plan-kit-why', why));
+      dl.append(dd);
+    }
+    app.append(dl);
+    if (a.hottestStep && a.coolestStep && a.hottestStep !== a.coolestStep) {
+      app.append(el('p', 'muted', 'Different steps, so different chambers.'));
     }
     box.append(app);
   }
@@ -4900,7 +5512,12 @@ function render() {
   });
 
   renderGoals();
-  renderSteps();
+  // With nothing named to make, the question is "what can I do with this?" --
+  // and once something has been picked, both: the steps so far, then what
+  // those leave you able to do next.
+  $('#plan-steps').textContent = '';
+  if (plan.targets.length || plan.include.length) renderSteps();
+  if (!plan.targets.length) renderUses();
   renderSide();
 }
 
@@ -4926,6 +5543,23 @@ function initPlan(context) {
               ['Have', 'Add as something available', (n) => edit(addHave, n)]],
   }));
 
+  // A box on each goal row, so adding to one is not a trip to the top bar and
+  // a choice of button. Built once and never re-rendered, so what you have
+  // typed survives the plan being solved again between keystrokes.
+  $('#goal-make-add').append(picker({
+    placeholder: 'something to make',
+    actions: [['Make it', 'Plan a way to produce this', (n) => edit(addTarget, n)]],
+  }));
+  $('#goal-have-add').append(picker({
+    placeholder: 'something you have',
+    actions: [['I have it', 'Treat this as available', (n) => edit(addHave, n)]],
+  }));
+
+  // Anything showing suggestions puts them away when you click elsewhere.
+  document.addEventListener('click', () => {
+    for (const close of openPickers) close();
+  });
+
   $('#plan-avoid').addEventListener('change', (e) =>
     edit(setOption, 'avoidSideEffects', e.target.checked));
   $('#toggle-plan-options').addEventListener('click', () => {
@@ -4940,7 +5574,7 @@ return { getPlan, planIsEmpty, setPlan, render, lastSolved, initPlan };
 
 const __mod_main = (() => {
 /** Search UI: query box, element filter, result list, material detail. */
-const {loadData, REFERENCE_ORDER, referencePhrase} = __mod_data;
+const {loadData, REFERENCE_ORDER, referencePhrase, phaseChange} = __mod_data;
 const {collapseKey, packCollapsed, unpackCollapsed} = __mod_collapse;
 const {buildGroups, filterGroups, CATEGORIES} = __mod_grouping;
 const {patternStrip, recipeFor} = __mod_pattern_render;
@@ -5740,8 +6374,14 @@ function renderDetail(m) {
 
   // --- thermal -----------------------------------------------------------
   const thermal = [];
-  if (r.Condensation) thermal.push(['Condensation', phaseLine(r.Condensation, 'to')]);
-  if (r.Evaporation) thermal.push(['Evaporation', phaseLine(r.Evaporation, 'to')]);
+  // Headed by what the change actually is: most of the game's "Evaporation"
+  // entries are a solid melting.
+  for (const [field, dir] of [['Condensation', 'cool'], ['Evaporation', 'heat']]) {
+    const t = r[field];
+    if (!t) continue;
+    const to = db.byName.get(t.TargetMaterialName);
+    thermal.push([phaseChange(m.state, to?.state, dir).label, phaseLine(t, 'to')]);
+  }
   if (r.Ignition) {
     // Temperature 0 is no threshold at all rather than a cryogenic one, so say
     // what actually sets it off instead of printing "at 0 K".
