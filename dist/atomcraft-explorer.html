@@ -4288,7 +4288,17 @@ const DEFAULT_WEIGHTS = {
    */
   inPlace: 4,
   perKelvin: 1 / 1200,     // a 2400 K furnace costs 2 more than a warm one
-  slowness: 0.5,           // per decade of the probability divisor
+  /**
+   * Per decade of the probability divisor, above `brisk`.
+   *
+   * The divisor is a per-tick gate, and the two populations are far apart:
+   * reactions carry 4 to 10000, phase changes 2e6 to 6.4e7. A one-in-a-hundred
+   * gate is a rate, not an obstacle -- charging for it had the planner send you
+   * out for a mushroom to evaporate rather than use the carbon monoxide you
+   * already had. A one-in-two-million gate really is a wait.
+   */
+  slowness: 0.5,
+  brisk: 100,
   spark: 0.25,
 };
 
@@ -4329,7 +4339,9 @@ function processCost(p, w = DEFAULT_WEIGHTS, avoid = true) {
   c += w.sideEffect * unavoidable.length;
   if (cond.electrolysis) c += w.electrolysis;
   if (cond.requiresSpark) c += w.spark;
-  if (cond.probability > 1) c += w.slowness * Math.log10(cond.probability);
+  if (cond.probability > w.brisk) {
+    c += w.slowness * (Math.log10(cond.probability) - Math.log10(w.brisk));
+  }
   if (cond.places) c += w.byHand;
   if (p.inPlace) c += w.inPlace;
   c += w.catalyst * (cond.catalysts?.length || 0);
@@ -4942,10 +4954,16 @@ function solveFedBack(graph, spec) {
   /**
    * Which of two plans is the better one to be handed.
    *
-   * Fetching is what costs the player, so the shopping list comes first, then
-   * the length of the plan, then how much has to be laid in to start it.
+   * Being told to fetch something the plan could have made is the worst
+   * outcome -- "go and find some Molten Beryllium" is a shrug, not a plan --
+   * so those count first, then the shopping list, then the length of it, then
+   * how much has to be laid in to start.
+   *
+   * Counting only the length of the shopping list gets this backwards: a plan
+   * that gives up entirely has a very short one.
    */
-  const score = (p) => [p.frontier.length, p.steps.length, p.priming.length];
+  const score = (p) => [p.frontier.filter((f) => f.alternatives > 0).length,
+                        p.frontier.length, p.steps.length, p.priming.length];
   const better = (a, b) => {
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
     return false;

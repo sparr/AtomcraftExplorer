@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS,
          operatingWindow } from '../src/plan-graph.js';
-import { solvePlan, reachableFrom, routesFor, competitionOf, shareRatio,
+import { solvePlan, reachableFrom, routesFor, competitionOf, shareRatio, processCost,
          rat, radd, rsub, rmul, rdiv, rcmp, rstr, R0 } from '../src/plan-solve.js';
 import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
          formatTemperatureRange, heatingNeed, coolingNeed } from '../src/units.js';
@@ -113,6 +113,29 @@ console.log('\n--- phase chains ---');
   // Water is collectable, so stopping at it costs a fetch rather than a step.
   check(split.frontier.some((f) => f.name === 'Water'),
         'though the water then has to come from somewhere: it is collected');
+}
+
+/* --------------------------------------------------- how slow is too slow */
+
+console.log('\n--- a per-tick gate is a rate, not an obstacle ---');
+{
+  // The Probability divisor has two populations far apart: reactions carry 4
+  // to 10000, phase changes 2e6 to 6.4e7. Charging half a point per decade
+  // from zero put a full point on a one-in-a-hundred reaction, which is what
+  // had the planner send you out for a mushroom to evaporate rather than use
+  // the carbon monoxide already in your hand.
+  const plan = solvePlan(graph, { targets: ['Carbon'], have: ['Carbon Monoxide'] });
+  check(plan.steps.length === 1 &&
+        plan.steps[0].process.id === 'rx:Boudouard Equilibrium 500-725K',
+        `carbon monoxide is turned straight into carbon (${plan.steps.map((s) =>
+          s.process.label).join('; ')})`);
+  check(!plan.frontier.length, 'with nothing to go and find');
+
+  // The gate on a phase change is still worth something: those are millions.
+  const brisk = processCost(graph.byId.get('rx:Boudouard Equilibrium 500-725K'));
+  const rare = graph.processes.find((p) => p.conditions.probability > 1e6);
+  check(processCost(rare) > brisk,
+        `while a one-in-${rare.conditions.probability} phase change still counts as a wait`);
 }
 
 /* ----------------------------------------------------- what the sky gives */

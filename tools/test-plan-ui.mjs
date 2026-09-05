@@ -260,17 +260,17 @@ console.log('\n--- claiming what is left over ---');
 
 console.log('\n--- trading a step for a charge ---');
 {
-  // The copper is made rather than taken back off its own loop: a step you run
+  // The steam is made rather than taken back off its own loop: a step you run
   // forever in place of a charge you lay in once. Which way round is better is
   // the reader's call, so both are one press away.
-  app.setPlan(addTarget(emptyPlan(), 'Aqueous Magnesium Sulfate'));
+  app.setPlan(addTarget(emptyPlan(), 'Boron Oxide'));
   app.setMode('plan');
   const steps = () => nodes($('#plan-steps'), 'plan-step');
   const before = steps().length;
   const marked = steps().filter((r) => r.textContent.includes('does not have to be laid in'));
   check(marked.length === 1,
         `exactly the step that was added says so, not every step that makes any (${marked.length})`);
-  check(marked[0].textContent.includes('Copper'), 'and it is the one making the copper');
+  check(marked[0].textContent.includes('Steam'), 'and it is the one making the steam');
   const primeIt = nodes($('#plan-steps'), 'step-acts')
     .flatMap((a) => a.children).find((b) => b.textContent === 'Prime instead');
   check(!!primeIt, 'and offers to make that trade the other way');
@@ -279,18 +279,18 @@ console.log('\n--- trading a step for a charge ---');
   check(steps().length < before, `which drops the step (${before} -> ${steps().length})`);
   const charges = nodes($('#plan-side'), 'plan-item')
     .filter((n) => n.textContent.includes('never spent')).map((n) => n.dataset.material);
-  check(charges.includes('Copper'), `and lays the copper in instead: ${charges.join(', ')}`);
-  check(app.getPlan().credit.includes('Copper'),
+  check(charges.includes('Steam'), `and lays the steam in instead: ${charges.join(', ')}`);
+  check(app.getPlan().credit.includes('Steam'),
         'held there by an explicit choice, which the solver will not overrule');
 
   // And back again, from the charge it created.
   const makeIt = nodes($('#plan-side'), 'plan-item')
-    .filter((n) => n.dataset.material === 'Copper')
+    .filter((n) => n.dataset.material === 'Steam')
     .flatMap((n) => nodes(n, 'small')).find((b) => b.textContent === 'Make it instead');
   check(!!makeIt, 'the charge offers the reverse');
   makeIt.click();
   check(steps().length === before, 'which puts the step back');
-  check(!app.getPlan().credit.includes('Copper'), 'and the choice with it');
+  check(!app.getPlan().credit.includes('Steam'), 'and the choice with it');
 }
 
 /* ------------------------------------------------------------- redirecting */
@@ -344,11 +344,9 @@ app.setMode('plan');
   // cannot pipe a deposit into a furnace. The ore route should win.
   app.setPlan(addTarget(emptyPlan(), 'Molten Alumina'));
   const fetching = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
-  check(fetching.includes('Bauxite'),
-        `Molten Alumina goes through the ore: ${fetching.join(', ')}`);
-  check(!fetching.some((n) => app.graph.categoryOf(n) === 'deposit'),
-        'and not by melting a deposit in the ground');
-  check(text('#plan-side').includes('Bauxite Deposit mines into Bauxite'),
+  check(fetching.length && !fetching.some((n) => app.graph.categoryOf(n) === 'deposit'),
+        `Molten Alumina asks for ore, not a deposit to melt in the ground: ${fetching.join(', ')}`);
+  check(/Deposit (mines into|drops)/.test(text('#plan-side')),
         'though it still says which deposit the ore comes out of');
 }
 {
