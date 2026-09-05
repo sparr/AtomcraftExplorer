@@ -392,6 +392,13 @@ Everything is JavaScript — source, build and tests all run on Node.
 
 ## Limitations
 
+- **A field the UI reads by property access can still go unnoticed.**
+  `tools/test-coverage.mjs` checks both directions — every field carrying a
+  value is read, and every field the code *names* still exists — but the second
+  half only sees the two places that name fields as data: the detail pane's
+  `['Field', 'Label']` lists and the back-reference map in `data.js`. Something
+  reached as `m.raw.Whatever` and then dropped by the game leaves a dead branch
+  that nothing here will flag.
 - **The tests do not cover appearance.** They run against the DOM shim in
   [`tools/dom-shim.mjs`](tools/dom-shim.mjs), which confirms all 1871 detail
   panes build without throwing and contain what they should, but knows nothing
@@ -425,7 +432,7 @@ node tools/test-formula.mjs   # parses + round-trips all 436 distinct formulas
 node tools/test-search.mjs    # ranking assertions
 node tools/test-render.mjs    # renders all 1871 detail panes against a DOM shim
 node tools/test-styles.mjs    # every class used in markup or code has a rule
-node tools/test-coverage.mjs  # every material field with a value reaches the UI
+node tools/test-coverage.mjs  # the UI's fields and the game's agree, both ways
 node tools/test-bundle.mjs    # runs the standalone build with fetch() disabled
 ```
 
