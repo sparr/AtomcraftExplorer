@@ -89,6 +89,62 @@ displacement between two aqueous species has two waters going in and one coming 
 model, not the individual reactions, is what makes these unbalanced — but the water really
 does vanish.
 
+**How much of this is only bookkeeping?** 23 of the 38 move no real `Water`/`Steam`/`Ice`
+cell at all; the discrepancy lives entirely in the composition ledger at that step. That
+would be harmless if the ledger never cashed out — but it does, in both directions:
+
+- **36 hydration reactions** turn a real water cell into bound water (`Zinc Chloride +
+  2 Water -> Aqueous Zinc Chloride`).
+- **39 evaporation reactions** turn bound water back into a real cell (`Aqueous Zinc
+  Chloride -> Zinc Chloride + Steam`).
+
+So a phantom water lost mid-chain becomes a real cell that never comes back. The set is
+also lopsided — **32 of the 38 destroy water and only 6 create it** — and none of them
+cancel: there is not one inverse pair among the 38, so no loss is structurally restored by
+another reaction in the group.
+
+**Three of them are catalytic**, which makes the loss unbounded. Seeding a forward closure
+with only a reaction's own non-water outputs (water treated as free, which it is — there is
+a `Seawater Source`), these three can regenerate every reagent they consume:
+
+```
+Zinc Chloride + Water                            ΔH₂O -1
+Aqueous Potassium Hydroxide + Hydrochloric Acid  ΔH₂O -1
+Aqueous Ammonium Chloride + Aqueous Lye          ΔH₂O -1
+```
+
+The first two close into short loops that verify exactly. Every non-water material returns
+to its starting amount; only water is consumed:
+
+```
+CYCLE A  — zinc chloride is a catalyst that eats water
+  Zinc Chloride + 2 Water -> Aqueous Zinc Chloride
+  Aqueous Zinc Chloride   -> Zinc Chloride + Steam
+  net: ZnCl₂ unchanged, 2 Water in, 1 Steam out          → −1 water cell per pass
+
+CYCLE B — potassium hydroxide / chloride
+  2x  Aqueous Potassium Hydroxide + Hydrochloric Acid -> Potassium Chloride + Water
+  2x  Potassium Chloride + Water                      -> Aqueous Potassium Chloride
+      2 Aqueous Potassium Chloride + 2 Water -> 2 Aqueous Potassium Hydroxide + Hydrogen Gas + Chlorine Gas
+      Chlorine Gas + Hydrogen Gas            -> 2 Hydrochloric Acid
+  net: every reagent returns, 2 Water consumed          → −2 water cells per pass
+```
+
+Cycle A is two reactions long and needs one cell of zinc chloride to run forever. The third
+(`Aqueous Ammonium Chloride + Aqueous Lye`) passes the same test through seawater
+electrolysis, but the chain is long and leaves side products, so it is not verified here as
+an exact cycle.
+
+**The leak is one-way.** All three catalytic reactions destroy water; not one of the six
+water-*creating* reactions can regenerate its reagents. The closure test is permissive — it
+ignores quantities, so it over-reports catalysis rather than under-reporting it — which
+makes that negative robust: water can be annihilated without limit, but never manufactured
+without limit.
+
+The remaining 35 still lose or gain water on every run, but each pass consumes feedstock —
+ore, acid, or metal that cannot be remade from the products — so the damage is bounded by
+supply rather than infinite.
+
 ### 1c. Everything else — 86 reactions
 
 These are not explained by either convention. The worst of them:
