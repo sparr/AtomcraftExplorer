@@ -192,6 +192,15 @@ export function shareRatio(chances) {
 const NEVER = 1e-6;
 
 /**
+ * How many ways of getting through the reader's stock are worth solving for.
+ *
+ * Carbon has three that touch carbon dioxide and 153 in all, so this is a
+ * bound on the work rather than on the answer -- but a target with a dozen
+ * would otherwise cost a dozen full solves to choose between.
+ */
+const STOCK_ROUTES = 4;
+
+/**
  * The set of reactions sharing this one's chamber and feed, as whole-number
  * shares -- or null where it has the feed to itself.
  */
@@ -832,6 +841,100 @@ export function solvePlan(graph, rawSpec) {
   };
 
   let plan = solve(spec);
+
+  /**
+   * Stock the reader wants used, as against stock they are merely waving off.
+   *
+   * `have` says two things at once. Naming a material in the have box is
+   * stating what you are sitting on, and the question that goes with it is
+   * "what can I get out of this". Ticking "I have it" on a line of the
+   * shopping list is the other thing entirely: stop here, I will sort that out
+   * myself. `plenty` already tells the two apart for `balanceTargets`, and the
+   * difference is every bit as real to the search.
+   */
+  const stock = new Set([...spec.have].filter((n) => !spec.plenty.has(n)));
+  const eatsStock = (p) =>
+    p.steps.some((s) => s.process.consumes.some((i) => stock.has(i.name)));
+
+  /**
+   * A plan that gets through the stock beats one that does not, at any price.
+   *
+   * Costing the stock at zero only ever said a route is not *charged* for
+   * eating your carbon dioxide. It never said a route is worth anything for
+   * doing so -- and against a spore that turns straight into Carbon for 1.56,
+   * a reduction that has to make four Potassium first cannot win on price,
+   * however much of your stock it would get through. So the stock sat
+   * untouched and the plan answered a question nobody had asked.
+   *
+   * Asked here rather than as a discount in `solveCosts`, for three reasons.
+   * There is no discount that would do: small enough to leave the rest of the
+   * scale meaning anything and it never overturns the spore, large enough to
+   * overturn the spore and every price below it collapses together. The cost
+   * model is a fixpoint that stays acyclic by only ever lowering a price, and
+   * a thumb on one side of it re-routed Carbon through the Carbon Monoxide it
+   * had just made. And it is the wrong question to ask of a price: what makes
+   * the Potassium route worth having is not that it is cheap -- it is dearer,
+   * and stays dearer -- but that the Potassium Oxide it throws off comes back
+   * round to make the Potassium again, so the plan asks for Water and a charge
+   * laid in once rather than Lepidolite for ever. `solveCosts` cannot see that
+   * and `score` can, because by then the loop has been found.
+   *
+   * So each route through the stock is tried as though it had been pinned, and
+   * they are judged the way two plans are always judged here: by the shopping
+   * list they leave. That is what picks the four Potassium over the two
+   * Magnesium, which is cheaper by the cost model and sends you out for
+   * Vanadinite besides.
+   *
+   * One route, over all the targets together, and only where the plan was not
+   * going to touch the stock anyway. The reader said what they have and asked
+   * what could be got out of it; they did not ask for a plan that reaches for
+   * the same barrel wherever it possibly can.
+   */
+  if (stock.size && !eatsStock(plan)) {
+    const chainCost = (p) => p.consumes.reduce(
+      (c, i) => c + (plan.cost.get(i.name) ?? Infinity),
+      processCost(p, spec.weights, spec.avoidSideEffects));
+
+    let best = null;
+    let bestScore = null;
+    let bestCost = Infinity;
+    let bestPins = null;
+
+    for (const { name } of spec.targets) {
+      // A pin is the reader saying it outright, and outranks a preference.
+      if (spec.pins.has(name)) continue;
+      const routes = graph.producers(name)
+        .filter((p) => spec.kinds.has(p.kind) && !spec.excludeProcesses.has(p.id) &&
+                       // Eating the stock counts; standing it by does not.
+                       // `requires` hands the material straight back, and a
+                       // plan that only borrows your carbon dioxide has not
+                       // used any of it.
+                       p.consumes.some((i) => stock.has(i.name)))
+        .map((p) => ({ p, cost: chainCost(p) }))
+        .filter((r) => Number.isFinite(r.cost))
+        .sort((a, b) => a.cost - b.cost || a.p.label.localeCompare(b.p.label));
+
+      // Solves are the cost here. The cheapest few by the ordinary measure are
+      // where a workable plan is, and trying all 153 routes to Carbon to find
+      // the three that touch the stock is not worth what it would take.
+      for (const { p, cost: c } of routes.slice(0, STOCK_ROUTES)) {
+        const pins = new Map(spec.pins).set(name, p.id);
+        const trial = solve({ ...spec, pins });
+        // It has to actually run, and it has to actually leave the target
+        // made. A route the extraction had to break a loop around comes back
+        // with the thing you asked for sitting on the shopping list, which is
+        // not a plan for making it out of anything.
+        if (rzero(trial.runsOf(p.id)) || !eatsStock(trial)) continue;
+        if (trial.frontier.some((f) => f.name === name)) continue;
+        const s = score(trial);
+        if (best && !better(s, bestScore) && (better(bestScore, s) || c >= bestCost)) continue;
+        best = trial; bestScore = s; bestCost = c; bestPins = pins;
+      }
+    }
+
+    if (best) { spec = { ...spec, pins: bestPins }; plan = best; }
+  }
+
   const sharedPins = new Map();
 
   /**
@@ -1417,6 +1520,7 @@ export function routesFor(plan, name) {
   const { graph, spec, cost } = plan;
   const inPlan = plan.dag.materials;
   const chosen = plan.dag.materials.get(name)?.producer;
+  const stock = new Set([...spec.have].filter((n) => !spec.plenty.has(n)));
 
   const routes = graph.producers(name)
     .filter((p) => spec.kinds.has(p.kind) || p.id === chosen || spec.alsoUse.has(p.id))
@@ -1447,6 +1551,17 @@ export function routesFor(plan, name) {
         spare: spec.alsoUse.has(p.id) && !rzero(runs),
         /** Enough is going spare to run it, whether or not it has been asked for. */
         runnable,
+        /**
+         * It gets through the stock the reader said they had.
+         *
+         * The solver prefers one of these outright, so the chosen row is
+         * usually one already -- but the *others* are the rows worth finding,
+         * and they sort by price like everything else. The three ways to
+         * Carbon that eat carbon dioxide sat at 115, 116 and 117 of 153,
+         * behind six shown and a "Show all" button, which is a list you can
+         * only search if you already know the answer.
+         */
+        draws: p.consumes.some((i) => stock.has(i.name)),
         runs,
         /** How much of this material it supplies, as the plan stands. */
         covers: rmul(runs, rat(yields)),
@@ -1462,6 +1577,9 @@ export function routesFor(plan, name) {
   const using = (r) => Number(r.chosen || r.spare);
   routes.sort((a, b) => Number(a.banned) - Number(b.banned) ||
                         using(b) - using(a) ||
+                        // Then the ones that use what the reader has, which is
+                        // the whole of why they said they had it.
+                        Number(b.draws) - Number(a.draws) ||
                         // Then the ones the plan could feed out of its own
                         // leavings, which is the offer worth noticing and is
                         // otherwise buried: Carbon has 153 routes and eight

@@ -1222,6 +1222,53 @@ console.log('\n--- a stock, and something you can go on making ---');
         'out of the three Lepidolite it was balanced against');
 }
 
+console.log('\n--- a plan that uses what you said you had ---');
+{
+  const spec = { targets: ['Carbon'], have: ['Carbon Dioxide'] };
+  const eats = (p, name) => p.steps.some((s) => s.process.consumes.some((i) => i.name === name));
+
+  // Pricing the stock at zero only ever said a route is not *charged* for
+  // eating your carbon dioxide. It never said a route was worth anything for
+  // doing so, and against a spore that turns straight into Carbon for 1.56 a
+  // reduction that has to make four Potassium first cannot win on price.
+  const plan = solvePlan(graph, spec);
+  check(eats(plan, 'Carbon Dioxide'), 'a stock of Carbon Dioxide gets a plan that gets through it');
+
+  // Not the cheapest of the three by the cost model -- that is the Magnesium
+  // one, and it then sends you out for Vanadinite. They are judged the way two
+  // plans are always judged here, by the shopping list they leave.
+  check(plan.steps.some((s) => s.process.id === 'rx:Molten Potassium + Carbon Dioxide'),
+        'and it is the Potassium reduction, whose own oxide comes back round');
+  check(plan.frontier.map((f) => f.name).join(',') === 'Water',
+        'so the whole shopping list is Water');
+  check(plan.priming.map((x) => x.name).join(',') === 'Potassium Oxide',
+        'and the Potassium is a charge laid in once, not a step run for ever');
+
+  // The other half of `have`. Ticking "I have it" on a line of the shopping
+  // list is waving it off, not stating a stock, and it must not send the plan
+  // hunting for somewhere to put the stuff.
+  const off = solvePlan(graph, { ...spec, plenty: ['Carbon Dioxide'] });
+  check(!eats(off, 'Carbon Dioxide') && off.steps.length === 1,
+        'waving it off the shopping list asks for none of that');
+
+  // It is a preference, and the reader still outranks it.
+  const pinned = solvePlan(graph, { ...spec, pins: { Carbon: 'evap:Bitter Oyster Spore' } });
+  check(!eats(pinned, 'Carbon Dioxide') && pinned.steps.length === 1,
+        'and a pin says how it is made whatever the stock');
+
+  // Nothing to route through leaves the plan exactly as it was.
+  const none = solvePlan(graph, { ...spec, excludeProcesses: [
+    'rx:Molten Potassium + Carbon Dioxide', 'rx:Potassium + Carbon Dioxide',
+    'rx:Carbon Dioxide + Magnesium'] });
+  check(none.steps.length === 1 && !eats(none, 'Carbon Dioxide'),
+        'with every route through it ruled out, the old plan stands');
+
+  // They sat at 115, 116 and 117 of 153, behind six shown and a "Show all"
+  // button: a list you can only search if you already know the answer.
+  check(routesFor(plan, 'Carbon').slice(0, 3).every((r) => r.draws),
+        'and the ways through the stock head the route list');
+}
+
 console.log('\n--- determinism ---');
 {
   const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };

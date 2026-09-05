@@ -1,6 +1,6 @@
 {
   "name": "atomcraft-explorer",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "description": "Browser explorer and production planner for the Atomcraft material and reaction data.",
