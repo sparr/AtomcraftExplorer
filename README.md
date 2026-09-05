@@ -256,6 +256,9 @@ The seven aqueous materials whose composition runs to three or four parts —
 `Aqueous Zinc Sulfate` is Zinc + Sulfate Ion + `+H2O` — fail that `Count != 2`
 test and pass straight through. That is the game's rule, not a shortcut here.
 
+Explore mode's detail pane carries the same pair of facts under **Filtering**:
+what a material splits into, and every material it can be filtered out of.
+
 ### Saying what you mean
 
 Click any material in a plan and the inspector says what it is doing there and
