@@ -18,7 +18,7 @@ import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
          removeHave, pin, toggle, toggleKind, setOption,
-         selectMaterial, includeProcess } from './plan-state.js';
+         selectMaterial, includeProcess, isFedBack, toggleFedBack } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -630,11 +630,12 @@ function renderSide() {
       const acts = el('div', 'plan-item-acts');
       acts.append(button('ghost small', 'I want it', 'Count it as something the plan is for',
                          () => edit(addTarget, b.name)));
-      const feed = button('ghost small' + (b.credited ? ' on' : ''),
-                          b.credited ? 'Fed back' : 'Feed it back',
-                          b.credited ? 'Stop using this surplus as an input'
-                                     : 'Let the plan use this surplus instead of fetching more',
-                          () => edit(toggle, 'credit', b.name));
+      const fed = isFedBack(plan, b.name);
+      const feed = button('ghost small' + (fed ? ' on' : ''),
+                          fed ? 'Fed back' : 'Feed it back',
+                          fed ? 'Stop using this surplus as an input'
+                              : 'Let the plan use this surplus instead of fetching more',
+                          () => edit(toggleFedBack, b.name));
       feed.setAttribute('aria-pressed', String(!!b.credited));
       acts.append(feed);
       li.append(acts);
@@ -721,6 +722,7 @@ function renderOptions() {
   }
   for (const [id, cb] of kindBoxes) cb.checked = plan.kinds.includes(id);
   $('#plan-avoid').checked = plan.avoidSideEffects;
+  $('#plan-feedback').checked = plan.feedBackAll;
 }
 
 /* ------------------------------------------------------------------ render */
@@ -742,6 +744,8 @@ export function render() {
     excludeProcesses: plan.excludeProcesses,
     excludeMaterials: plan.excludeMaterials,
     credit: plan.credit,
+    feedBackAll: plan.feedBackAll,
+    noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,
     avoidSideEffects: plan.avoidSideEffects,
   });
@@ -797,6 +801,8 @@ export function initPlan(context) {
 
   $('#plan-avoid').addEventListener('change', (e) =>
     edit(setOption, 'avoidSideEffects', e.target.checked));
+  $('#plan-feedback').addEventListener('change', (e) =>
+    edit(setOption, 'feedBackAll', e.target.checked));
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;

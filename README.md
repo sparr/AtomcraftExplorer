@@ -155,11 +155,19 @@ a place to make a decision: mark something as already in hand, pick a different
 route to it, ban a step you would rather not run, or claim a byproduct as
 something you wanted after all.
 
-**Feeding a byproduct back** makes it an input the plan may use. A furnace
-throwing off steam is a reason to condense the steam rather than fetch snow, so
-saying so drops the snow from the shopping list and puts *Steam condenses into
-Water* in the plan — with the two thirds of the steam it does not need still
-listed as spare, and any shortfall still asked for.
+**Spare output is fed back into the plan** — every bit of it, by default. A
+furnace throwing off steam is a reason to condense the steam rather than fetch
+snow, so a plan for Potassium from Lepidolite makes its water out of its own
+exhaust and asks for nothing at all. The steam it does not need is still listed
+as spare, individual outputs can be excluded, and the whole thing can be
+switched off under Options.
+
+Which materials are spare cannot be known before the plan exists, and knowing
+changes the plan, so this is worked out by going round until it settles. A free
+supply is an *unlimited* one as far as the route search is concerned, so any
+byproduct that would promise more than it delivers is refused rather than
+planned around: feeding back never lengthens a plan, and over all 1795 possible
+targets it shortens 56 shopping lists and lengthens none.
 
 ### Reactions are not enough
 

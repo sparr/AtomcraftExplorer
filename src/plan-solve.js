@@ -206,8 +206,16 @@ export function normalizeSpec(spec = {}) {
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
-    /** byproducts the reader has agreed to plumb back in. */
+    /** byproducts the reader has agreed to plumb back in, one by one. */
     credit: new Set(spec.credit || []),
+    /**
+     * ...or all of them, with these left out. On by default: a plan that
+     * throws off steam and then fetches snow to make water is not a plan
+     * anybody wanted, and saying so for each byproduct in turn is work the
+     * solver can do itself.
+     */
+    feedBackAll: spec.feedBackAll !== false,
+    noFeedBack: new Set(spec.noFeedBack || []),
     /** minimum run counts for processes added by hand. */
     runs: new Map(Object.entries(spec.runs || {})),
     /**
@@ -647,8 +655,66 @@ export function batchScale(runs) {
  * works", gathered from conditions that are otherwise scattered over every
  * process in the plan.
  */
+/**
+ * Solve, then feed back whatever it turns out to be throwing away, and solve
+ * again until that settles.
+ *
+ * Which materials are spare cannot be known before the plan exists, and
+ * knowing changes the plan -- so it is worked out by going round. Only genuine
+ * byproducts are taken: a material with a chosen producer is being made on
+ * purpose, and feeding it back would make it a leaf and delete the very step
+ * that makes it.
+ *
+ * Rounds are capped, and a set of credits seen before means it is flipping
+ * between two answers rather than settling, at which point the current one
+ * will do. Anything credited that the final plan does not actually make is
+ * dropped, so a route can never rest on a supply that talked itself out of
+ * existence.
+ */
 export function solvePlan(graph, rawSpec) {
   const spec = normalizeSpec(rawSpec);
+  if (!spec.feedBackAll) return solveOnce(graph, spec);
+
+  const key = (set) => [...set].sort().join('\u241f');
+  const wanted = new Set(spec.targets.map((t) => t.name));
+
+  /**
+   * A byproduct that cannot cover what routing through it would demand.
+   *
+   * The cost model knows what a material costs, not how much of it there is,
+   * so a free supply is an unlimited one as far as the search is concerned.
+   * Offered every spare output at once it will happily plan around six Steam
+   * when three are going spare -- Aqueous Aluminum Bromide went from six steps
+   * to eighteen that way, chasing a supply that was never there. So each round
+   * is checked, and anything that promised more than it delivers is not
+   * offered again. What the reader credited by hand stands regardless: the
+   * shortfall is then their business, and it is reported.
+   */
+  const overdrawn = new Set();
+  let plan = solveOnce(graph, { ...spec, credit: new Set(spec.credit) });
+  let last = null;
+
+  for (let round = 0; round < 8; round++) {
+    const credit = new Set(spec.credit);
+    for (const node of plan.dag.materials.values()) {
+      if (node.reason !== 'byproduct' && node.reason !== 'credited') continue;
+      if (wanted.has(node.name) || spec.noFeedBack.has(node.name)) continue;
+      if (overdrawn.has(node.name)) continue;
+      if (rcmp(plan.madeOf(node.name), R0) > 0) credit.add(node.name);
+    }
+    if (key(credit) === last) break;
+    last = key(credit);
+
+    const trial = solveOnce(graph, { ...spec, credit });
+    const short = [...credit].filter((n) => !spec.credit.has(n) &&
+      rcmp(trial.madeOf(n), trial.amountOf(n)) < 0);
+    if (short.length) { for (const n of short) overdrawn.add(n); continue; }
+    plan = trial;
+  }
+  return plan;
+}
+
+function solveOnce(graph, spec) {
   const solved = solveCosts(graph, spec);
   const dag = extract(graph, spec, solved);
   const { order, stuck } = topoOrder(dag);

@@ -38,7 +38,10 @@ export function emptyPlan() {
     runs: {},                     // process id -> batch size set by hand
     excludeProcesses: [],
     excludeMaterials: [],
-    credit: [],                   // byproducts agreed to be plumbed back
+    credit: [],                   // byproducts agreed to be plumbed back, one by one
+    /** Or agree to all of them, and name the exceptions instead. */
+    feedBackAll: true,
+    noFeedBack: [],
     kinds: [...DEFAULT_KINDS],
     avoidSideEffects: true,
     /**
@@ -74,6 +77,8 @@ export function readPlan(params) {
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
   plan.credit = list(params.get('cr'));
+  plan.noFeedBack = list(params.get('nf'));
+  if (params.get('fb') === '0') plan.feedBackAll = false;
 
   for (const entry of list(params.get('pin'))) {
     const at = entry.indexOf(PAIR);
@@ -109,6 +114,8 @@ export function writePlan(plan, params) {
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
   put('cr', plan.credit.join(SEP));
+  put('nf', plan.noFeedBack.join(SEP));
+  if (!plan.feedBackAll) params.set('fb', '0');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
 
@@ -139,6 +146,7 @@ const clone = (p) => ({
   excludeProcesses: [...p.excludeProcesses],
   excludeMaterials: [...p.excludeMaterials],
   credit: [...p.credit],
+  noFeedBack: [...p.noFeedBack],
   kinds: [...p.kinds],
 });
 
@@ -161,6 +169,14 @@ export function setTargetAmount(plan, name, amount) {
   if (found) found.amount = Math.max(1, Math.round(amount) || 1);
   return next;
 }
+
+/** Is this byproduct being plumbed back into the plan? */
+export const isFedBack = (plan, name) =>
+  (plan.feedBackAll ? !plan.noFeedBack.includes(name) : plan.credit.includes(name));
+
+/** Turn that round, whichever way the blanket option has it. */
+export const toggleFedBack = (plan, name) =>
+  toggle(plan, plan.feedBackAll ? 'noFeedBack' : 'credit', name);
 
 /** Look at a material: what it is for, how it is being made, and what else could. */
 export function selectMaterial(plan, name) {

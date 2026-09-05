@@ -965,6 +965,11 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
     <h2>What the plan may use</h2>
     <div id="plan-kinds" class="plan-kinds"></div>
     <label class="plan-opt">
+      <input type="checkbox" id="plan-feedback" checked>
+      Use what the plan already makes &mdash; feed every spare output back in,
+      rather than fetching more of something it is throwing away
+    </label>
+    <label class="plan-opt">
       <input type="checkbox" id="plan-avoid" checked>
       Keep each step to one reaction &mdash; narrow its temperature range so
       nothing else in the chamber goes off
@@ -3876,7 +3881,10 @@ function emptyPlan() {
     runs: {},                     // process id -> batch size set by hand
     excludeProcesses: [],
     excludeMaterials: [],
-    credit: [],                   // byproducts agreed to be plumbed back
+    credit: [],                   // byproducts agreed to be plumbed back, one by one
+    /** Or agree to all of them, and name the exceptions instead. */
+    feedBackAll: true,
+    noFeedBack: [],
     kinds: [...DEFAULT_KINDS],
     avoidSideEffects: true,
     /**
@@ -3912,6 +3920,8 @@ function readPlan(params) {
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
   plan.credit = list(params.get('cr'));
+  plan.noFeedBack = list(params.get('nf'));
+  if (params.get('fb') === '0') plan.feedBackAll = false;
 
   for (const entry of list(params.get('pin'))) {
     const at = entry.indexOf(PAIR);
@@ -3947,6 +3957,8 @@ function writePlan(plan, params) {
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
   put('cr', plan.credit.join(SEP));
+  put('nf', plan.noFeedBack.join(SEP));
+  if (!plan.feedBackAll) params.set('fb', '0');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
 
@@ -3977,6 +3989,7 @@ const clone = (p) => ({
   excludeProcesses: [...p.excludeProcesses],
   excludeMaterials: [...p.excludeMaterials],
   credit: [...p.credit],
+  noFeedBack: [...p.noFeedBack],
   kinds: [...p.kinds],
 });
 
@@ -3999,6 +4012,14 @@ function setTargetAmount(plan, name, amount) {
   if (found) found.amount = Math.max(1, Math.round(amount) || 1);
   return next;
 }
+
+/** Is this byproduct being plumbed back into the plan? */
+const isFedBack = (plan, name) =>
+  (plan.feedBackAll ? !plan.noFeedBack.includes(name) : plan.credit.includes(name));
+
+/** Turn that round, whichever way the blanket option has it. */
+const toggleFedBack = (plan, name) =>
+  toggle(plan, plan.feedBackAll ? 'noFeedBack' : 'credit', name);
 
 /** Look at a material: what it is for, how it is being made, and what else could. */
 function selectMaterial(plan, name) {
@@ -4070,7 +4091,7 @@ function planProcess(plan, process) {
   return next;
 }
 
-return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTarget, setTargetAmount, selectMaterial, removeTarget, addHave, removeHave, pin, includeProcess, toggle, toggleKind, setOption, planProcess };
+return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTarget, setTargetAmount, isFedBack, toggleFedBack, selectMaterial, removeTarget, addHave, removeHave, pin, includeProcess, toggle, toggleKind, setOption, planProcess };
 })();
 
 const __mod_plan_solve = (() => {
@@ -4282,8 +4303,16 @@ function normalizeSpec(spec = {}) {
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
-    /** byproducts the reader has agreed to plumb back in. */
+    /** byproducts the reader has agreed to plumb back in, one by one. */
     credit: new Set(spec.credit || []),
+    /**
+     * ...or all of them, with these left out. On by default: a plan that
+     * throws off steam and then fetches snow to make water is not a plan
+     * anybody wanted, and saying so for each byproduct in turn is work the
+     * solver can do itself.
+     */
+    feedBackAll: spec.feedBackAll !== false,
+    noFeedBack: new Set(spec.noFeedBack || []),
     /** minimum run counts for processes added by hand. */
     runs: new Map(Object.entries(spec.runs || {})),
     /**
@@ -4723,8 +4752,66 @@ function batchScale(runs) {
  * works", gathered from conditions that are otherwise scattered over every
  * process in the plan.
  */
+/**
+ * Solve, then feed back whatever it turns out to be throwing away, and solve
+ * again until that settles.
+ *
+ * Which materials are spare cannot be known before the plan exists, and
+ * knowing changes the plan -- so it is worked out by going round. Only genuine
+ * byproducts are taken: a material with a chosen producer is being made on
+ * purpose, and feeding it back would make it a leaf and delete the very step
+ * that makes it.
+ *
+ * Rounds are capped, and a set of credits seen before means it is flipping
+ * between two answers rather than settling, at which point the current one
+ * will do. Anything credited that the final plan does not actually make is
+ * dropped, so a route can never rest on a supply that talked itself out of
+ * existence.
+ */
 function solvePlan(graph, rawSpec) {
   const spec = normalizeSpec(rawSpec);
+  if (!spec.feedBackAll) return solveOnce(graph, spec);
+
+  const key = (set) => [...set].sort().join('\u241f');
+  const wanted = new Set(spec.targets.map((t) => t.name));
+
+  /**
+   * A byproduct that cannot cover what routing through it would demand.
+   *
+   * The cost model knows what a material costs, not how much of it there is,
+   * so a free supply is an unlimited one as far as the search is concerned.
+   * Offered every spare output at once it will happily plan around six Steam
+   * when three are going spare -- Aqueous Aluminum Bromide went from six steps
+   * to eighteen that way, chasing a supply that was never there. So each round
+   * is checked, and anything that promised more than it delivers is not
+   * offered again. What the reader credited by hand stands regardless: the
+   * shortfall is then their business, and it is reported.
+   */
+  const overdrawn = new Set();
+  let plan = solveOnce(graph, { ...spec, credit: new Set(spec.credit) });
+  let last = null;
+
+  for (let round = 0; round < 8; round++) {
+    const credit = new Set(spec.credit);
+    for (const node of plan.dag.materials.values()) {
+      if (node.reason !== 'byproduct' && node.reason !== 'credited') continue;
+      if (wanted.has(node.name) || spec.noFeedBack.has(node.name)) continue;
+      if (overdrawn.has(node.name)) continue;
+      if (rcmp(plan.madeOf(node.name), R0) > 0) credit.add(node.name);
+    }
+    if (key(credit) === last) break;
+    last = key(credit);
+
+    const trial = solveOnce(graph, { ...spec, credit });
+    const short = [...credit].filter((n) => !spec.credit.has(n) &&
+      rcmp(trial.madeOf(n), trial.amountOf(n)) < 0);
+    if (short.length) { for (const n of short) overdrawn.add(n); continue; }
+    plan = trial;
+  }
+  return plan;
+}
+
+function solveOnce(graph, spec) {
   const solved = solveCosts(graph, spec);
   const dag = extract(graph, spec, solved);
   const { order, stuck } = topoOrder(dag);
@@ -5019,7 +5106,7 @@ const {search} = __mod_search;
 const {solvePlan, routesFor, usesFor, rstr, rcmp, R0} = __mod_plan_solve;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
 const {AMBIENT, formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
-const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, setOption, selectMaterial, includeProcess} = __mod_plan_state;
+const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, setOption, selectMaterial, includeProcess, isFedBack, toggleFedBack} = __mod_plan_state;
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -5631,11 +5718,12 @@ function renderSide() {
       const acts = el('div', 'plan-item-acts');
       acts.append(button('ghost small', 'I want it', 'Count it as something the plan is for',
                          () => edit(addTarget, b.name)));
-      const feed = button('ghost small' + (b.credited ? ' on' : ''),
-                          b.credited ? 'Fed back' : 'Feed it back',
-                          b.credited ? 'Stop using this surplus as an input'
-                                     : 'Let the plan use this surplus instead of fetching more',
-                          () => edit(toggle, 'credit', b.name));
+      const fed = isFedBack(plan, b.name);
+      const feed = button('ghost small' + (fed ? ' on' : ''),
+                          fed ? 'Fed back' : 'Feed it back',
+                          fed ? 'Stop using this surplus as an input'
+                              : 'Let the plan use this surplus instead of fetching more',
+                          () => edit(toggleFedBack, b.name));
       feed.setAttribute('aria-pressed', String(!!b.credited));
       acts.append(feed);
       li.append(acts);
@@ -5722,6 +5810,7 @@ function renderOptions() {
   }
   for (const [id, cb] of kindBoxes) cb.checked = plan.kinds.includes(id);
   $('#plan-avoid').checked = plan.avoidSideEffects;
+  $('#plan-feedback').checked = plan.feedBackAll;
 }
 
 /* ------------------------------------------------------------------ render */
@@ -5743,6 +5832,8 @@ function render() {
     excludeProcesses: plan.excludeProcesses,
     excludeMaterials: plan.excludeMaterials,
     credit: plan.credit,
+    feedBackAll: plan.feedBackAll,
+    noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,
     avoidSideEffects: plan.avoidSideEffects,
   });
@@ -5798,6 +5889,8 @@ function initPlan(context) {
 
   $('#plan-avoid').addEventListener('change', (e) =>
     edit(setOption, 'avoidSideEffects', e.target.checked));
+  $('#plan-feedback').addEventListener('change', (e) =>
+    edit(setOption, 'feedBackAll', e.target.checked));
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;

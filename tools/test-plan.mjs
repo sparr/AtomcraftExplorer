@@ -730,12 +730,15 @@ console.log('\n--- quantities ---');
 
 console.log('\n--- byproducts ---');
 {
-  const plan = solvePlan(graph, { targets: ['Sulfuric Acid'], have: ['Water'] });
+  const plan = solvePlan(graph, { targets: ['Sulfuric Acid'], have: ['Water'],
+                                  feedBackAll: false });
   check(plan.byproducts.length > 0,
         `spare output is reported (${plan.byproducts.map((b) => rstr(b.amount) + ' ' + b.name).join(', ')})`);
-  check(plan.byproducts.every((b) => !b.credited), 'and is waste until the reader says otherwise');
+  check(plan.byproducts.every((b) => !b.credited),
+        'and with the blanket option off, it is waste until the reader says otherwise');
 
   const fed = solvePlan(graph, { targets: ['Sulfuric Acid'], have: ['Water'],
+                                 feedBackAll: false,
                                  credit: plan.byproducts.map((b) => b.name) });
   check(fed.converged, 'crediting it back still settles on a batch size');
   audit('Sulfuric Acid with byproducts fed back', fed);
@@ -744,13 +747,14 @@ console.log('\n--- byproducts ---');
   // Feeding a byproduct back has to make it *usable*, not merely cancel demand
   // for the same material. The furnace throwing off steam is a reason to
   // condense the steam, not to go and fetch snow.
-  const before = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'] });
+  const before = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'],
+                                    feedBackAll: false });
   check(before.frontier.some((f) => f.name === 'Falling Snow'),
-        'left alone, the plan fetches snow to make its water');
+        'told to feed nothing back, the plan fetches snow to make its water');
   check(before.byproducts.some((b) => b.name === 'Steam'), 'while throwing steam away');
 
   const fed = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'],
-                                 credit: ['Steam'] });
+                                 feedBackAll: false, credit: ['Steam'] });
   check(fed.steps.some((s) => s.process.id === 'cond:Steam'),
         'fed back, the steam is what becomes the water');
   check(!fed.frontier.some((f) => f.name === 'Falling Snow'), 'and the snow is not wanted');
@@ -759,9 +763,35 @@ console.log('\n--- byproducts ---');
         `with the rest of it still spare (${spare && rstr(spare.amount)} of 3)`);
   audit('Potassium with the steam fed back', fed);
 
+  // On by default, and worked out rather than asked for: which materials are
+  // spare cannot be known until the plan exists, and knowing changes the plan.
+  const auto = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'] });
+  check(auto.spec.feedBackAll, 'every spare output is fed back by default');
+  check(auto.steps.some((s) => s.process.id === 'cond:Steam'),
+        'so the steam becomes the water with nobody having to say so');
+  check(!auto.frontier.length, 'and there is nothing left to fetch');
+
+  // But a free supply is an unlimited one as far as the cost model is
+  // concerned, so anything that promises more than it delivers is refused.
+  const tricky = 'Aqueous Aluminum Bromide';
+  const plain = solvePlan(graph, { targets: [tricky], feedBackAll: false });
+  const fedAll = solvePlan(graph, { targets: [tricky] });
+  check(fedAll.steps.length <= plain.steps.length,
+        `feeding back never makes a plan longer (${plain.steps.length} -> ${fedAll.steps.length})`);
+  check(!fedAll.frontier.some((f) => f.credited),
+        'and never leaves the plan short of something it talked itself into using');
+
+  // A named exception is honoured.
+  const except = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'],
+                                    noFeedBack: ['Steam'] });
+  check(!except.steps.some((s) => s.process.id === 'cond:Steam'),
+        'naming one as an exception keeps it out');
+  check(except.frontier.some((f) => f.name === 'Falling Snow'), 'and the snow comes back');
+
   // Feeding back what the plan cannot make enough of leaves the shortfall.
   const short = solvePlan(graph, { targets: [{ name: 'Potassium', amount: 40 }],
-                                   have: ['Lepidolite'], credit: ['Falling Snow'] });
+                                   have: ['Lepidolite'], feedBackAll: false,
+                                   credit: ['Falling Snow'] });
   const gap = short.frontier.find((f) => f.name === 'Falling Snow');
   check(!gap || gap.credited, 'a shortfall on something fed back says that is what it is');
 }
