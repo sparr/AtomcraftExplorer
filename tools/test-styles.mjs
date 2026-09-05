@@ -7,11 +7,15 @@
  * with no error anywhere. That is what happened to `.pattern-preview`: the icon
  * was in the DOM, with a valid background image, occupying no space.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const css = read('src/style.css');
-const sources = ['index.html', 'src/main.js'].map(read).join('\n');
+// Every module, not a hand-kept list: a new file that renders anything is
+// exactly where an unstyled class is most likely to appear.
+const modules = readdirSync(new URL('../src', import.meta.url))
+  .filter((f) => f.endsWith('.js')).map((f) => `src/${f}`);
+const sources = ['index.html', ...modules].map(read).join('\n');
 
 const used = new Set();
 for (const m of sources.matchAll(/\bel\((?:'[^']*'|`[^`]*`),\s*'([^']+)'/g)) {

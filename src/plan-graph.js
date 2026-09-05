@@ -134,6 +134,11 @@ function reactionProcesses(db) {
 function materialProcesses(db) {
   const out = [];
   const one = (name, count = 1) => (PSEUDO.has(name) ? [] : [{ name, count }]);
+  /** Both ends of a label name their material the same way -- see `label` in
+   *  data.js. A target named by its internal name while its subject goes by
+   *  its display reads as "Reversible Conveyor Left builds into Reversible
+   *  Conveyor Left", which is two different machines. */
+  const lbl = (name) => db.byName.get(name)?.label ?? name;
 
   /**
    * A weighted one-of draw, written as a ratio.
@@ -179,7 +184,7 @@ function materialProcesses(db) {
       add({
         id: `${field === 'Evaporation' ? 'evap' : 'cond'}:${m.name}`,
         kind: 'phase',
-        label: `${m.display} ${verb} into ${t.TargetMaterialName}`,
+        label: `${m.label} ${verb} into ${lbl(t.TargetMaterialName)}`,
         inputs: self(),
         outputs: one(t.TargetMaterialName, t.Amount || 1),
         requires: [],
@@ -203,7 +208,7 @@ function materialProcesses(db) {
       add({
         id: `ignite:${m.name}`,
         kind: 'fire',
-        label: `${m.display} ignites into ${raw.Ignition.TargetMaterialName}`,
+        label: `${m.label} ignites into ${lbl(raw.Ignition.TargetMaterialName)}`,
         inputs: self(),
         outputs: one(raw.Ignition.TargetMaterialName),
         requires: [],
@@ -225,7 +230,7 @@ function materialProcesses(db) {
         add({
           id: `burn:${m.name}`,
           kind: 'fire',
-          label: `${m.display} burns`,
+          label: `${m.label} burns`,
           ...weighted(m.name, bag.map((t) => [t, 1])),
           requires: [],
           conditions: { probability: fire.ProbabilityToCombust,
@@ -238,7 +243,7 @@ function materialProcesses(db) {
         add({
           id: `douse:${m.name}`,
           kind: 'fire',
-          label: `${m.display} extinguishes into ${fire.ExtinguishTargetMaterialName}`,
+          label: `${m.label} extinguishes into ${lbl(fire.ExtinguishTargetMaterialName)}`,
           inputs: self(),
           outputs: one(fire.ExtinguishTargetMaterialName),
           requires: [],
@@ -253,7 +258,7 @@ function materialProcesses(db) {
       add({
         id: `sprout:${m.name}`,
         kind: 'grow',
-        label: `${m.display} grows into ${raw.GrowsInto}`,
+        label: `${m.label} grows into ${lbl(raw.GrowsInto)}`,
         inputs: self(),
         outputs: one(raw.GrowsInto),
         requires: [],
@@ -269,7 +274,7 @@ function materialProcesses(db) {
         id: `grow:${m.name}#${i}`,
         kind: 'grow',
         // The stalk stays; it puts out a new segment. So it is held, not spent.
-        label: `${m.display} grows ${g.GrowthMaterialName}`,
+        label: `${m.label} grows ${lbl(g.GrowthMaterialName)}`,
         inputs: [],
         outputs: one(g.GrowthMaterialName),
         requires: self(),
@@ -288,7 +293,7 @@ function materialProcesses(db) {
         add({
           id: `decay:${m.name}`,
           kind: 'decay',
-          label: `${m.display} decays into ${products.join(' + ')}`,
+          label: `${m.label} decays into ${products.map(lbl).join(' + ')}`,
           inputs: self(),
           outputs: products.flatMap((p) => one(p)),
           requires: [],
@@ -303,7 +308,7 @@ function materialProcesses(db) {
       add({
         id: `mine:${m.name}`,
         kind: 'mine',
-        label: `${m.display} mines into ${raw.MinesInto}`,
+        label: `${m.label} mines into ${lbl(raw.MinesInto)}`,
         inputs: self(),
         outputs: one(raw.MinesInto),
         requires: [],
@@ -321,7 +326,7 @@ function materialProcesses(db) {
       add({
         id: `drop:${m.name}`,
         kind: 'mine',
-        label: `${m.display} drops`,
+        label: `${m.label} drops`,
         ...weighted(m.name, drops),
         requires: [],
         conditions: odds(drops),
@@ -337,7 +342,7 @@ function materialProcesses(db) {
       add({
         id: `${beam}:${m.name}`,
         kind: 'beam',
-        label: `${m.display} under ${beam} impact becomes ${raw[field]}`,
+        label: `${m.label} under ${beam} impact becomes ${lbl(raw[field])}`,
         inputs: self(),
         outputs: one(raw[field]),
         requires: [],
@@ -359,7 +364,7 @@ function materialProcesses(db) {
       add({
         id: `${field}:${m.name}`,
         kind: 'handling',
-        label: `${m.display} ${verb} ${raw[field]}`,
+        label: `${m.label} ${verb} ${lbl(raw[field])}`,
         inputs: self(),
         outputs: one(raw[field]),
         requires: [],

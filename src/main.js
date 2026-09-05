@@ -6,6 +6,9 @@ import { patternStrip, recipeFor } from './pattern-render.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
 import { formulaHtml } from './formula.js';
 import { formatTemperature, formatTemperatureDelta, formatTemperatureRange } from './units.js';
+import { buildProcessGraph } from './plan-graph.js';
+import { readPlan, writePlan, addTarget, addHave, planProcess, isEmptyPlan } from './plan-state.js';
+import { initPlan, setPlan, getPlan, render as renderPlan } from './plan-view.js';
 
 // Material icons are drawn at this many pixels and scaled up by that factor,
 // so they stay crisp. The CSS reads the same two numbers.
@@ -27,12 +30,55 @@ const esc = (s) => String(s).replace(/[&<>"]/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let db = null;
+let graph = null;
 let hits = [];
 let selected = null;
 
 /* ------------------------------------------------------------------ query */
 
-const state = { q: '', sel: null, sort: 'name' };
+const state = { q: '', sel: null, sort: 'name', mode: 'explore' };
+
+/**
+ * Both modes stay in the document, and switching only changes which is shown.
+ *
+ * Nothing is rebuilt, so a round trip costs nothing and loses nothing: the
+ * result list keeps its scroll offset and its expanded groups, and the plan
+ * keeps everything about itself. That matters because the two are meant to be
+ * used together -- looking a material up mid-plan should not be a decision.
+ */
+function setMode(mode, { save = true } = {}) {
+  state.mode = mode === 'plan' ? 'plan' : 'explore';
+  const planning = state.mode === 'plan';
+  document.body.dataset.mode = state.mode;
+  $('#explore-main').hidden = planning;
+  $('#plan-main').hidden = !planning;
+  $('#explore-bar').hidden = planning;
+  $('#plan-bar').hidden = !planning;
+  $('#toggle-plan-options').hidden = !planning;
+  if (planning) { $('#ptable').hidden = true; $('#help').hidden = true; }
+  $('#toggle-table').hidden = planning;
+  $('#toggle-help').hidden = planning;
+  refreshPlanChrome();
+  for (const [id, name] of [['#mode-explore', 'explore'], ['#mode-plan', 'plan']]) {
+    $(id).setAttribute('aria-selected', String(state.mode === name));
+  }
+  if (planning) renderPlan();
+  if (save) writeHash({ replace: true });
+}
+
+/**
+ * The one bit of chrome that depends on the plan rather than the mode: there is
+ * no point offering a way back to a plan that does not exist yet.
+ */
+function refreshPlanChrome() {
+  $('#back-to-plan').hidden = state.mode === 'plan' || isEmptyPlan(getPlan());
+}
+
+/** Bring a material up in the explorer, whichever mode asked. */
+function openInExplorer(m) {
+  setMode('explore', { save: false });
+  select(m, { push: true });
+}
 
 /** Set when the reader asks a capped list to show everything. */
 let uncapped = false;
@@ -61,8 +107,10 @@ function readHash() {
   state.q = p.get('q') || '';
   state.sel = p.get('m') || null;
   state.sort = ['relevance', 'z', 'name'].includes(p.get('s')) ? p.get('s') : 'name';
+  state.mode = p.get('mode') === 'plan' ? 'plan' : 'explore';
   collapsed.clear();
   for (const key of unpackCollapsed(p.get('c'))) collapsed.add(key);
+  setPlan(readPlan(p), { save: false });
 }
 
 function writeHash({ replace = false } = {}) {
@@ -72,6 +120,10 @@ function writeHash({ replace = false } = {}) {
   if (state.sort !== 'name') p.set('s', state.sort);   // name is the default
   const packed = packCollapsed(collapsed);
   if (packed) p.set('c', packed);
+  // Both modes, always. A link made while planning still remembers the search
+  // it came from, and one made while searching still carries the plan.
+  if (state.mode === 'plan') p.set('mode', 'plan');
+  writePlan(getPlan(), p);
   const hash = p.toString() ? '#' + p.toString() : ' ';
   try {
     if (replace) history.replaceState(null, '', hash);
@@ -574,6 +626,17 @@ function reactionCard(rx, role, self) {
   if (rx.raw.Electrolysis) cond.push('electrolysis');
   if (rx.raw.Probability) cond.push(`p=${rx.raw.Probability}`);
   if (cond.length) card.append(el('div', 'rx-cond', cond.join('  ·  ')));
+
+  // Start a plan from this reaction: make what it makes, by this route.
+  const use = el('button', 'ghost small rx-plan', 'Plan this');
+  use.title = 'Plan a way to run this reaction';
+  use.addEventListener('click', () => {
+    const process = graph.byId.get(`rx:${rx.name}`);
+    if (!process) return;
+    setPlan(planProcess(getPlan(), process));
+    setMode('plan');
+  });
+  card.append(use);
   return card;
 }
 
@@ -665,6 +728,19 @@ function renderDetail(m) {
   if (m.name !== m.display) sub.append(el('span', 'mono faint', m.name));
   sub.append(el('span', 'mono faint', r.LocIdName));
   head.append(sub);
+
+  // Into the planner, from whichever end this material belongs at. Both switch
+  // modes, because having pressed one of them you are no longer searching.
+  const handoff = el('div', 'detail-plan');
+  const toPlan = (fn, label, title) => {
+    const b = el('button', 'ghost small', label);
+    b.title = title;
+    b.addEventListener('click', () => { setPlan(fn(getPlan(), m.name)); setMode('plan'); });
+    return b;
+  };
+  handoff.append(toPlan(addTarget, 'Make this', `Plan a way to produce ${m.display}`));
+  handoff.append(toPlan(addHave, 'I have this', `Tell the planner ${m.display} is available`));
+  head.append(handoff);
   pane.append(head);
 
   if (m.description) pane.append(el('div', 'detail-desc', m.description));
@@ -990,6 +1066,9 @@ function renderHelp() {
 }
 
 function bindChrome() {
+  $('#mode-explore').addEventListener('click', () => setMode('explore'));
+  $('#mode-plan').addEventListener('click', () => setMode('plan'));
+  $('#back-to-plan').addEventListener('click', () => setMode('plan'));
   $('#q').addEventListener('input', (e) => setQuery(e.target.value, { fromInput: true }));
   $('#clear').addEventListener('click', () => { setQuery(''); $('#q').focus(); });
   for (const [btn, panel] of [['#toggle-table', '#ptable'], ['#toggle-help', '#help']]) {
@@ -1008,15 +1087,17 @@ function bindChrome() {
     renderChips();
     renderPeriodicTable();
     select(state.sel ? db.byName.get(state.sel) : null);
+    setMode(state.mode, { save: false });
   });
 }
 
 (async function boot() {
   try {
     db = await loadData();
+    graph = buildProcessGraph(db);
     // Exposed for the console and for tools/test_render.mjs.
     window.explorer = {
-      db, select, setQuery, renderDetail, runSearch,
+      db, graph, select, setQuery, renderDetail, runSearch, setMode, getPlan, setPlan,
       // What a page load does: re-read the fragment and rebuild from it.
       reload: () => {
         readHash();
@@ -1025,9 +1106,12 @@ function bindChrome() {
         renderChips();
         renderPeriodicTable();
         select(state.sel ? db.byName.get(state.sel) : null);
+        setMode(state.mode, { save: false });
       },
     };
     window.db = db;
+    initPlan({ db, graph, swatch, openInExplorer,
+               onChange: () => { refreshPlanChrome(); writeHash({ replace: true }); } });
     readHash();
     renderHelp();
     bindChrome();
@@ -1038,6 +1122,7 @@ function bindChrome() {
     renderChips();
     renderPeriodicTable();
     select(state.sel ? db.byName.get(state.sel) : null);
+    setMode(state.mode, { save: false });
     $('#boot').remove();
   } catch (err) {
     const boot = $('#boot');

@@ -122,6 +122,30 @@ console.log('\n--- the process graph ---');
 check(!graph.processes.some((p) => [...p.consumes, ...p.produces, ...p.requires]
         .some((x) => x.name === '+H2O')),
       'the +H2O hydration marker is not a material');
+{
+  // 131 display names belong to more than one material, so a process label
+  // built from display names can come out as "Berry mines into Berry" -- true,
+  // and no use to anyone. The label identifies its subject on its own.
+  check(graph.db.byName.get('Berry Bush Berry 2_1').label === 'Berry Bush Berry 2_1',
+        'a material sharing its display name is labelled by its internal one');
+  check(graph.db.byName.get('Water').label === 'Water',
+        'while an unambiguous one keeps the name people read');
+  const berry = graph.producers('Berry').find((p) => p.id.startsWith('mine:'));
+  check(berry && !/^Berry mines into/.test(berry.label),
+        `and the route says which bush: "${berry?.label}"`);
+  // Both ends of a label have to name their material the same way, or a real
+  // transformation reads as a no-op: "Reversible Conveyor Left builds into
+  // Reversible Conveyor Left" is two different machines.
+  // Growth is exempt: a plant putting out another segment of itself is what
+  // "Kelp Stalk grows Kelp Stalk" means, and it is true.
+  const saysNothing = graph.processes.filter((p) => {
+    if (p.kind === 'grow') return false;
+    const m = p.label.match(/^(.+?) (?:evaporates|condenses|ignites|burns|extinguishes|decays|mines|builds|is picked up as|dissolves|turns on|turns off|rotates left|rotates right) (?:into |as )?(.+)$/);
+    return m && m[1] === m[2];
+  });
+  check(!saysNothing.length,
+        `no label reads as turning something into itself${saysNothing.length ? ': ' + saysNothing[0].label : ''}`);
+}
 check(graph.processes.every((p) => p.produces.length),
       'every process makes something (spontaneous fission makes nothing and is dropped)');
 {

@@ -26,6 +26,12 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` has to beat a layout rule. The UA stylesheet gives [hidden] a bare
+   `display: none`, which any selector setting `display` outranks -- so
+   `main { display: grid }` kept the whole explorer on screen underneath the
+   plan, with the attribute dutifully set the whole time. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   margin: 0;
@@ -324,6 +330,9 @@ main {
 
 .formula { font-family: var(--mono); color: var(--warm); white-space: nowrap; }
 .formula sub { font-size: 0.72em; }
+/* The symbol takes the formula's own colour. The rule exists so the hook is
+   declared: .unknown-sym below is an override of it, not a lone class. */
+.formula .sym { color: inherit; }
 .formula .unknown-sym { color: var(--fg-faint); }
 
 .badge {
@@ -518,3 +527,273 @@ span.mat-missing { color: var(--fg-faint); border-bottom: 1px dashed var(--fg-fa
   main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
   #results-pane { border-right: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* ---------- modes ---------- */
+
+/* The two modes are both mounted; only one is shown. Switching costs nothing
+   and loses nothing, which is the point -- looking a material up in the middle
+   of planning should not be a decision. */
+.modes {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex: none;
+}
+
+.mode {
+  background: transparent;
+  color: var(--fg-dim);
+  border: 0;
+  padding: 6px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+.mode + .mode { border-left: 1px solid var(--line); }
+.mode:hover { color: var(--fg); }
+.mode[aria-selected="true"] {
+  background: var(--bg-sunken);
+  color: var(--accent);
+}
+
+button.small { padding: 3px 8px; font-size: 12px; }
+button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
+
+/* ---------- the material picker ---------- */
+
+.planbar { flex: 1; min-width: 0; position: relative; }
+
+.picker { position: relative; }
+
+.picker-input {
+  width: 100%;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font: inherit;
+  padding: 7px 10px;
+}
+.picker-input:focus { outline: none; border-color: var(--accent-dim); }
+
+/* Floated over the pane rather than pushing it about as you type. */
+.picker-hits {
+  position: absolute;
+  z-index: 5;
+  left: 0; right: 0; top: calc(100% + 4px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  max-height: 320px;
+  overflow: auto;
+}
+.picker-hits:empty { display: none; }
+
+.picker-hit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+}
+.picker-hit + .picker-hit { border-top: 1px solid var(--line-soft); }
+.picker-hit:hover { background: var(--bg-sunken); }
+.picker-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-acts { display: flex; gap: 4px; flex: none; }
+
+/* ---------- plan mode ---------- */
+
+.plan {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.plan-empty { max-width: 900px; margin: 48px auto; }
+.plan-empty h2 { margin: 0 0 4px; font-size: 20px; }
+
+.plan-start {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.plan-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: 16px;
+}
+.plan-card h3 { margin: 0 0 4px; font-size: 15px; }
+.plan-card p { margin: 0 0 12px; }
+
+.plan-work { display: flex; flex-direction: column; gap: 16px; }
+
+.plan-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .plan-columns { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- goals ---------- */
+
+.plan-goals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: 10px 12px;
+}
+
+.goal-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.goal-head {
+  color: var(--fg-dim);
+  width: 44px;
+  flex: none;
+  text-transform: lowercase;
+}
+
+.goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 4px 2px 8px;
+  background: var(--bg-sunken);
+}
+.goal-target { border-color: var(--accent-dim); }
+.goal-have { border-color: var(--ok); }
+
+.goal-amount {
+  width: 48px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--line);
+  color: var(--fg);
+  font: inherit;
+  padding: 0 4px 0 0;
+  margin-right: 4px;
+  text-align: right;
+}
+.goal-amount:focus { outline: none; color: var(--accent); }
+
+.goal-x {
+  background: transparent;
+  border: 0;
+  color: var(--fg-faint);
+  font: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.goal-x:hover { color: var(--danger); }
+
+/* ---------- the steps ---------- */
+
+.plan-steps-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.plan-steps-head h2 { margin: 0; font-size: 15px; }
+
+/* The steps, as a table. Wide content scrolls inside it rather than pushing
+   the side panels off the edge. */
+.plan-steps { min-width: 0; overflow-x: auto; }
+
+.plan-table { width: 100%; border-collapse: collapse; }
+
+.plan-step { border-top: 1px solid var(--line-soft); }
+.plan-step > td { padding: 8px 6px; vertical-align: top; }
+
+.step-runs { width: 1%; white-space: nowrap; text-align: right; }
+.runs { font-family: var(--mono); color: var(--accent); }
+.step-kind { width: 1%; text-align: center; opacity: 0.8; }
+.step-acts { width: 1%; white-space: nowrap; text-align: right; }
+.step-what { min-width: 0; }
+.step-name { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
+
+.rx-catalyst, .rx-bits, .rx-odds, .rx-avoids, .rx-also {
+  display: block;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.rx-avoids { color: var(--warm); }
+.rx-also { color: var(--danger); }
+/* A side reaction the plan wants anyway, somewhere else. */
+.rx-also.wanted { color: var(--fg-faint); }
+
+.plan-warn {
+  border: 1px solid var(--warm);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  color: var(--warm);
+}
+
+/* ---------- the side panels ---------- */
+
+.plan-side { display: flex; flex-direction: column; gap: 16px; }
+
+.plan-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: 10px 12px;
+}
+.plan-panel h2 { margin: 0 0 8px; font-size: 13px; color: var(--fg-dim); font-weight: 600; }
+.plan-panel p { margin: 8px 0 0; font-size: 12px; }
+
+.plan-list { list-style: none; margin: 0; padding: 0; }
+
+.plan-item { padding: 6px 0; }
+.plan-item + .plan-item { border-top: 1px solid var(--line-soft); }
+.plan-item-main { display: flex; align-items: baseline; gap: 4px; }
+.plan-item-acts { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.plan-how { font-size: 12px; color: var(--fg-faint); }
+.plan-kit { padding: 3px 0; }
+.amount { font-family: var(--mono); color: var(--accent); }
+
+.route {
+  background: var(--bg-sunken);
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  max-width: 100%;
+}
+
+/* ---------- plan options ---------- */
+
+.plan-kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 4px 16px;
+  margin-bottom: 12px;
+}
+.plan-kind, .plan-opt { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.plan-opt { margin-top: 4px; color: var(--fg-dim); }
+.kind-glyph { width: 1.2em; text-align: center; }
+
+/* Buttons that hand a material to the planner, in the detail pane. */
+.detail-plan { display: flex; gap: 6px; margin-top: 8px; }
+.rx-plan { margin-top: 6px; }
+
+.matlink { color: var(--accent); text-decoration: none; }
+.matlink:hover { text-decoration: underline; }
+.matlink.dangling { color: var(--fg-faint); text-decoration: line-through; }

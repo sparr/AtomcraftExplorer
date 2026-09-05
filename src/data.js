@@ -121,6 +121,19 @@ export async function loadData(url = './data/atomcraft.json') {
 
   const byName = new Map(materials.map((m) => [m.name, m]));
 
+  // 131 display names belong to more than one material -- 25 tree trunks all
+  // read "Trunk", four bush tiles all read "Berry" -- which is fine in a list
+  // that shows the internal name beside it, and useless in a sentence. So
+  // every material also gets a `label` that identifies it on its own: the
+  // display name where that is unambiguous, and the internal name where it is
+  // not. "Berry Bush Berry 2_1 mines into Berry" rather than "Berry mines
+  // into Berry".
+  const displayCount = new Map();
+  for (const m of materials) displayCount.set(m.display, (displayCount.get(m.display) || 0) + 1);
+  for (const m of materials) {
+    m.label = displayCount.get(m.display) > 1 ? m.name : m.display;
+  }
+
   // Constituent materials, for search.  Composition names other materials --
   // often ones the formula does not mention at all, like the water in
   // "Aqueous Zinc Sulfate" (ZnSO4) -- so index both the referenced name and its

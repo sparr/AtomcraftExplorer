@@ -1,7 +1,9 @@
 # Atomcraft Explorer
 
-A browser explorer for the material and reaction data inside **Atomcraft**. The
-first mode is material search — by name, by formula, or by chemical symbol.
+A browser explorer for the material and reaction data inside **Atomcraft**, in
+two modes. **Explore** searches materials by name, formula or chemical symbol.
+**Plan** works out a production line: name what you want, name what you have,
+and it finds the processes in between.
 
 ## Using it
 
@@ -28,8 +30,10 @@ Once it is open:
 - Filters narrow things down: `state:gas`, `el:Au`, `z:80-92`, `is:radioactive`,
   `-is:hidden`. The full list is under [Searching](#searching).
 - `/` focuses the search box, `↑`/`↓` move, `Esc` clears.
-- The whole view lives in the URL, so any search, selection or collapsed section
-  can be bookmarked or linked.
+- **Make this** and **I have this** on any material, and **Plan this** on any
+  reaction, hand it to the planner. See [Planning](#planning).
+- The whole view lives in the URL — both modes at once, so a link made while
+  planning still remembers the search it came from.
 
 ## Rebuilding it
 
@@ -99,7 +103,7 @@ extracting entirely.
 | `npm run build` | both steps below |
 | `npm run build-data` | locate + extract + bake → `data/atomcraft.json` |
 | `npm run bundle` | inline everything → `dist/atomcraft-explorer.html` |
-| `npm test` | formula, search, render and bundle suites |
+| `npm test` | formula, plan, search, render and bundle suites |
 | `npm run locate` | show which game install was found |
 | `npm run pck-tools` | show which extractors are on PATH |
 | `npm run serve` | static server for the modular version |
@@ -133,6 +137,73 @@ It also warns — without blocking — when `tools/build-data.mjs`,
 `tools/elements.mjs` or `tools/godot-translation.mjs` change but
 `data/atomcraft.json` does not, since that staleness can only be checked with
 `../Atomcraft.pck` present.
+
+## Planning
+
+The second mode builds a **production plan**: a set of processes that reaches
+the materials you want from the ones you have, with every choice along the way
+shown and overridable.
+
+Start from either end. Name an output and it works backwards; name what you have
+and see what that can become. Both end up in the same plan, and you can add to
+either side at any point.
+
+What comes out is a list of steps with exact amounts, a **shopping list** of
+everything the plan still needs somebody to go and fetch, whatever it leaves
+**left over**, and a summary of the **apparatus** it all takes. Each of those is
+a place to make a decision: mark something as already in hand, pick a different
+route to it, ban a step you would rather not run, or claim a byproduct as
+something you wanted after all.
+
+### Reactions are not enough
+
+681 reactions are not a production graph on their own. 121 of their feedstocks
+have no reaction that makes them at all — Bauxite is mined, Liquid Chlorine is
+condensed, Nuts drop off a tree — so a *process* here is any transformation the
+game supports, and you choose which kinds are allowed:
+
+| on by default | reactions, phase changes, fire, growth, nuclear decay |
+| off | mining and drops, particle beams, machine handling |
+
+The rule behind the split is whether the game does it unattended. What is
+switched off still shows up as *annotation*: a thing to fetch says how the world
+hands it over — `⛏ Bauxite Deposit mines into Bauxite` — without putting a step
+in the plan for something you have to go and do.
+
+Placing a block is the exception. No machine builds an Aluminum Wall, so a
+plan for a loose material never places anything; but ask for the wall itself and
+the plan smelts the iron and ends with you putting it down.
+
+### Choosing the route
+
+178 materials have more than one producing reaction — Steam has 108 — so the
+planner picks, and shows what it picked. The search is a shortest-hyperpath
+fixpoint over the whole graph, weighted so that awkward routes lose: a furnace
+costs more than a warm room, waiting out a half-life costs more than boiling a
+kettle, and doing something by hand costs more than anything the game will do
+for you.
+
+What it costs to simply *have* a material decides how far back a plan reaches.
+An ore is cheap — that is where a chain is meant to bottom out — and something
+you could make is dear, so the plan works backwards through it. Two things
+cannot be had at all: a wall exists only where it was placed, and a machine part
+is manufactured rather than found, so neither is ever fed into a furnace for its
+metal.
+
+### One reaction at a time
+
+A chamber holds a reaction's inputs, its outputs and its catalyst together, and
+those are the ingredients of *other* reactions. So each step is given the
+temperature range at which it runs and nothing else does:
+
+    Acetic Acid + Water = Vinegar
+      stated  ≥ 0 °C
+      usable  0–124 °C        avoids: Water evaporates into Steam
+
+681 processes are narrowed this way. Where no temperature dodges the side
+reaction — Alumina Reduction runs at 2027 °C, well past alumina's melting point
+— it says so rather than pretending the step is impossible. The whole check can
+be switched off.
 
 ## Searching
 
@@ -336,7 +407,12 @@ index.html                    markup and panels
 src/formula.js                formula parser (Al2(SO4)3, CaSO4·2H2O, (Fe,Mn)WO4, 17% Co 83% Fe)
 src/data.js                   bundle loader; name/symbol/reaction/back-reference indexes
 src/search.js                 query grammar and ranking
-src/main.js                   UI
+src/units.js                  temperatures, in the units the game shows
+src/plan-graph.js             every way one material becomes another
+src/plan-solve.js             route search, amounts, apparatus
+src/plan-state.js             the plan itself, and how it lives in the URL
+src/plan-view.js              the plan pane
+src/main.js                   UI, and the shell both modes hang off
 tools/locate-game.mjs         finds the installed game (explicit, Steam, itch)
 tools/pck-tool.mjs            adapter over godotpcktool / GodotPCKExplorer.Console
 tools/build-data.mjs          locates, extracts and bakes data/atomcraft.json
@@ -427,8 +503,10 @@ Everything is JavaScript — source, build and tests all run on Node.
 ## Tests
 
 ```sh
-npm test                      # all six suites
+npm test                      # all eleven suites
 node tools/test-formula.mjs   # parses + round-trips all 436 distinct formulas
+node tools/test-plan.mjs      # the process graph and the route solver
+node tools/test-plan-ui.mjs   # both modes, and that switching loses nothing
 node tools/test-search.mjs    # ranking assertions
 node tools/test-render.mjs    # renders all 1871 detail panes against a DOM shim
 node tools/test-styles.mjs    # every class used in markup or code has a rule

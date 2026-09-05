@@ -8,15 +8,22 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">Ac</span> Atomcraft Explorer</div>
-  <div class="searchwrap">
+  <div class="brand"><span class="brand-mark">Ac</span> Atomcraft</div>
+  <div class="modes" role="tablist" aria-label="Mode">
+    <button id="mode-explore" class="mode" role="tab" aria-selected="true">Explore</button>
+    <button id="mode-plan" class="mode" role="tab" aria-selected="false">Plan</button>
+  </div>
+  <div class="searchwrap" id="explore-bar">
     <input id="q" type="search" autocomplete="off" spellcheck="false" autofocus
            placeholder="Search materials &mdash; name, formula, or element symbol">
     <button id="clear" class="ghost" title="Clear (Esc)" hidden>&times;</button>
   </div>
+  <div class="planbar" id="plan-bar" hidden></div>
   <div class="topbar-actions">
+    <button id="back-to-plan" class="ghost" hidden>&larr; Back to plan</button>
     <button id="toggle-table" class="ghost" aria-pressed="false">Periodic table</button>
     <button id="toggle-help" class="ghost" aria-pressed="false">Syntax</button>
+    <button id="toggle-plan-options" class="ghost" aria-pressed="false" hidden>Options</button>
   </div>
 </header>
 
@@ -41,7 +48,7 @@
 
 <div id="chips" class="chips"></div>
 
-<main>
+<main id="explore-main">
   <section id="results-pane">
     <div id="summary" class="summary">
       <span id="summary-counts"></span>
@@ -51,6 +58,43 @@
   </section>
   <aside id="detail" class="detail"></aside>
 </main>
+
+<section id="plan-main" class="plan" hidden>
+  <div id="plan-options" class="panel" hidden>
+    <h2>What the plan may use</h2>
+    <div id="plan-kinds" class="plan-kinds"></div>
+    <label class="plan-opt">
+      <input type="checkbox" id="plan-avoid" checked>
+      Keep each step to one reaction &mdash; narrow its temperature range so
+      nothing else in the chamber goes off
+    </label>
+  </div>
+
+  <div id="plan-empty" class="plan-empty">
+    <h2>Plan a production line</h2>
+    <p class="muted">Start from either end. You can add the other later.</p>
+    <div class="plan-start">
+      <div class="plan-card">
+        <h3>I want to make&hellip;</h3>
+        <p class="muted">Name an output and this works backwards to what it takes.</p>
+        <div id="plan-want"></div>
+      </div>
+      <div class="plan-card">
+        <h3>I have&hellip;</h3>
+        <p class="muted">Name what you have and see what it can become.</p>
+        <div id="plan-got"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="plan-work" class="plan-work" hidden>
+    <div id="plan-goals" class="plan-goals"></div>
+    <div class="plan-columns">
+      <div id="plan-steps" class="plan-steps"></div>
+      <aside id="plan-side" class="plan-side"></aside>
+    </div>
+  </div>
+</section>
 
 <div id="boot" class="boot">Loading game data&hellip;</div>
 <script type="module" src="src/main.js"></script>

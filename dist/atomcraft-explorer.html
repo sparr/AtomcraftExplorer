@@ -33,6 +33,12 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` has to beat a layout rule. The UA stylesheet gives [hidden] a bare
+   `display: none`, which any selector setting `display` outranks -- so
+   `main { display: grid }` kept the whole explorer on screen underneath the
+   plan, with the attribute dutifully set the whole time. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   margin: 0;
@@ -331,6 +337,9 @@ main {
 
 .formula { font-family: var(--mono); color: var(--warm); white-space: nowrap; }
 .formula sub { font-size: 0.72em; }
+/* The symbol takes the formula's own colour. The rule exists so the hook is
+   declared: .unknown-sym below is an override of it, not a lone class. */
+.formula .sym { color: inherit; }
 .formula .unknown-sym { color: var(--fg-faint); }
 
 .badge {
@@ -526,19 +535,296 @@ span.mat-missing { color: var(--fg-faint); border-bottom: 1px dashed var(--fg-fa
   #results-pane { border-right: 0; border-bottom: 1px solid var(--line); }
 }
 
+/* ---------- modes ---------- */
+
+/* The two modes are both mounted; only one is shown. Switching costs nothing
+   and loses nothing, which is the point -- looking a material up in the middle
+   of planning should not be a decision. */
+.modes {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex: none;
+}
+
+.mode {
+  background: transparent;
+  color: var(--fg-dim);
+  border: 0;
+  padding: 6px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+.mode + .mode { border-left: 1px solid var(--line); }
+.mode:hover { color: var(--fg); }
+.mode[aria-selected="true"] {
+  background: var(--bg-sunken);
+  color: var(--accent);
+}
+
+button.small { padding: 3px 8px; font-size: 12px; }
+button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
+
+/* ---------- the material picker ---------- */
+
+.planbar { flex: 1; min-width: 0; position: relative; }
+
+.picker { position: relative; }
+
+.picker-input {
+  width: 100%;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font: inherit;
+  padding: 7px 10px;
+}
+.picker-input:focus { outline: none; border-color: var(--accent-dim); }
+
+/* Floated over the pane rather than pushing it about as you type. */
+.picker-hits {
+  position: absolute;
+  z-index: 5;
+  left: 0; right: 0; top: calc(100% + 4px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  max-height: 320px;
+  overflow: auto;
+}
+.picker-hits:empty { display: none; }
+
+.picker-hit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+}
+.picker-hit + .picker-hit { border-top: 1px solid var(--line-soft); }
+.picker-hit:hover { background: var(--bg-sunken); }
+.picker-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-acts { display: flex; gap: 4px; flex: none; }
+
+/* ---------- plan mode ---------- */
+
+.plan {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.plan-empty { max-width: 900px; margin: 48px auto; }
+.plan-empty h2 { margin: 0 0 4px; font-size: 20px; }
+
+.plan-start {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.plan-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: 16px;
+}
+.plan-card h3 { margin: 0 0 4px; font-size: 15px; }
+.plan-card p { margin: 0 0 12px; }
+
+.plan-work { display: flex; flex-direction: column; gap: 16px; }
+
+.plan-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .plan-columns { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- goals ---------- */
+
+.plan-goals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: 10px 12px;
+}
+
+.goal-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.goal-head {
+  color: var(--fg-dim);
+  width: 44px;
+  flex: none;
+  text-transform: lowercase;
+}
+
+.goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 4px 2px 8px;
+  background: var(--bg-sunken);
+}
+.goal-target { border-color: var(--accent-dim); }
+.goal-have { border-color: var(--ok); }
+
+.goal-amount {
+  width: 48px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--line);
+  color: var(--fg);
+  font: inherit;
+  padding: 0 4px 0 0;
+  margin-right: 4px;
+  text-align: right;
+}
+.goal-amount:focus { outline: none; color: var(--accent); }
+
+.goal-x {
+  background: transparent;
+  border: 0;
+  color: var(--fg-faint);
+  font: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.goal-x:hover { color: var(--danger); }
+
+/* ---------- the steps ---------- */
+
+.plan-steps-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.plan-steps-head h2 { margin: 0; font-size: 15px; }
+
+/* The steps, as a table. Wide content scrolls inside it rather than pushing
+   the side panels off the edge. */
+.plan-steps { min-width: 0; overflow-x: auto; }
+
+.plan-table { width: 100%; border-collapse: collapse; }
+
+.plan-step { border-top: 1px solid var(--line-soft); }
+.plan-step > td { padding: 8px 6px; vertical-align: top; }
+
+.step-runs { width: 1%; white-space: nowrap; text-align: right; }
+.runs { font-family: var(--mono); color: var(--accent); }
+.step-kind { width: 1%; text-align: center; opacity: 0.8; }
+.step-acts { width: 1%; white-space: nowrap; text-align: right; }
+.step-what { min-width: 0; }
+.step-name { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
+
+.rx-catalyst, .rx-bits, .rx-odds, .rx-avoids, .rx-also {
+  display: block;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.rx-avoids { color: var(--warm); }
+.rx-also { color: var(--danger); }
+/* A side reaction the plan wants anyway, somewhere else. */
+.rx-also.wanted { color: var(--fg-faint); }
+
+.plan-warn {
+  border: 1px solid var(--warm);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  color: var(--warm);
+}
+
+/* ---------- the side panels ---------- */
+
+.plan-side { display: flex; flex-direction: column; gap: 16px; }
+
+.plan-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: 10px 12px;
+}
+.plan-panel h2 { margin: 0 0 8px; font-size: 13px; color: var(--fg-dim); font-weight: 600; }
+.plan-panel p { margin: 8px 0 0; font-size: 12px; }
+
+.plan-list { list-style: none; margin: 0; padding: 0; }
+
+.plan-item { padding: 6px 0; }
+.plan-item + .plan-item { border-top: 1px solid var(--line-soft); }
+.plan-item-main { display: flex; align-items: baseline; gap: 4px; }
+.plan-item-acts { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.plan-how { font-size: 12px; color: var(--fg-faint); }
+.plan-kit { padding: 3px 0; }
+.amount { font-family: var(--mono); color: var(--accent); }
+
+.route {
+  background: var(--bg-sunken);
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  max-width: 100%;
+}
+
+/* ---------- plan options ---------- */
+
+.plan-kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 4px 16px;
+  margin-bottom: 12px;
+}
+.plan-kind, .plan-opt { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.plan-opt { margin-top: 4px; color: var(--fg-dim); }
+.kind-glyph { width: 1.2em; text-align: center; }
+
+/* Buttons that hand a material to the planner, in the detail pane. */
+.detail-plan { display: flex; gap: 6px; margin-top: 8px; }
+.rx-plan { margin-top: 6px; }
+
+.matlink { color: var(--accent); text-decoration: none; }
+.matlink:hover { text-decoration: underline; }
+.matlink.dangling { color: var(--fg-faint); text-decoration: line-through; }
+
 </style>
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">Ac</span> Atomcraft Explorer</div>
-  <div class="searchwrap">
+  <div class="brand"><span class="brand-mark">Ac</span> Atomcraft</div>
+  <div class="modes" role="tablist" aria-label="Mode">
+    <button id="mode-explore" class="mode" role="tab" aria-selected="true">Explore</button>
+    <button id="mode-plan" class="mode" role="tab" aria-selected="false">Plan</button>
+  </div>
+  <div class="searchwrap" id="explore-bar">
     <input id="q" type="search" autocomplete="off" spellcheck="false" autofocus
            placeholder="Search materials &mdash; name, formula, or element symbol">
     <button id="clear" class="ghost" title="Clear (Esc)" hidden>&times;</button>
   </div>
+  <div class="planbar" id="plan-bar" hidden></div>
   <div class="topbar-actions">
+    <button id="back-to-plan" class="ghost" hidden>&larr; Back to plan</button>
     <button id="toggle-table" class="ghost" aria-pressed="false">Periodic table</button>
     <button id="toggle-help" class="ghost" aria-pressed="false">Syntax</button>
+    <button id="toggle-plan-options" class="ghost" aria-pressed="false" hidden>Options</button>
   </div>
 </header>
 
@@ -563,7 +849,7 @@ span.mat-missing { color: var(--fg-faint); border-bottom: 1px dashed var(--fg-fa
 
 <div id="chips" class="chips"></div>
 
-<main>
+<main id="explore-main">
   <section id="results-pane">
     <div id="summary" class="summary">
       <span id="summary-counts"></span>
@@ -573,6 +859,43 @@ span.mat-missing { color: var(--fg-faint); border-bottom: 1px dashed var(--fg-fa
   </section>
   <aside id="detail" class="detail"></aside>
 </main>
+
+<section id="plan-main" class="plan" hidden>
+  <div id="plan-options" class="panel" hidden>
+    <h2>What the plan may use</h2>
+    <div id="plan-kinds" class="plan-kinds"></div>
+    <label class="plan-opt">
+      <input type="checkbox" id="plan-avoid" checked>
+      Keep each step to one reaction &mdash; narrow its temperature range so
+      nothing else in the chamber goes off
+    </label>
+  </div>
+
+  <div id="plan-empty" class="plan-empty">
+    <h2>Plan a production line</h2>
+    <p class="muted">Start from either end. You can add the other later.</p>
+    <div class="plan-start">
+      <div class="plan-card">
+        <h3>I want to make&hellip;</h3>
+        <p class="muted">Name an output and this works backwards to what it takes.</p>
+        <div id="plan-want"></div>
+      </div>
+      <div class="plan-card">
+        <h3>I have&hellip;</h3>
+        <p class="muted">Name what you have and see what it can become.</p>
+        <div id="plan-got"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="plan-work" class="plan-work" hidden>
+    <div id="plan-goals" class="plan-goals"></div>
+    <div class="plan-columns">
+      <div id="plan-steps" class="plan-steps"></div>
+      <aside id="plan-side" class="plan-side"></aside>
+    </div>
+  </div>
+</section>
 
 <div id="boot" class="boot">Loading game data&hellip;</div>
 <script>
@@ -918,6 +1241,19 @@ async function loadData(url = './data/atomcraft.json') {
   });
 
   const byName = new Map(materials.map((m) => [m.name, m]));
+
+  // 131 display names belong to more than one material -- 25 tree trunks all
+  // read "Trunk", four bush tiles all read "Berry" -- which is fine in a list
+  // that shows the internal name beside it, and useless in a sentence. So
+  // every material also gets a `label` that identifies it on its own: the
+  // display name where that is unambiguous, and the internal name where it is
+  // not. "Berry Bush Berry 2_1 mines into Berry" rather than "Berry mines
+  // into Berry".
+  const displayCount = new Map();
+  for (const m of materials) displayCount.set(m.display, (displayCount.get(m.display) || 0) + 1);
+  for (const m of materials) {
+    m.label = displayCount.get(m.display) > 1 ? m.name : m.display;
+  }
 
   // Constituent materials, for search.  Composition names other materials --
   // often ones the formula does not mention at all, like the water in
@@ -2652,6 +2988,1956 @@ function formatTemperatureRange(min, max, unit = DEFAULT_TEMPERATURE_UNIT) {
 return { AMBIENT, heatingNeed, coolingNeed, TEMPERATURE_UNITS, DEFAULT_TEMPERATURE_UNIT, convertTemperature, convertTemperatureDelta, formatTemperature, formatTemperatureDelta, formatTemperatureRange };
 })();
 
+const __mod_plan_graph = (() => {
+/**
+ * The production hypergraph: every way one material can become another.
+ *
+ * The explorer shows a material's transformations one material at a time. The
+ * planner needs them as a single graph, and it needs more than reactions --
+ * 121 of the 681 reactions' feedstocks have no reaction that produces them at
+ * all, only a phase change, a fire, a plant or a mine. A reactions-only graph
+ * dead-ends on every one of those.
+ *
+ * So a *process* here is any transformation, whatever mechanism drives it, and
+ * the reader chooses which mechanisms are allowed. Everything is indexed once
+ * and filtered at solve time, so turning a kind on cannot require a rebuild --
+ * and the solver can still see a route it is not allowed to take, which is how
+ * it can say "there is a way, but it needs mining".
+ */
+const {makeClassifier} = __mod_grouping;
+
+/**
+ * Process kinds, in the order they appear in the options panel.
+ *
+ * `automatic` is the default-on set, and the rule behind it is whether the game
+ * can run the process unattended: a reaction, a temperature, a fire, a growing
+ * plant and a decaying nucleus all proceed on their own, while mining, firing
+ * the accelerator and rotating a machine need a player. `weight` is the base
+ * cost of using one step of this kind, which is what makes the solver prefer
+ * boiling water over waiting out a half-life.
+ */
+const PROCESS_KINDS = [
+  { id: 'reaction', label: 'Reactions',      glyph: '⚗', automatic: true,  weight: 1 },
+  { id: 'phase',    label: 'Phase changes',  glyph: '♨', automatic: true,  weight: 0.5 },
+  { id: 'fire',     label: 'Fire',           glyph: '\u{1f525}', automatic: true, weight: 1 },
+  { id: 'grow',     label: 'Growth',         glyph: '\u{1f331}', automatic: true, weight: 2 },
+  { id: 'decay',    label: 'Nuclear decay',  glyph: '☢', automatic: true,  weight: 4 },
+  { id: 'mine',     label: 'Mining & drops', glyph: '⛏', automatic: false, weight: 1 },
+  { id: 'beam',     label: 'Particle beams', glyph: '⚛', automatic: false, weight: 6 },
+  { id: 'handling', label: 'Handling',       glyph: '✋', automatic: false, weight: 1 },
+];
+
+const KIND = new Map(PROCESS_KINDS.map((k) => [k.id, k]));
+
+/** The kinds a fresh plan allows: everything a mechanism or time can do alone. */
+const DEFAULT_KINDS = PROCESS_KINDS.filter((k) => k.automatic).map((k) => k.id);
+
+/**
+ * `+H2O` is the marker for water of hydration in a Composition, not a material
+ * anyone can hold. It carries an Evaporation, so left in the graph it would
+ * offer itself as a (never obtainable) source of Steam.
+ */
+const PSEUDO = new Set(['+H2O']);
+
+/** Sum the counts of a `{name: count}` map into a list, dropping pseudo-materials. */
+function pairs(obj) {
+  if (!obj) return [];
+  return Object.entries(obj)
+    .filter(([name]) => !PSEUDO.has(name))
+    .map(([name, count]) => ({ name, count: count || 1 }));
+}
+
+/**
+ * Build one process.
+ *
+ * `inputs` and `outputs` are as the game writes them, because that is what a
+ * reaction card has to show. `net` is what the quantity solver uses: 17
+ * reactions name a material on both sides -- "Compost from Fallen Leaves" takes
+ * 9 Fallen Leaf and hands 7 back -- and only the difference is really consumed.
+ * A material whose net is zero is neither made nor used up, so it moves to
+ * `requires`, which is also where catalysts and a growing plant's parent live:
+ * things that must be present without being spent.
+ */
+function makeProcess({ id, kind, label, inputs = [], outputs = [], requires = [],
+                       conditions = {}, source = null }) {
+  const net = new Map();
+  for (const { name, count } of inputs) net.set(name, (net.get(name) || 0) - count);
+  for (const { name, count } of outputs) net.set(name, (net.get(name) || 0) + count);
+
+  const consumes = [], produces = [], holds = [...requires];
+  for (const [name, delta] of net) {
+    if (delta < 0) consumes.push({ name, count: -delta });
+    else if (delta > 0) produces.push({ name, count: delta });
+    else holds.push({ name, count: Math.max(...inputs.filter((i) => i.name === name)
+                                                    .map((i) => i.count), 1) });
+  }
+
+  return {
+    id, kind, label, source, conditions,
+    inputs, outputs,                 // as written, for display
+    consumes, produces, requires: holds,   // netted, for solving
+  };
+}
+
+/**
+ * A process that nets out to nothing is not a process. 88 machine parts list
+ * themselves as what they build into -- placing a Balance Input Left to Up
+ * yields a Balance Input Left to Up -- and after netting there is no product
+ * left to offer.
+ */
+const real = (p) => (p.produces.length ? [p] : []);
+
+/** Reactions are the only processes that already come as hyperedges. */
+function reactionProcesses(db) {
+  return db.reactions.flatMap((rx) => real(makeProcess({
+    id: `rx:${rx.name}`,
+    kind: 'reaction',
+    label: rx.name,
+    inputs: pairs(rx.raw.Inputs),
+    outputs: pairs(rx.raw.Outputs),
+    requires: [],
+    conditions: {
+      temperature: rx.raw.Temperature,
+      maxTemperature: rx.raw.MaxTemperature,
+      changeInTemperature: rx.raw.ChangeInTemperature,
+      probability: rx.raw.Probability,
+      electrolysis: !!rx.raw.Electrolysis,
+      // Not an ingredient. `DoReaction` reads only `InputTypes`; the catalyst
+      // appears solely in the gate deciding whether the reaction may run, and
+      // is never consumed -- one Blender makes yeast forever. So it belongs
+      // with the temperature and the electrolysis flag: a condition on the
+      // apparatus, not a material the plan has to supply.
+      catalysts: pairs(rx.raw.Catalysts),
+    },
+    source: rx,
+  })));
+}
+
+/**
+ * Everything else is written on the material that undergoes it, one field at a
+ * time, so each field becomes a process with that material as its sole input.
+ *
+ * Two shapes need care. A `GrowthRule` grows a *new* segment beside a plant
+ * that stays where it is, so the parent is a requirement rather than an input.
+ * Spontaneous fission names no product at all -- 4 nuclides just cease -- so
+ * those decays produce nothing and are skipped.
+ */
+function materialProcesses(db) {
+  const out = [];
+  const one = (name, count = 1) => (PSEUDO.has(name) ? [] : [{ name, count }]);
+  /** Both ends of a label name their material the same way -- see `label` in
+   *  data.js. A target named by its internal name while its subject goes by
+   *  its display reads as "Reversible Conveyor Left builds into Reversible
+   *  Conveyor Left", which is two different machines. */
+  const lbl = (name) => db.byName.get(name)?.label ?? name;
+
+  /**
+   * A weighted one-of draw, written as a ratio.
+   *
+   * Both of the game's random tables work the same way: an array with each
+   * outcome repeated by its weight, indexed at random. Over enough draws that
+   * is exactly `sum(weights)` in for `weight` of each out, with no rounding --
+   * so the expectation is expressible in whole numbers and becomes the
+   * process's coefficients.
+   */
+  const weighted = (from, pairsIn) => {
+    const tally = new Map();
+    let total = 0;
+    for (const [name, w] of pairsIn) { tally.set(name, (tally.get(name) || 0) + w); total += w; }
+    return { inputs: one(from, total),
+             outputs: [...tally].flatMap(([t, n]) => one(t, n)) };
+  };
+
+  /** The same table, as the chances a reader wants to see. */
+  const odds = (pairsIn) => {
+    const tally = new Map();
+    let total = 0;
+    for (const [name, w] of pairsIn) { tally.set(name, (tally.get(name) || 0) + w); total += w; }
+    return {
+      stochastic: tally.size > 1,
+      outcomes: [...tally].map(([name, w]) => ({ name, weight: w, chance: w / total }))
+                          .sort((a, b) => b.weight - a.weight),
+    };
+  };
+
+  for (const m of db.materials) {
+    const raw = m.raw;
+    const self = () => one(m.name);
+    const add = (spec) => {
+      if (!spec.outputs.length || !(spec.inputs.length + spec.requires.length)) return;
+      out.push(...real(makeProcess(spec)));
+    };
+
+    // --- phase: a temperature crossing, both directions ----------------------
+    for (const [field, verb] of [['Evaporation', 'evaporates'], ['Condensation', 'condenses']]) {
+      const t = raw[field];
+      if (!t?.TargetMaterialName) continue;
+      add({
+        id: `${field === 'Evaporation' ? 'evap' : 'cond'}:${m.name}`,
+        kind: 'phase',
+        label: `${m.label} ${verb} into ${lbl(t.TargetMaterialName)}`,
+        inputs: self(),
+        outputs: one(t.TargetMaterialName, t.Amount || 1),
+        requires: [],
+        // Which side of the number you have to be on depends on the
+        // direction. Evaporation needs the tile at least that hot;
+        // condensation needs it no hotter -- Molten Aluminum sets at 932 K by
+        // *cooling* through it, so recording that as a floor would have a plan
+        // telling you to fire up a furnace to freeze something.
+        conditions: {
+          ...(field === 'Evaporation' ? { temperature: t.Temperature }
+                                      : { maxTemperature: t.Temperature }),
+          probability: t.Probability,
+          direction: field === 'Evaporation' ? 'heat' : 'cool',
+        },
+        source: m,
+      });
+    }
+
+    // --- fire: light it, let it burn out, or put it out ----------------------
+    if (raw.Ignition?.TargetMaterialName) {
+      add({
+        id: `ignite:${m.name}`,
+        kind: 'fire',
+        label: `${m.label} ignites into ${lbl(raw.Ignition.TargetMaterialName)}`,
+        inputs: self(),
+        outputs: one(raw.Ignition.TargetMaterialName),
+        requires: [],
+        conditions: { temperature: raw.Ignition.Temperature,
+                      requiresSpark: !!raw.Ignition.RequiresSpark,
+                      explodes: !!raw.Ignition.Explodes },
+        source: m,
+      });
+    }
+    const fire = raw.Fire;
+    if (fire) {
+      // The combustion list is a bag, not a set: Ethanol (Burning) lists Carbon
+      // Dioxide three times and Steam twice. The game picks one entry of that
+      // array at random -- `RNG.Roll(...) % CombustionTargetMaterialTypeIds
+      // .Length` -- so a repeat is a weight, and each product has a
+      // probability of (repeats / bag size).
+      const bag = fire.CombustionTargetMaterialNames || [];
+      if (bag.length) {
+        add({
+          id: `burn:${m.name}`,
+          kind: 'fire',
+          label: `${m.label} burns`,
+          ...weighted(m.name, bag.map((t) => [t, 1])),
+          requires: [],
+          conditions: { probability: fire.ProbabilityToCombust,
+                        heatOutput: fire.HeatOutput,
+                        ...odds(bag.map((t) => [t, 1])) },
+          source: m,
+        });
+      }
+      if (fire.ExtinguishTargetMaterialName) {
+        add({
+          id: `douse:${m.name}`,
+          kind: 'fire',
+          label: `${m.label} extinguishes into ${lbl(fire.ExtinguishTargetMaterialName)}`,
+          inputs: self(),
+          outputs: one(fire.ExtinguishTargetMaterialName),
+          requires: [],
+          conditions: {},
+          source: m,
+        });
+      }
+    }
+
+    // --- growth: a seed becomes a plant, a plant extends itself --------------
+    if (raw.GrowsInto) {
+      add({
+        id: `sprout:${m.name}`,
+        kind: 'grow',
+        label: `${m.label} grows into ${lbl(raw.GrowsInto)}`,
+        inputs: self(),
+        outputs: one(raw.GrowsInto),
+        requires: [],
+        conditions: {},
+        source: m,
+      });
+    }
+    for (const [i, g] of (raw.GrowthRules || []).entries()) {
+      if (!g.GrowthMaterialName) continue;
+      add({
+        // Indexed rather than keyed on the target: a plant may list the same
+        // segment for more than one direction.
+        id: `grow:${m.name}#${i}`,
+        kind: 'grow',
+        // The stalk stays; it puts out a new segment. So it is held, not spent.
+        label: `${m.label} grows ${lbl(g.GrowthMaterialName)}`,
+        inputs: [],
+        outputs: one(g.GrowthMaterialName),
+        requires: self(),
+        conditions: { medium: db.enums.GrowthMedium?.[g.MediumType],
+                      growthRate: g.GrowthRate,
+                      direction: db.enums.Direction?.[g.Direction] },
+        source: m,
+      });
+    }
+
+    // --- decay: time, and nothing else ---------------------------------------
+    const dec = raw.DecaySettings;
+    if (dec) {
+      const products = [dec.MaterialName, dec.MaterialName2].filter(Boolean);
+      if (products.length) {
+        add({
+          id: `decay:${m.name}`,
+          kind: 'decay',
+          label: `${m.label} decays into ${products.map(lbl).join(' + ')}`,
+          inputs: self(),
+          outputs: products.flatMap((p) => one(p)),
+          requires: [],
+          conditions: { mode: db.enums.DecayMode?.[dec.Mode], ticks: dec.TickModValue },
+          source: m,
+        });
+      }
+    }
+
+    // --- mining and drops: a player with a tool ------------------------------
+    if (raw.MinesInto) {
+      add({
+        id: `mine:${m.name}`,
+        kind: 'mine',
+        label: `${m.label} mines into ${lbl(raw.MinesInto)}`,
+        inputs: self(),
+        outputs: one(raw.MinesInto),
+        requires: [],
+        conditions: { hardness: raw.Hardness },
+        source: m,
+      });
+    }
+    // One roll per swing, over a lookup array holding each material as many
+    // times as its rate -- `DropTable` builds exactly that and rolls uniformly
+    // over it. So the rates are relative weights out of their own sum, not
+    // chances out of a thousand, and mining Granite 6007 times is what yields
+    // its 2 rubies.
+    const drops = Object.entries(raw.DropRates || {});
+    if (drops.length) {
+      add({
+        id: `drop:${m.name}`,
+        kind: 'mine',
+        label: `${m.label} drops`,
+        ...weighted(m.name, drops),
+        requires: [],
+        conditions: odds(drops),
+        source: m,
+      });
+    }
+
+    // --- the accelerator ------------------------------------------------------
+    for (const [field, beam] of [['TurnsIntoFromProtonImpact', 'proton'],
+                                 ['TurnsIntoFromNeutronImpact', 'neutron'],
+                                 ['TurnsIntoFromAlphaParticleImpact', 'alpha']]) {
+      if (!raw[field]) continue;
+      add({
+        id: `${beam}:${m.name}`,
+        kind: 'beam',
+        label: `${m.label} under ${beam} impact becomes ${lbl(raw[field])}`,
+        inputs: self(),
+        outputs: one(raw[field]),
+        requires: [],
+        conditions: { beam },
+        source: m,
+      });
+    }
+
+    // --- handling: things only a pair of hands does ---------------------------
+    for (const [field, verb] of [['MinesInto', null],   // already covered above
+                                 ['BuildsInto', 'builds into'],
+                                 ['PickUpInto', 'is picked up as'],
+                                 ['DissolvesInto', 'dissolves into'],
+                                 ['TurnsOnInto', 'turns on into'],
+                                 ['TurnsOffInto', 'turns off into'],
+                                 ['RotatesLeftInto', 'rotates left into'],
+                                 ['RotatesRightInto', 'rotates right into']]) {
+      if (!verb || !raw[field]) continue;
+      add({
+        id: `${field}:${m.name}`,
+        kind: 'handling',
+        label: `${m.label} ${verb} ${lbl(raw[field])}`,
+        inputs: self(),
+        outputs: one(raw[field]),
+        requires: [],
+        // Placing something is the one player action a plan still wants to
+        // show, and only ever as its last step -- see `solveCosts`.
+        conditions: field === 'BuildsInto' ? { places: true } : {},
+        source: m,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Kinds that fire on temperature, and so can go off by accident.
+ *
+ * Decay ignores temperature entirely, and mining, growth and handling are
+ * things you do rather than things that happen to you, so none of them can be
+ * triggered by running a chamber too hot.
+ */
+const TEMPERATURE_DRIVEN = new Set(['reaction', 'phase', 'fire']);
+
+/** When does this process fire, in kelvin? `[0, Infinity]` means always. */
+function firingRange(p) {
+  return [p.conditions.temperature ?? 0, p.conditions.maxTemperature ?? Infinity];
+}
+
+/** Remove `[a, b]` from a set of disjoint ascending ranges. */
+function without(ranges, [a, b]) {
+  const out = [];
+  for (const [s, e] of ranges) {
+    if (b < s || a > e) { out.push([s, e]); continue; }
+    if (a > s) out.push([s, Math.min(e, a - 1)]);
+    if (b < e) out.push([Math.max(s, b + 1), e]);
+  }
+  return out;
+}
+
+/**
+ * The temperatures at which a process runs *and nothing else does*.
+ *
+ * A reaction happens in a chamber holding its inputs, its outputs and whatever
+ * catalyst it needs, and those same materials are the ingredients of other
+ * reactions. Run the chamber into one of their ranges and you get that too --
+ * so a reaction stated as "≥ 0 °C" whose contents would also react at 100 °C is
+ * really a reaction for 0-99 °C, and saying so is the difference between a plan
+ * that works and one that quietly turns into something else.
+ *
+ * Each interfering range is cut out of the stated one. What is left may be
+ * several intervals; the one holding the stated minimum is the operating range,
+ * since that is the temperature the game is pointing at. A cut that would leave
+ * nothing at all is not applied -- the side reaction is then unavoidable, which
+ * is worth reporting rather than pretending the process cannot run.
+ */
+function temperatureWindow(graph, p) {
+  const base = firingRange(p);
+  const window = { lo: base[0], hi: base[1], base, avoided: [], unavoidable: [] };
+  if (!TEMPERATURE_DRIVEN.has(p.kind)) return window;
+
+  // Everything standing in the chamber while this runs.
+  const present = new Set();
+  for (const { name } of [...p.inputs, ...p.outputs, ...p.requires]) present.add(name);
+  const catalysts = new Set((p.conditions.catalysts || []).map((c) => c.name));
+  for (const name of catalysts) present.add(name);
+
+  // Anything that could fire on what is standing there -- but only what would
+  // fire *by itself*. Three things gate a process on something other than its
+  // ingredients, and none of them is present unless this reaction brought it:
+  // a catalyst, a current, and a spark. Without these, every reaction touching
+  // water reads as if Electrolysis of Water were going off in it.
+  const seen = new Set([p.id]);
+  const candidates = [];
+  for (const name of present) {
+    for (const q of graph.consumers(name)) {
+      if (seen.has(q.id) || !TEMPERATURE_DRIVEN.has(q.kind)) continue;
+      seen.add(q.id);
+      if (![...q.consumes, ...q.requires].every((i) => present.has(i.name))) continue;
+      if (!(q.conditions.catalysts || []).every((c) => catalysts.has(c.name))) continue;
+      if (q.conditions.electrolysis && !p.conditions.electrolysis) continue;
+      if (q.conditions.requiresSpark && !p.conditions.requiresSpark) continue;
+      candidates.push(q);
+    }
+  }
+  // Deterministic order, so the operating range does not depend on Map order.
+  candidates.sort((a, b) => a.id.localeCompare(b.id));
+
+  let ranges = [base];
+  for (const q of candidates) {
+    const range = firingRange(q);
+    const next = without(ranges, range);
+    if (!next.length) { window.unavoidable.push({ id: q.id, label: q.label, range }); continue; }
+    const key = (rs) => rs.map(([s, e]) => `${s}:${e}`).join(',');
+    if (key(next) !== key(ranges)) window.avoided.push({ id: q.id, label: q.label, range });
+    ranges = next;
+  }
+
+  const operating = ranges.find(([s, e]) => base[0] >= s && base[0] <= e) || ranges[0];
+  window.lo = operating[0];
+  window.hi = operating[1];
+  window.narrowed = window.lo !== base[0] || window.hi !== base[1];
+  window.alternatives = ranges.filter((r) => r !== operating);
+  return window;
+}
+
+/**
+ * The temperature range a step is actually run at.
+ *
+ * With `avoid` off this is simply what the game states, side reactions and all.
+ */
+function operatingWindow(p, avoid = true) {
+  if (avoid && p.window) return p.window;
+  const base = firingRange(p);
+  return { lo: base[0], hi: base[1], base, avoided: [], unavoidable: [],
+           narrowed: false, alternatives: [] };
+}
+
+/**
+ * Index every process once. Nothing here consults the reader's chosen kinds --
+ * the solver filters, so that a disabled route is still visible as one.
+ */
+function buildProcessGraph(db) {
+  const processes = [...reactionProcesses(db), ...materialProcesses(db)];
+
+  // The explorer's own categoriser, reused. The planner needs it because how a
+  // material is *had* differs by kind of thing: an ore is dug up, a wall is
+  // built, and a compound is generally meant to be made. Melting an Aluminum
+  // Wall really is written in the data as a source of Molten Aluminum, and
+  // without knowing a wall is a built thing there is no way to prefer the ore.
+  const classify = makeClassifier(db.materials);
+  const category = new Map(db.materials.map((m) => [m.name, classify(m)]));
+  const state = new Map(db.materials.map((m) => [m.name, m.state]));
+  // Things the player builds, in both their forms: the placed machine and the
+  // item you carry to place it. `Aluminum Wire` is the second kind -- Solid,
+  // portable, and got by picking a placed wire back up -- so state alone does
+  // not tell them apart from an ore.
+  const manufactured = new Set(db.materials
+    .filter((m) => m.raw.IsBuilt || m.raw.IsMechanical).map((m) => m.name));
+
+  const byId = new Map();
+  const producersOf = new Map();
+  const consumersOf = new Map();
+  const requiredBy = new Map();
+  const push = (map, key, p) => {
+    let list = map.get(key);
+    if (!list) map.set(key, (list = []));
+    list.push(p);
+  };
+
+  for (const p of processes) {
+    if (byId.has(p.id)) throw new Error(`duplicate process id: ${p.id}`);
+    byId.set(p.id, p);
+    for (const { name } of p.produces) push(producersOf, name, p);
+    for (const { name } of p.consumes) push(consumersOf, name, p);
+    for (const { name } of p.requires) push(requiredBy, name, p);
+  }
+
+  const graph = {
+    db,
+    processes,
+    byId,
+    category,
+    categoryOf: (name) => category.get(name) || 'other',
+    stateOf: (name) => state.get(name) || null,
+    isManufactured: (name) => manufactured.has(name),
+    producersOf,
+    consumersOf,
+    requiredBy,
+    /** Every process that makes `name`, whether or not the kind is allowed. */
+    producers: (name) => producersOf.get(name) || [],
+    consumers: (name) => consumersOf.get(name) || [],
+    kindsThatProduce: (name) => new Set((producersOf.get(name) || []).map((p) => p.kind)),
+  };
+
+  // Depends on the finished index, so it runs last. Plan-independent: what a
+  // chamber's contents would also do is a fact about the game, not about what
+  // the reader asked for, so it is worked out once here rather than per solve.
+  for (const p of processes) p.window = temperatureWindow(graph, p);
+
+  return graph;
+}
+
+return { PROCESS_KINDS, KIND, DEFAULT_KINDS, operatingWindow, buildProcessGraph };
+})();
+
+const __mod_plan_state = (() => {
+/**
+ * The plan a reader is building, and how it survives a reload.
+ *
+ * Only the *question* is kept: what is wanted, what is to hand, and which
+ * choices have been overruled by hand. The graph, the amounts and the shopping
+ * list are all worked out from that, so nothing derived is ever written to the
+ * URL and no saved link can disagree with the solver that reads it.
+ *
+ * The explorer's own keys (`q`, `m`, `s`, `c`) are untouched and both modes'
+ * state is written on every change, so a link never quietly drops the half of
+ * it you were not looking at.
+ */
+const {DEFAULT_KINDS, PROCESS_KINDS} = __mod_plan_graph;
+
+/**
+ * List and pair separators.
+ *
+ * Both are percent-encoded by URLSearchParams, as material names with spaces
+ * and brackets already are. They are chosen to read back rather than to stay
+ * short: a hash nobody can decipher is no worse for being three bytes smaller.
+ */
+const SEP = '~';
+const PAIR = '>';
+const AMOUNT = '*';
+
+/** Stands for "no kinds at all", which an absent parameter cannot say. */
+const NO_KINDS = '-';
+
+const list = (s) => (s ? s.split(SEP).filter(Boolean) : []);
+
+/** A fresh, empty plan. */
+function emptyPlan() {
+  return {
+    targets: [],                  // [{name, amount}]
+    have: [],                     // names
+    pins: {},                     // material -> process id, or 'have'
+    include: [],                  // process ids added going forwards
+    runs: {},                     // process id -> batch size set by hand
+    excludeProcesses: [],
+    excludeMaterials: [],
+    credit: [],                   // byproducts agreed to be plumbed back
+    kinds: [...DEFAULT_KINDS],
+    avoidSideEffects: true,
+  };
+}
+
+/** Is there anything here to solve? */
+const isEmptyPlan = (p) =>
+  !p.targets.length && !p.have.length && !p.include.length;
+
+/* --------------------------------------------------------------- the URL */
+
+/** Read the plan out of the fragment's parameters. */
+function readPlan(params) {
+  const plan = emptyPlan();
+
+  plan.targets = list(params.get('t')).map((entry) => {
+    const at = entry.lastIndexOf(AMOUNT);
+    if (at <= 0) return { name: entry, amount: 1 };
+    const amount = Number(entry.slice(at + 1));
+    return Number.isFinite(amount) && amount > 0
+      ? { name: entry.slice(0, at), amount }
+      : { name: entry, amount: 1 };
+  });
+  plan.have = list(params.get('h'));
+  plan.include = list(params.get('i'));
+  plan.excludeProcesses = list(params.get('x'));
+  plan.excludeMaterials = list(params.get('xm'));
+  plan.credit = list(params.get('cr'));
+
+  for (const entry of list(params.get('pin'))) {
+    const at = entry.indexOf(PAIR);
+    if (at > 0) plan.pins[entry.slice(0, at)] = entry.slice(at + 1);
+  }
+  for (const entry of list(params.get('n'))) {
+    const at = entry.lastIndexOf(PAIR);
+    const n = Number(entry.slice(at + 1));
+    if (at > 0 && Number.isFinite(n) && n > 0) plan.runs[entry.slice(0, at)] = n;
+  }
+
+  // Written only when it differs from the default, so an old link that predates
+  // a new kind still means "the usual set" rather than "everything but that".
+  const kinds = params.get('k');
+  if (kinds === NO_KINDS) plan.kinds = [];
+  else if (kinds) {
+    const known = new Set(PROCESS_KINDS.map((k) => k.id));
+    plan.kinds = list(kinds).filter((k) => known.has(k));
+  }
+  if (params.get('ss') === '0') plan.avoidSideEffects = false;
+  return plan;
+}
+
+/** Write it back, omitting everything still at its default. */
+function writePlan(plan, params) {
+  const put = (key, value) => { if (value) params.set(key, value); };
+
+  put('t', plan.targets
+    .map((t) => (t.amount === 1 ? t.name : `${t.name}${AMOUNT}${t.amount}`)).join(SEP));
+  put('h', plan.have.join(SEP));
+  put('i', plan.include.join(SEP));
+  put('x', plan.excludeProcesses.join(SEP));
+  put('xm', plan.excludeMaterials.join(SEP));
+  put('cr', plan.credit.join(SEP));
+  put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
+  put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
+
+  const usual = plan.kinds.length === DEFAULT_KINDS.length &&
+                DEFAULT_KINDS.every((k) => plan.kinds.includes(k));
+  // `-` rather than nothing, because an absent `k` means the usual set and
+  // turning every kind off has to survive a reload as itself.
+  if (!usual) params.set('k', plan.kinds.join(SEP) || NO_KINDS);
+  if (!plan.avoidSideEffects) params.set('ss', '0');
+}
+
+/* ------------------------------------------------------------- editing it */
+
+/**
+ * Every change goes through one of these, and each returns a *new* plan rather
+ * than editing in place -- so re-solving is always "here is the plan, what does
+ * it come to" and never depends on what the last render happened to leave
+ * behind.
+ */
+const clone = (p) => ({
+  ...p,
+  targets: p.targets.map((t) => ({ ...t })),
+  have: [...p.have],
+  pins: { ...p.pins },
+  include: [...p.include],
+  runs: { ...p.runs },
+  excludeProcesses: [...p.excludeProcesses],
+  excludeMaterials: [...p.excludeMaterials],
+  credit: [...p.credit],
+  kinds: [...p.kinds],
+});
+
+const drop = (arr, value) => arr.filter((x) => x !== value);
+
+function addTarget(plan, name, amount = 1) {
+  const next = clone(plan);
+  const found = next.targets.find((t) => t.name === name);
+  if (found) found.amount += amount;
+  else next.targets.push({ name, amount });
+  // Asking to make something you had said you have is a change of mind, not a
+  // contradiction to be solved around.
+  next.have = drop(next.have, name);
+  return next;
+}
+
+function setTargetAmount(plan, name, amount) {
+  const next = clone(plan);
+  const found = next.targets.find((t) => t.name === name);
+  if (found) found.amount = Math.max(1, Math.round(amount) || 1);
+  return next;
+}
+
+function removeTarget(plan, name) {
+  const next = clone(plan);
+  next.targets = next.targets.filter((t) => t.name !== name);
+  return next;
+}
+
+function addHave(plan, name) {
+  const next = clone(plan);
+  if (!next.have.includes(name)) next.have.push(name);
+  next.targets = next.targets.filter((t) => t.name !== name);
+  // A pin saying how to make it is moot once you have it.
+  delete next.pins[name];
+  return next;
+}
+
+function removeHave(plan, name) {
+  const next = clone(plan);
+  next.have = drop(next.have, name);
+  return next;
+}
+
+/** Choose which process makes a material, or 'have' to stop expanding there. */
+function pin(plan, material, processId) {
+  const next = clone(plan);
+  if (processId) next.pins[material] = processId;
+  else delete next.pins[material];
+  return next;
+}
+
+/** Add a process going forwards, from something already in hand. */
+function includeProcess(plan, id, runs) {
+  const next = clone(plan);
+  if (!next.include.includes(id)) next.include.push(id);
+  if (runs) next.runs[id] = runs;
+  return next;
+}
+
+function toggle(plan, key, value) {
+  const next = clone(plan);
+  next[key] = next[key].includes(value) ? drop(next[key], value) : [...next[key], value];
+  return next;
+}
+
+function toggleKind(plan, id) {
+  const next = clone(plan);
+  next.kinds = next.kinds.includes(id) ? drop(next.kinds, id) : [...next.kinds, id];
+  return next;
+}
+
+function setOption(plan, key, value) {
+  return { ...clone(plan), [key]: value };
+}
+
+/**
+ * Seed a plan from a reaction the reader picked out in the explorer: make what
+ * it makes, and hold it to that reaction rather than letting the solver pick a
+ * different route to the same product.
+ */
+function planProcess(plan, process) {
+  let next = plan;
+  for (const { name } of process.produces) next = addTarget(next, name);
+  for (const { name } of process.produces) next = pin(next, name, process.id);
+  return next;
+}
+
+return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, includeProcess, toggle, toggleKind, setOption, planProcess };
+})();
+
+const __mod_plan_solve = (() => {
+/**
+ * Turning a wish into a plan.
+ *
+ * The reader states what they want, what they already have, and any choices
+ * they have made by hand. This works out the rest: which process makes each
+ * material, what that leaves them still needing, what it produces that nobody
+ * asked for, and how much of everything.
+ *
+ * Three passes, in order:
+ *
+ *   1. `costs`   -- a fixpoint over the whole hypergraph giving, for every
+ *                   material, the cheapest way to have one. Knuth's shortest
+ *                   hyperpath: the same relaxation as Dijkstra, generalised to
+ *                   edges with several tails.
+ *   2. `extract` -- follow the winning choice back from each target into a DAG,
+ *                   memoised, so a material two branches both need is one node.
+ *   3. `amounts` -- walk that DAG from the targets backwards, in exact
+ *                   fractions, working out how many times each process runs.
+ *
+ * Nothing here draws anything. The plan it returns is plain data, so the graph
+ * view and the table view are two readings of one object.
+ */
+const {KIND, DEFAULT_KINDS, operatingWindow} = __mod_plan_graph;
+const {heatingNeed, coolingNeed} = __mod_units;
+
+/* ------------------------------------------------------------- fractions */
+
+/**
+ * Exact rationals over BigInt.
+ *
+ * Run counts divide: one reaction makes 2 Molten Aluminum, so half a run makes
+ * one. Floating point would turn a chain of those into 0.30000000000000004 of a
+ * run and a bill of materials nobody trusts. Denominators are cleared at the
+ * end by scaling the whole plan to a whole-numbered batch.
+ */
+const gcd = (a, b) => { a = a < 0n ? -a : a; b = b < 0n ? -b : b;
+                        while (b) { const t = a % b; a = b; b = t; } return a; };
+
+function rat(n, d = 1n) {
+  n = BigInt(n); d = BigInt(d);
+  if (!d) throw new Error('rational with zero denominator');
+  if (d < 0n) { n = -n; d = -d; }
+  const g = gcd(n, d) || 1n;
+  return { n: n / g, d: d / g };
+}
+
+const R0 = rat(0);
+const radd = (a, b) => rat(a.n * b.d + b.n * a.d, a.d * b.d);
+const rsub = (a, b) => rat(a.n * b.d - b.n * a.d, a.d * b.d);
+const rmul = (a, b) => rat(a.n * b.n, a.d * b.d);
+const rdiv = (a, b) => rat(a.n * b.d, a.d * b.n);
+const rcmp = (a, b) => { const l = a.n * b.d, r = b.n * a.d;
+                                return l < r ? -1 : l > r ? 1 : 0; };
+const rmax = (a, b) => (rcmp(a, b) >= 0 ? a : b);
+const rnum = (a) => Number(a.n) / Number(a.d);
+const rzero = (a) => a.n === 0n;
+
+/** "3", or "5/2" when it will not divide. */
+function rstr(a) {
+  return a.d === 1n ? String(a.n) : `${a.n}/${a.d}`;
+}
+
+const lcm = (a, b) => (a / gcd(a, b)) * b;
+
+/* --------------------------------------------------------------- weights */
+
+/**
+ * What each thing costs the solver. These are preferences, not game numbers --
+ * they decide which of Steam's 108 producers a plan reaches for.
+ *
+ * The four `acquire*` weights are the price of simply *having* a material,
+ * against which making it competes, and they differ by what kind of thing it
+ * is because that is how the world hands it over:
+ *
+ * - `acquireWorld` -- deposits, terrain, plants. It is lying around outside.
+ * - `acquireRaw`   -- an ore or an ingredient nothing allowed can make. This is
+ *                     where a chain is meant to bottom out, so it is cheap and
+ *                     the material lands on the frontier as something to fetch.
+ * - `acquire`      -- something the reader could make. High, so the plan works
+ *                     backwards through it; this is the "how far back should
+ *                     this go" dial, and lowering it stops the plan earlier.
+ *
+ * A fourth case has no price at all: see `PLACED` below.
+ */
+const DEFAULT_WEIGHTS = {
+  acquire: 20,
+  acquireRaw: 1,
+  acquireWorld: 0.5,
+  catalyst: 1,            // the apparatus a catalysed reaction needs building
+  electrolysis: 1,
+  /**
+   * Doing it yourself. Placing a block is a real way to get one, but it is you
+   * standing there doing it, so an automatic route should always win: ice is
+   * water that froze, not a block you carried in, even though the game will
+   * take either.
+   */
+  byHand: 10,
+  /** Per side reaction no temperature can dodge: a mild nudge toward clean routes. */
+  sideEffect: 0.5,
+  perKelvin: 1 / 1200,     // a 2400 K furnace costs 2 more than a warm one
+  slowness: 0.5,           // per decade of the probability divisor
+  spark: 0.25,
+};
+
+/** Categories the world provides directly, wherever you find them. */
+const WORLDLY = new Set(['deposit', 'terrain', 'plant']);
+
+/**
+ * Anything else in the Static state exists only where it was placed.
+ *
+ * An Aluminum Wall is not a loose material. You cannot have a stack of them,
+ * pipe them into a machine or feed them to a reaction you are setting up
+ * somewhere else -- and yet the data really does record one evaporating into
+ * Molten Aluminum at 933 K, which made "melt a wall" the first plan this
+ * solver ever produced. It is disqualified for not being portable, not for
+ * being expensive: there is no price at which a wall becomes feedstock.
+ *
+ * It can still appear in a plan, as something a step *makes*, and a reaction
+ * that eats one in place -- "Hydrochloric Acid Dissolves Iron Wall", and 19
+ * others -- still works once the plan has built the wall.
+ */
+const placed = (graph, name) =>
+  graph.stateOf(name) === 'Static' && !WORLDLY.has(graph.categoryOf(name));
+
+/**
+ * The cost of running one process, before its inputs are counted.
+ *
+ * The `Probability` field is a divisor rather than a fraction -- reactions
+ * carry 4 to 10000, phase changes 2e6 to 6.4e7 -- so bigger means rarer. Its
+ * decade count is a decent stand-in for how long you will be waiting.
+ */
+function processCost(p, w = DEFAULT_WEIGHTS, avoid = true) {
+  let c = KIND.get(p.kind)?.weight ?? 1;
+  const cond = p.conditions || {};
+  // Priced on the range it can actually be run at: dodging a side reaction can
+  // mean running hotter than the game's stated minimum, and that is real work.
+  const { lo, unavoidable } = operatingWindow(p, avoid);
+  if (lo) c += Math.max(0, lo - 300) * w.perKelvin;
+  c += w.sideEffect * unavoidable.length;
+  if (cond.electrolysis) c += w.electrolysis;
+  if (cond.requiresSpark) c += w.spark;
+  if (cond.probability > 1) c += w.slowness * Math.log10(cond.probability);
+  if (cond.places) c += w.byHand;
+  c += w.catalyst * (cond.catalysts?.length || 0);
+  return c;
+}
+
+/* ------------------------------------------------------------------ spec */
+
+/** Fill in a partial plan specification. Everything downstream reads this. */
+function normalizeSpec(spec = {}) {
+  return {
+    targets: (spec.targets || []).map((t) =>
+      (typeof t === 'string' ? { name: t, amount: 1 } : { amount: 1, ...t })),
+    have: new Set(spec.have || []),
+    /** material -> process id, or 'have' to stop there. */
+    pins: new Map(Object.entries(spec.pins || {})),
+    /** processes the reader added going forwards, from what they have. */
+    include: new Set(spec.include || []),
+    excludeProcesses: new Set(spec.excludeProcesses || []),
+    excludeMaterials: new Set(spec.excludeMaterials || []),
+    kinds: new Set(spec.kinds || DEFAULT_KINDS),
+    /** byproducts the reader has agreed to plumb back in. */
+    credit: new Set(spec.credit || []),
+    /** minimum run counts for processes added by hand. */
+    runs: new Map(Object.entries(spec.runs || {})),
+    /**
+     * Narrow each step's temperature range to one that sets nothing else off.
+     *
+     * A chamber holds a reaction's inputs, outputs and catalyst together, and
+     * those are the ingredients of other reactions. "Acetic Acid + Water =
+     * Vinegar" is stated as ≥ 0 °C, but at 125 °C the water boils away, so the
+     * range you can actually run it at is 0-124 °C.
+     */
+    avoidSideEffects: spec.avoidSideEffects !== false,
+    /**
+     * Nothing may be acquired: the only materials to start from are the ones
+     * the reader says they have. This is the "what can I make with this"
+     * question, where being told to go and fetch something is not an answer.
+     */
+    closed: !!spec.closed,
+    weights: { ...DEFAULT_WEIGHTS, ...(spec.weights || {}) },
+  };
+}
+
+/* ------------------------------------------------------------------ costs */
+
+/**
+ * Cheapest way to have each material, as a fixpoint.
+ *
+ * Input costs are added without regard to their coefficients: this is a measure
+ * of how awkward a route is, not how much of it you need. Quantities come
+ * later, once the route is settled, and multiplying them in here would make the
+ * solver dodge any reaction that happens to be written in large numbers.
+ *
+ * The relaxation only ever lowers a cost, and every process costs something, so
+ * a material can never be cheapest via a chain that runs through itself -- the
+ * choices this leaves behind are acyclic by construction.
+ */
+function solveCosts(graph, spec) {
+  const { have, pins, kinds, excludeProcesses, excludeMaterials, weights } = spec;
+  const wanted = new Set(spec.targets.map((t) => t.name));
+
+  /**
+   * Placing a thing is a player's act, and a plan only asks for one when the
+   * reader is building something.
+   *
+   * No machine builds an Aluminum Wall; somebody puts it there. So a
+   * `BuildsInto` never appears in a plan for a loose material -- that would
+   * have a plan quietly instructing you to wall up your base to get at some
+   * iron -- but a plan whose *end product* is a placed thing is already a
+   * building job, and there placing is allowed throughout. It has to be:
+   * `Clay Wall into Ceramic Wall` reacts one wall into another, so reaching a
+   * Ceramic Wall that way means placing a Clay Wall first.
+   *
+   * This is narrower than "static things are player-made", which is not true:
+   * water freezes into ice, and Ruby Crystal Growth grows a crystal out of two
+   * molten metals. Those are automatic and stay. Placing also costs
+   * `weights.byHand`, so wherever an automatic route exists it still wins.
+   */
+  const building = spec.targets.some((t) => placed(graph, t.name));
+  const usable = (p) => (p.conditions.places
+    ? building || p.produces.some((o) => wanted.has(o.name))
+    : kinds.has(p.kind));
+
+  const allowed = graph.processes.filter((p) =>
+    usable(p) &&
+    !excludeProcesses.has(p.id) &&
+    !p.consumes.some((i) => excludeMaterials.has(i.name)) &&
+    !p.produces.some((o) => excludeMaterials.has(o.name)) &&
+    !p.requires.some((r) => excludeMaterials.has(r.name)));
+
+  /** What it costs to just have one, with no process involved. */
+  const acquire = (name) => {
+    if (have.has(name)) return 0;
+    if (excludeMaterials.has(name) || spec.closed) return Infinity;
+    if (WORLDLY.has(graph.categoryOf(name))) return weights.acquireWorld;
+    if (placed(graph, name)) return Infinity;
+    // `acquireRaw` means the world hands it over. A thing the player builds is
+    // never that, whichever form it is in: melting an Aluminum Wire back down
+    // for its aluminium is only sensible if you already had the wire.
+    return graph.isManufactured(name) || graph.producers(name).some((p) => kinds.has(p.kind))
+      ? weights.acquire : weights.acquireRaw;
+  };
+
+  /**
+   * `requires` is what a process needs standing by without spending it: a
+   * plant that puts out a new segment and stays where it is, and the 17
+   * reactions that hand a material straight back. Both are real materials the
+   * plan has to have, so they are priced as such -- unlike a catalyst, which
+   * is not a material dependency at all and never reaches this function.
+   */
+  const requireCost = (name) => cost.get(name) ?? Infinity;
+
+  // `made` is the cheapest way to *produce* a material and `cost` is the
+  // cheapest way to end up holding one, which is that or acquiring it. They are
+  // kept apart because a target is never satisfied by acquiring it: asking for
+  // Vinegar and being told to go and find Vinegar is not a plan.
+  const cost = new Map();
+  const made = new Map();
+  const choice = new Map();
+  for (const m of graph.db.materials) cost.set(m.name, acquire(m.name));
+  // A pin is the reader overruling the search, so it is applied as a fact
+  // before the relaxation rather than checked during it.
+  for (const [name, target] of pins) if (target === 'have') cost.set(name, 0);
+
+  const base = new Map(allowed.map((p) => [p.id, processCost(p, weights, spec.avoidSideEffects)]));
+
+  for (let round = 0; round < 200; round++) {
+    let changed = false;
+    for (const p of allowed) {
+      let c = base.get(p.id);
+      for (const { name } of p.consumes) c += cost.get(name) ?? Infinity;
+      for (const { name } of p.requires) c += requireCost(name);
+      if (!Number.isFinite(c)) continue;
+      for (const { name } of p.produces) {
+        if (pins.has(name)) continue;               // the reader already chose
+        if ((made.get(name) ?? Infinity) <= c) continue;
+        made.set(name, c);
+        choice.set(name, p.id);
+        if (c < (cost.get(name) ?? Infinity)) cost.set(name, c);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  // Honour the pins that name a process, whatever the search preferred.
+  for (const [name, target] of pins) {
+    if (target === 'have') { choice.delete(name); made.delete(name); continue; }
+    if (!graph.byId.has(target)) continue;
+    choice.set(name, target);
+    made.set(name, made.get(name) ?? 0);
+  }
+
+  return { cost, made, choice, acquire, allowed };
+}
+
+/* --------------------------------------------------------------- extract */
+
+/**
+ * Walk the winning choices back from the targets into a DAG.
+ *
+ * A material is a node once however many things need it, so the plan shows
+ * sharing rather than repeating a subtree. A material is a *leaf* when the
+ * reader has it, when acquiring it beats making it, or when nothing allowed can
+ * make it -- and every leaf that is not already in hand is the frontier, the
+ * list of things this plan still needs somebody to go and get.
+ *
+ * Following `choice` cannot loop, but a pin can point at a process that needs
+ * the very material it makes. That is caught here and broken by demoting the
+ * material to a leaf, which is reported rather than silently patched.
+ */
+function extract(graph, spec, solved) {
+  const { made, choice, acquire } = solved;
+  const wanted = new Set(spec.targets.map((t) => t.name));
+  const broken = new Set();
+  // Reported across attempts, not just the last one: by the time extraction
+  // succeeds, the loop it tripped over has been broken and is invisible.
+  const cycles = [];
+
+  for (let attempt = 0; ; attempt++) {
+    const materials = new Map();
+    const processes = new Map();
+    let looped = false;
+
+    const producerFor = (name) => {
+      if (broken.has(name)) return null;
+      const pin = spec.pins.get(name);
+      if (pin === 'have') return null;
+      if (pin) return graph.byId.get(pin) || null;
+      if (spec.have.has(name)) return null;
+      const id = choice.get(name);
+      if (!id) return null;
+      // Making it has to actually beat having it, or every plan drags a whole
+      // chemistry set behind materials the reader could simply pick up. A
+      // target is exempt: it is the thing being asked for.
+      if (wanted.has(name)) return graph.byId.get(id);
+      return (made.get(name) ?? Infinity) < acquire(name) ? graph.byId.get(id) : null;
+    };
+
+    const visitMaterial = (name, stack) => {
+      if (stack.has(name)) { cycles.push(name); broken.add(name); looped = true; return; }
+      if (materials.has(name)) return;
+      const node = { name, producer: null, reason: 'acquire', consumers: [], byproductOf: [] };
+      materials.set(name, node);
+      if (spec.have.has(name) || spec.pins.get(name) === 'have') { node.reason = 'have'; return; }
+      const p = producerFor(name);
+      if (!p) { node.reason = graph.producers(name).length ? 'acquire' : 'raw'; return; }
+      node.reason = 'produced';
+      node.producer = p.id;
+      visitProcess(p, new Set(stack).add(name));
+    };
+
+    const visitProcess = (p, stack) => {
+      if (processes.has(p.id)) return;
+      processes.set(p.id, p);
+      for (const { name } of p.consumes) visitMaterial(name, stack);
+      for (const { name } of p.requires) visitMaterial(name, stack);
+      for (const { name } of p.produces) {
+        if (!materials.has(name)) {
+          // A byproduct: it exists in the plan but nothing chose to make it.
+          materials.set(name, { name, producer: null, reason: 'byproduct',
+                                consumers: [], byproductOf: [] });
+        }
+      }
+    };
+
+    for (const t of spec.targets) visitMaterial(t.name, new Set());
+    for (const id of spec.include) {
+      const p = graph.byId.get(id);
+      if (p) visitProcess(p, new Set());
+    }
+
+    if (looped && attempt < 20) continue;
+
+    // Cross-link, now that every node exists.
+    for (const p of processes.values()) {
+      for (const { name } of [...p.consumes, ...p.requires]) materials.get(name)?.consumers.push(p.id);
+      for (const { name } of p.produces) {
+        const node = materials.get(name);
+        if (node && node.producer !== p.id) node.byproductOf.push(p.id);
+      }
+    }
+
+    return { materials, processes, cycles };
+  }
+}
+
+/* --------------------------------------------------------------- ordering */
+
+/**
+ * Topological order over the plan: inputs, then the process, then its outputs.
+ *
+ * Only the edges the amounts pass follows are used -- a material's chosen
+ * producer, and the inputs each process eats. Byproduct edges are deliberately
+ * left out: crediting a byproduct back into the chain that produced it is a
+ * genuine circularity, and it is handled by iterating rather than by ordering.
+ */
+function topoOrder(dag) {
+  const succ = new Map();
+  const indeg = new Map();
+  const nodes = [...[...dag.materials.keys()].map((n) => `m:${n}`), ...dag.processes.keys()];
+  for (const id of nodes) { succ.set(id, []); indeg.set(id, 0); }
+  const edge = (a, b) => { succ.get(a).push(b); indeg.set(b, indeg.get(b) + 1); };
+
+  for (const p of dag.processes.values()) {
+    for (const { name } of [...p.consumes, ...p.requires]) {
+      if (dag.materials.has(name)) edge(`m:${name}`, p.id);
+    }
+  }
+  for (const m of dag.materials.values()) {
+    if (m.producer && dag.processes.has(m.producer)) edge(m.producer, `m:${m.name}`);
+  }
+
+  const queue = nodes.filter((id) => !indeg.get(id));
+  const order = [];
+  while (queue.length) {
+    const id = queue.shift();
+    order.push(id);
+    for (const next of succ.get(id)) {
+      indeg.set(next, indeg.get(next) - 1);
+      if (!indeg.get(next)) queue.push(next);
+    }
+  }
+  const placed = new Set(order);
+  // Anything left has an edge into it that never cleared: a loop the reader's
+  // pins built. Ordering the rest is still useful, so they are reported, not
+  // thrown, and appended so the amounts pass still sees them.
+  const stuck = nodes.filter((id) => !placed.has(id));
+  return { order: [...order, ...stuck], stuck };
+}
+
+/* ---------------------------------------------------------------- amounts */
+
+/**
+ * How many times each process runs, and how much of each material moves.
+ *
+ * One pass from the targets backwards: by the time the walk reaches a process,
+ * everything downstream of it has already said how much it wants, so the run
+ * count is simply the largest demand any of its outputs makes divided by how
+ * many that run yields.
+ *
+ * Byproduct credit is the exception. Letting a spare output cover demand
+ * elsewhere is circular whenever that demand is upstream of the process making
+ * it, so the whole pass is repeated with the previous round's surplus fed in,
+ * and stops when the run counts settle. `converged: false` says they did not,
+ * which is a real answer -- some loops have no fixed batch size.
+ */
+function amounts(dag, spec, order) {
+  const useCredit = spec.credit.size > 0;
+  let credit = new Map();
+  let runs = new Map(), demand = new Map(), supply = new Map();
+  let converged = true;
+
+  for (let round = 0; round < (useCredit ? 12 : 1); round++) {
+    runs = new Map();
+    demand = new Map();
+    supply = new Map();
+
+    for (const t of spec.targets) {
+      demand.set(t.name, radd(demand.get(t.name) || R0, rat(t.amount)));
+    }
+
+    for (const id of [...order].reverse()) {
+      if (id.startsWith('m:')) continue;
+      const p = dag.processes.get(id);
+      if (!p) continue;
+
+      // What this process still has to cover, after any credited surplus.
+      let need = R0;
+      for (const { name, count } of p.produces) {
+        const want = rsub(demand.get(name) || R0, credit.get(name) || R0);
+        if (rcmp(want, R0) <= 0) continue;
+        need = rmax(need, rdiv(want, rat(count)));
+      }
+      const floor = spec.include.has(p.id) ? rat(spec.runs.get(p.id) ?? 1) : R0;
+      const n = rmax(need, floor);
+      runs.set(p.id, n);
+      if (rzero(n)) continue;
+
+      for (const { name, count } of p.consumes) {
+        demand.set(name, radd(demand.get(name) || R0, rmul(n, rat(count))));
+      }
+      // Apparatus is needed once, however long the process runs.
+      for (const { name, count } of p.requires) {
+        demand.set(name, rmax(demand.get(name) || R0, rat(count)));
+      }
+      for (const { name, count } of p.produces) {
+        supply.set(name, radd(supply.get(name) || R0, rmul(n, rat(count))));
+      }
+    }
+
+    if (!useCredit) break;
+    const next = new Map();
+    for (const name of spec.credit) {
+      const node = dag.materials.get(name);
+      if (!node) continue;
+      // Only surplus from processes that are not this material's own producer
+      // can offset its demand; its producer's output is the demand being met.
+      let spare = R0;
+      for (const id of node.byproductOf) {
+        const p = dag.processes.get(id);
+        const n = runs.get(id) || R0;
+        for (const { name: o, count } of p.produces) {
+          if (o === name) spare = radd(spare, rmul(n, rat(count)));
+        }
+      }
+      next.set(name, spare);
+    }
+    const same = next.size === credit.size &&
+                 [...next].every(([k, v]) => credit.has(k) && rcmp(credit.get(k), v) === 0);
+    credit = next;
+    if (same) break;
+    converged = round < 11;
+  }
+
+  return { runs, demand, supply, credit, converged };
+}
+
+/** The smallest whole-number batch: clear every denominator at once. */
+function batchScale(runs) {
+  let l = 1n;
+  for (const r of runs.values()) if (!rzero(r)) l = lcm(l, r.d);
+  return rat(l);
+}
+
+/* ------------------------------------------------------------------- plan */
+
+/**
+ * Everything the views need, as data.
+ *
+ * `frontier` is the reader's shopping list and `byproducts` is what the plan
+ * leaves lying around; between them they are most of what there is to decide.
+ * `apparatus` is the answer to "what do I have to build before any of this
+ * works", gathered from conditions that are otherwise scattered over every
+ * process in the plan.
+ */
+function solvePlan(graph, rawSpec) {
+  const spec = normalizeSpec(rawSpec);
+  const solved = solveCosts(graph, spec);
+  const dag = extract(graph, spec, solved);
+  const { order, stuck } = topoOrder(dag);
+  const scaled = amounts(dag, spec, order);
+  const scale = batchScale(scaled.runs);
+
+  const at = (map, name) => rmul(map.get(name) || R0, scale);
+  const targets = new Set(spec.targets.map((t) => t.name));
+
+  const frontier = [];
+  const byproducts = [];
+  for (const node of dag.materials.values()) {
+    const need = at(scaled.demand, node.name);
+    const made = at(scaled.supply, node.name);
+    if (node.reason === 'acquire' || node.reason === 'raw' || node.reason === 'have') {
+      if (node.reason !== 'have' && rcmp(need, R0) > 0) {
+        frontier.push({
+          name: node.name,
+          amount: need,
+          raw: node.reason === 'raw',
+          // How the world hands this over, for the kinds the plan will not use.
+          routes: graph.producers(node.name)
+            .filter((p) => !spec.kinds.has(p.kind))
+            .map((p) => ({ id: p.id, kind: p.kind, label: p.label })),
+          alternatives: graph.producers(node.name).filter((p) => spec.kinds.has(p.kind)).length,
+        });
+      }
+    }
+    const spare = rsub(made, need);
+    if (rcmp(spare, R0) > 0 && !targets.has(node.name)) {
+      byproducts.push({ name: node.name, amount: spare,
+                        from: node.producer ? [node.producer, ...node.byproductOf]
+                                            : node.byproductOf,
+                        credited: spec.credit.has(node.name) });
+    }
+  }
+  frontier.sort((a, b) => a.name.localeCompare(b.name));
+  byproducts.sort((a, b) => a.name.localeCompare(b.name));
+
+  const apparatus = { /**
+                       * The most demanding step in each direction -- and they
+                       * are rarely the same step. A plan that smelts iron and
+                       * ferments beer needs a furnace *and* a cold room, not
+                       * one chamber somehow at both temperatures.
+                       */
+                      hottestFloor: 0, lowestCeiling: null,
+                      /** 'always' | 'sometimes' | 'none' -- how much kit that implies. */
+                      heating: 'none', cooling: 'none',
+                      electrolysis: false, spark: false, byHand: false,
+                      /** A range was cut down to dodge something, or could not be. */
+                      narrowedBySideEffects: false, sideEffects: false,
+                      catalysts: new Map(), kinds: new Set(), slowest: null,
+                      /** Some step's yield is an average over a random draw. */
+                      stochastic: false };
+  for (const p of dag.processes.values()) {
+    if (rzero(scaled.runs.get(p.id) || R0) && !spec.include.has(p.id)) continue;
+    apparatus.kinds.add(p.kind);
+    const c = p.conditions || {};
+    const w = operatingWindow(p, spec.avoidSideEffects);
+    if (w.lo) apparatus.hottestFloor = Math.max(apparatus.hottestFloor, w.lo);
+    if (Number.isFinite(w.hi)) {
+      apparatus.lowestCeiling = Math.min(apparatus.lowestCeiling ?? Infinity, w.hi);
+    }
+    if (w.narrowed) apparatus.narrowedBySideEffects = true;
+    if (w.unavoidable.length) apparatus.sideEffects = true;
+    if (c.electrolysis) apparatus.electrolysis = true;
+    if (c.requiresSpark) apparatus.spark = true;
+    if (c.places) apparatus.byHand = true;
+    for (const { name, count } of c.catalysts || []) {
+      apparatus.catalysts.set(name, Math.max(apparatus.catalysts.get(name) || 0, count));
+    }
+    if (c.stochastic) apparatus.stochastic = true;
+    if (c.probability > (apparatus.slowest?.conditions?.probability ?? 0)) apparatus.slowest = p;
+  }
+  apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
+  apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
+
+  const steps = [...dag.processes.values()]
+    .filter((p) => !rzero(scaled.runs.get(p.id) || R0))
+    .map((p) => ({ process: p, runs: rmul(scaled.runs.get(p.id), scale),
+                   window: operatingWindow(p, spec.avoidSideEffects) }));
+  // Presentation order is the order you would actually do them in.
+  const rank = new Map(order.map((id, i) => [id, i]));
+  steps.sort((a, b) => (rank.get(a.process.id) ?? 0) - (rank.get(b.process.id) ?? 0));
+
+  return {
+    spec, graph, dag, order, stuck,
+    cost: solved.cost,
+    choice: solved.choice,
+    scale,
+    runs: scaled.runs,
+    demand: scaled.demand,
+    supply: scaled.supply,
+    converged: scaled.converged,
+    cycles: dag.cycles,
+    steps,
+    /**
+     * Every side reaction the plan dodges, and every one it cannot.
+     *
+     * `inPlan` marks the ones the reader actually wants -- somewhere else.
+     * Making Wine at 0 °C cannot help also turning it into Vinegar, which is
+     * a problem in this chamber and the whole point in the next one.
+     */
+    sideEffects: steps.flatMap(({ process, window }) => [
+      ...window.avoided.map((e) => ({ ...e, step: process.id, avoided: true,
+                                      inPlan: dag.processes.has(e.id) })),
+      ...window.unavoidable.map((e) => ({ ...e, step: process.id, avoided: false,
+                                          inPlan: dag.processes.has(e.id) })),
+    ]),
+    frontier,
+    byproducts,
+    apparatus,
+    unreachable: spec.targets.filter((t) => {
+      const node = dag.materials.get(t.name);
+      return !node || (node.reason !== 'produced' && node.reason !== 'have');
+    }).map((t) => t.name),
+    /** Amounts, already scaled to the whole-number batch. */
+    amountOf: (name) => at(scaled.demand, name),
+    madeOf: (name) => at(scaled.supply, name),
+    runsOf: (id) => rmul(scaled.runs.get(id) || R0, scale),
+  };
+}
+
+/**
+ * Everything the reader could make from what they have, cheapest first.
+ *
+ * This is the other way into a plan: rather than naming an output and working
+ * back, name the inputs and see where they lead. It is the same fixpoint --
+ * only the question asked of it differs.
+ */
+function reachableFrom(graph, rawSpec) {
+  // Closed world: fetching something is not an answer to "what can I make from
+  // this". Every route has to start at what the reader actually has.
+  const spec = normalizeSpec({ ...rawSpec, closed: true });
+  const { made, choice } = solveCosts(graph, spec);
+  const out = [];
+  for (const [name, c] of made) {
+    if (!Number.isFinite(c) || spec.have.has(name)) continue;
+    out.push({ name, cost: c, via: choice.get(name) });
+  }
+  out.sort((a, b) => a.cost - b.cost || a.name.localeCompare(b.name));
+  return out;
+}
+
+return { rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rnum, rzero, rstr, DEFAULT_WEIGHTS, processCost, normalizeSpec, solveCosts, extract, topoOrder, amounts, batchScale, solvePlan, reachableFrom };
+})();
+
+const __mod_plan_view = (() => {
+/**
+ * The plan mode's pane: goals at the top, the steps as a table, and everything
+ * still undecided down the side.
+ *
+ * This reads a solved plan and writes back a *specification* -- a target, a
+ * pin, an exclusion -- never a graph. Every control edits the question and the
+ * whole thing is solved again, which is why nothing here has to know how to
+ * keep a rendered graph consistent with an edit.
+ *
+ * The table is the first of the plan's views and the plainest. It is also the
+ * one that reads aloud, sorts, and copies into a note, so it stays whatever
+ * else is drawn beside it later.
+ */
+const {search} = __mod_search;
+const {solvePlan, rstr, rcmp, R0} = __mod_plan_solve;
+const {KIND, PROCESS_KINDS} = __mod_plan_graph;
+const {formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
+const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, setOption} = __mod_plan_state;
+
+/** Everything the pane needs from the shell, handed over once at boot. */
+let ctx = null;
+
+/** The current question, and the answer last worked out from it. */
+let plan = emptyPlan();
+let solved = null;
+
+const $ = (sel) => document.querySelector(sel);
+
+function getPlan() { return plan; }
+function planIsEmpty() { return isEmptyPlan(plan); }
+
+/** Replace the plan wholesale -- from the URL, or from the explorer's buttons. */
+function setPlan(next, { save = true } = {}) {
+  plan = next;
+  render();
+  if (save) ctx.onChange();
+}
+
+/** Edit it through one of `plan-state`'s helpers and re-solve. */
+const edit = (fn, ...args) => setPlan(fn(plan, ...args));
+
+/* ----------------------------------------------------------------- pieces */
+
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+};
+
+function button(cls, label, title, onClick) {
+  const b = el('button', cls, label);
+  if (title) b.title = title;
+  b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onClick(); });
+  return b;
+}
+
+/** A material, as a link into the explorer. */
+function matLink(name) {
+  const m = ctx.db.byName.get(name);
+  const a = el('a', 'matlink' + (m ? '' : ' dangling'), m ? m.display : name);
+  a.href = '#';
+  a.title = m ? `Look up ${m.display}` : `${name} is named but never defined`;
+  if (m) a.addEventListener('click', (e) => { e.preventDefault(); ctx.openInExplorer(m); });
+  return a;
+}
+
+/** `3 Carbon + 1 Alumina`, with the counts the game writes. */
+function side(parts) {
+  const frag = document.createDocumentFragment();
+  parts.forEach(({ name, count }, i) => {
+    if (i) frag.append(' + ');
+    if (count !== 1) frag.append(el('span', 'coef', `${count} `));
+    frag.append(matLink(name));
+  });
+  return frag;
+}
+
+/** An amount, which is exact and may be a fraction. */
+const amount = (r) => rstr(r);
+
+/**
+ * A material picker: type, and pick one of the matches.
+ *
+ * It runs the explorer's own query parser, so `el:Au`, `state:gas` and a plain
+ * name all work here too and there is only one search grammar to learn.
+ */
+function picker({ placeholder, actions }) {
+  const box = el('div', 'picker');
+  const input = el('input', 'picker-input');
+  input.type = 'search';
+  input.placeholder = placeholder;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  const list = el('ul', 'picker-hits');
+  box.append(input, list);
+
+  // Kept rather than looked up again, so Enter works without a DOM query.
+  let firstAction = null;
+  const clear = () => { list.textContent = ''; firstAction = null; };
+  const run = () => {
+    clear();
+    const q = input.value.trim();
+    if (!q) return;
+    for (const { m } of search(ctx.db, q).results.slice(0, 8)) {
+      const li = el('li', 'picker-hit');
+      const name = el('span', 'picker-name');
+      name.append(ctx.swatch(m), el('span', 'picker-label', m.display));
+      li.append(name);
+      const acts = el('span', 'picker-acts');
+      for (const [label, hint, run2] of actions) {
+        const b = button('ghost small', label, hint, () => {
+          input.value = '';
+          clear();
+          run2(m.name);
+        });
+        firstAction = firstAction || b;
+        acts.append(b);
+      }
+      li.append(acts);
+      list.append(li);
+    }
+  };
+  input.addEventListener('input', run);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { input.value = ''; clear(); }
+    // Enter takes the first action on the first match, which is the one people
+    // mean when they have typed a name in full and stopped.
+    if (e.key === 'Enter' && firstAction) firstAction.click();
+  });
+  return box;
+}
+
+/* ------------------------------------------------------------------ goals */
+
+function goalChip(cls, label, onRemove, extra) {
+  const chip = el('span', `goal ${cls}`);
+  if (extra) chip.append(extra);
+  chip.append(label);
+  chip.append(button('goal-x', '×', 'Remove', onRemove));
+  return chip;
+}
+
+function renderGoals() {
+  const box = $('#plan-goals');
+  box.textContent = '';
+
+  const wants = el('div', 'goal-row');
+  wants.append(el('span', 'goal-head', 'Make'));
+  for (const t of plan.targets) {
+    const n = el('input', 'goal-amount');
+    n.type = 'number';
+    n.min = '1';
+    n.value = String(t.amount);
+    n.title = `How many ${t.name}`;
+    n.addEventListener('change', () => edit(setTargetAmount, t.name, Number(n.value)));
+    wants.append(goalChip('goal-target', '', () => edit(removeTarget, t.name),
+                          (() => { const f = document.createDocumentFragment();
+                                   f.append(n, matLink(t.name)); return f; })()));
+  }
+  if (!plan.targets.length) wants.append(el('span', 'muted', 'nothing yet'));
+  box.append(wants);
+
+  const haves = el('div', 'goal-row');
+  haves.append(el('span', 'goal-head', 'Have'));
+  for (const name of plan.have) {
+    haves.append(goalChip('goal-have', '', () => edit(removeHave, name), matLink(name)));
+  }
+  if (!plan.have.length) haves.append(el('span', 'muted', 'nothing yet'));
+  box.append(haves);
+}
+
+/* ------------------------------------------------------------------ steps */
+
+/** The conditions a step runs under, as the game states them. */
+function conditions(step) {
+  const c = step.process.conditions;
+  const w = step.window;
+  const out = el('div', 'rx-cond');
+  const bits = [];
+
+  const band = formatTemperatureRange(w.lo || null, Number.isFinite(w.hi) ? w.hi : null);
+  if (band) bits.push(band);
+  if (c.changeInTemperature) bits.push(formatTemperatureDelta(c.changeInTemperature));
+  if (c.electrolysis) bits.push('electrolysis');
+  if (c.requiresSpark) bits.push('needs a spark');
+  if (c.places) bits.push('you place it');
+  if (c.medium) bits.push(`in ${c.medium}`);
+  if (c.mode) bits.push(c.mode);
+  for (const { name, count } of c.catalysts || []) {
+    const span = el('span', 'rx-catalyst');
+    span.append('needs ', count !== 1 ? `${count} ` : '', matLink(name));
+    out.append(span);
+  }
+  if (bits.length) out.append(el('span', 'rx-bits', bits.join('  ·  ')));
+
+  if (c.stochastic) {
+    const odds = el('span', 'rx-odds');
+    odds.title = 'One outcome per go, drawn at random. The amounts are what it averages.';
+    odds.append(c.outcomes.map((o) => `${o.name} ${(o.chance * 100).toFixed(
+      o.chance < 0.01 ? 2 : 0)}%`).join(' / '));
+    out.append(odds);
+  }
+  for (const a of w.avoided) {
+    out.append(el('span', 'rx-avoids', `avoids ${a.label}`));
+  }
+  for (const u of w.unavoidable) {
+    const also = el('span', 'rx-also', `also runs ${u.label}`);
+    if (solved.dag.processes.has(u.id)) {
+      also.classList.add('wanted');
+      also.title = 'Which this plan wants anyway, elsewhere';
+    }
+    out.append(also);
+  }
+  return out;
+}
+
+function renderSteps() {
+  const box = $('#plan-steps');
+  box.textContent = '';
+
+  if (solved.unreachable.length) {
+    const warn = el('div', 'plan-warn');
+    warn.append('Nothing allowed can make ');
+    solved.unreachable.forEach((n, i) => {
+      if (i) warn.append(', ');
+      warn.append(matLink(n));
+    });
+    warn.append('. Try switching on another kind of process under Options.');
+    box.append(warn);
+  }
+  if (solved.cycles.length) {
+    box.append(el('div', 'plan-warn',
+      `A choice loops back on itself at ${solved.cycles.join(', ')}, so it was left open.`));
+  }
+
+  if (!solved.steps.length) {
+    box.append(el('p', 'muted', isEmptyPlan(plan)
+      ? 'Add something to make.'
+      : 'Nothing to do yet — everything asked for is already in hand.'));
+    return;
+  }
+
+  const head = el('div', 'plan-steps-head');
+  head.append(el('h2', null, `${solved.steps.length} step${solved.steps.length === 1 ? '' : 's'}`));
+  if (rcmp(solved.scale, R0) > 0 && solved.scale.n !== 1n) {
+    head.append(el('span', 'muted', `scaled ×${rstr(solved.scale)} to come out whole`));
+  }
+  box.append(head);
+
+  const table = el('table', 'plan-table');
+  const tbody = el('tbody');
+  for (const step of solved.steps) {
+    const tr = el('tr', 'plan-step');
+    const kind = KIND.get(step.process.kind);
+
+    const runs = el('td', 'step-runs');
+    runs.append(el('span', 'runs', `${amount(step.runs)}×`));
+    tr.append(runs);
+
+    const glyph = el('td', 'step-kind', kind?.glyph || '');
+    glyph.title = kind?.label || step.process.kind;
+    tr.append(glyph);
+
+    const what = el('td', 'step-what');
+    const eq = el('div', 'rx-eq');
+    eq.append(side(step.process.inputs), el('span', 'arrow', '→'), side(step.process.outputs));
+    what.append(eq);
+    what.append(el('div', 'step-name', step.process.label));
+    what.append(conditions(step));
+    tr.append(what);
+
+    const acts = el('td', 'step-acts');
+    acts.append(button('ghost small', 'Not this', 'Keep this process out of the plan',
+                       () => edit(toggle, 'excludeProcesses', step.process.id)));
+    tr.append(acts);
+
+    tbody.append(tr);
+  }
+  table.append(tbody);
+  box.append(table);
+}
+
+/* ------------------------------------------------------------------- side */
+
+/** Which processes could make this, so the reader can take a different one. */
+function producerChoice(name) {
+  const options = ctx.graph.producers(name).filter((p) => plan.kinds.includes(p.kind));
+  if (!options.length) return null;
+  const sel = el('select', 'route');
+  const none = el('option', null, options.length === 1 ? 'make it' : `${options.length} ways to make it`);
+  none.value = '';
+  sel.append(none);
+  for (const p of options) {
+    const o = el('option', null, `${KIND.get(p.kind)?.glyph || ''} ${p.label}`);
+    o.value = p.id;
+    if (plan.pins[name] === p.id) o.selected = true;
+    sel.append(o);
+  }
+  sel.addEventListener('change', () => {
+    // An empty choice still means "make it": pin the one the solver would pick.
+    edit(pin, name, sel.value || solved.choice.get(name) || options[0].id);
+  });
+  return sel;
+}
+
+function renderSide() {
+  const box = $('#plan-side');
+  box.textContent = '';
+
+  // --- what you still have to go and get ---------------------------------
+  const front = el('section', 'plan-panel');
+  front.append(el('h2', null, solved.frontier.length
+    ? `${solved.frontier.length} to fetch` : 'Nothing left to fetch'));
+  if (solved.frontier.length) {
+    const ul = el('ul', 'plan-list');
+    for (const f of solved.frontier) {
+      const li = el('li', 'plan-item');
+      const line = el('div', 'plan-item-main');
+      line.append(el('span', 'amount', amount(f.amount)), ' ', matLink(f.name));
+      li.append(line);
+      // How the world hands this over, for the kinds this plan will not use.
+      if (f.routes.length) {
+        const how = el('div', 'plan-how');
+        const kind = KIND.get(f.routes[0].kind);
+        how.append(`${kind?.glyph || ''} ${f.routes[0].label}`);
+        li.append(how);
+      } else if (f.raw) {
+        li.append(el('div', 'plan-how', 'found in the world'));
+      }
+      const acts = el('div', 'plan-item-acts');
+      acts.append(button('ghost small', 'I have it', 'Stop planning for this one',
+                         () => edit(addHave, f.name)));
+      const route = producerChoice(f.name);
+      if (route) acts.append(route);
+      li.append(acts);
+      ul.append(li);
+    }
+    front.append(ul);
+  }
+  box.append(front);
+
+  // --- what it leaves lying around ---------------------------------------
+  if (solved.byproducts.length) {
+    const by = el('section', 'plan-panel');
+    by.append(el('h2', null, `${solved.byproducts.length} left over`));
+    const ul = el('ul', 'plan-list');
+    for (const b of solved.byproducts) {
+      const li = el('li', 'plan-item');
+      const line = el('div', 'plan-item-main');
+      line.append(el('span', 'amount', amount(b.amount)), ' ', matLink(b.name));
+      li.append(line);
+      const acts = el('div', 'plan-item-acts');
+      acts.append(button('ghost small', 'I want it', 'Count it as something the plan is for',
+                         () => edit(addTarget, b.name)));
+      const feed = button('ghost small' + (b.credited ? ' on' : ''), 'Feed it back',
+                          'Let this cover demand for the same material elsewhere',
+                          () => edit(toggle, 'credit', b.name));
+      feed.setAttribute('aria-pressed', String(!!b.credited));
+      acts.append(feed);
+      li.append(acts);
+      ul.append(li);
+    }
+    by.append(ul);
+    if (!solved.converged) {
+      by.append(el('p', 'muted',
+        'Feeding these back does not settle on a batch size, so the amounts are approximate.'));
+    }
+    box.append(by);
+  }
+
+  // --- what you have to build before any of it works ----------------------
+  const a = solved.apparatus;
+  const kit = [];
+  if (a.hottestFloor) {
+    kit.push({ always: 'A furnace reaching ', sometimes: 'Holding ',
+               none: 'Working at ' }[a.heating] + formatTemperature(a.hottestFloor));
+  }
+  if (a.lowestCeiling) {
+    kit.push({ always: 'Cooling below ', sometimes: 'A chamber kept under ',
+               none: 'A chamber under ' }[a.cooling] + formatTemperature(a.lowestCeiling));
+  }
+  if (a.electrolysis) kit.push('Electrolysis');
+  if (a.spark) kit.push('A spark');
+  if (a.byHand) kit.push('Placing it yourself');
+  for (const [name, count] of a.catalysts) kit.push(`${count > 1 ? count + ' ' : ''}${name}`);
+  if (kit.length) {
+    const app = el('section', 'plan-panel');
+    app.append(el('h2', null, 'What it takes'));
+    const ul = el('ul', 'plan-list');
+    for (const line of kit) ul.append(el('li', 'plan-kit', line));
+    app.append(ul);
+    if (a.hottestFloor && a.lowestCeiling && a.hottestFloor > a.lowestCeiling) {
+      app.append(el('p', 'muted',
+        'The hottest and coldest of those are different steps, so they are different chambers.'));
+    }
+    box.append(app);
+  }
+}
+
+/* ----------------------------------------------------------------- options */
+
+/** Built once, then only ticked and unticked. Kept by hand rather than found
+ *  again in the DOM, so this works against the render test's shim too. */
+const kindBoxes = new Map();
+
+function renderOptions() {
+  const box = $('#plan-kinds');
+  if (!kindBoxes.size) {
+    for (const k of PROCESS_KINDS) {
+      const label = el('label', 'plan-kind');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', () => edit(toggleKind, k.id));
+      label.append(cb, el('span', 'kind-glyph', k.glyph), el('span', null, k.label));
+      box.append(label);
+      kindBoxes.set(k.id, cb);
+    }
+  }
+  for (const [id, cb] of kindBoxes) cb.checked = plan.kinds.includes(id);
+  $('#plan-avoid').checked = plan.avoidSideEffects;
+}
+
+/* ------------------------------------------------------------------ render */
+
+function render() {
+  const empty = isEmptyPlan(plan);
+  $('#plan-empty').hidden = !empty;
+  $('#plan-work').hidden = empty;
+  $('#toggle-plan-options').hidden = false;
+  renderOptions();
+  if (empty) { solved = null; return; }
+
+  solved = solvePlan(ctx.graph, {
+    targets: plan.targets,
+    have: plan.have,
+    pins: plan.pins,
+    include: plan.include,
+    runs: plan.runs,
+    excludeProcesses: plan.excludeProcesses,
+    excludeMaterials: plan.excludeMaterials,
+    credit: plan.credit,
+    kinds: plan.kinds,
+    avoidSideEffects: plan.avoidSideEffects,
+  });
+
+  renderGoals();
+  renderSteps();
+  renderSide();
+}
+
+/** The solved plan, for the console and the tests. */
+const lastSolved = () => solved;
+
+/* -------------------------------------------------------------------- boot */
+
+function initPlan(context) {
+  ctx = context;
+
+  $('#plan-want').append(picker({
+    placeholder: 'A material to make',
+    actions: [['Make it', 'Plan a way to produce this', (n) => edit(addTarget, n)]],
+  }));
+  $('#plan-got').append(picker({
+    placeholder: 'A material you have',
+    actions: [['I have it', 'Treat this as available', (n) => edit(addHave, n)]],
+  }));
+  $('#plan-bar').append(picker({
+    placeholder: 'Add a material',
+    actions: [['Make', 'Add as something to produce', (n) => edit(addTarget, n)],
+              ['Have', 'Add as something available', (n) => edit(addHave, n)]],
+  }));
+
+  $('#plan-avoid').addEventListener('change', (e) =>
+    edit(setOption, 'avoidSideEffects', e.target.checked));
+  $('#toggle-plan-options').addEventListener('click', () => {
+    const open = $('#plan-options').hidden;
+    $('#plan-options').hidden = !open;
+    $('#toggle-plan-options').setAttribute('aria-pressed', String(open));
+  });
+}
+
+return { getPlan, planIsEmpty, setPlan, render, lastSolved, initPlan };
+})();
+
 const __mod_main = (() => {
 /** Search UI: query box, element filter, result list, material detail. */
 const {loadData, REFERENCE_ORDER, referencePhrase} = __mod_data;
@@ -2661,6 +4947,9 @@ const {patternStrip, recipeFor} = __mod_pattern_render;
 const {search, parseQuery, FIELDS, TERM_RE} = __mod_search;
 const {formulaHtml} = __mod_formula;
 const {formatTemperature, formatTemperatureDelta, formatTemperatureRange} = __mod_units;
+const {buildProcessGraph} = __mod_plan_graph;
+const {readPlan, writePlan, addTarget, addHave, planProcess, isEmptyPlan} = __mod_plan_state;
+const {initPlan, setPlan, getPlan, render: renderPlan} = __mod_plan_view;
 
 // Material icons are drawn at this many pixels and scaled up by that factor,
 // so they stay crisp. The CSS reads the same two numbers.
@@ -2682,12 +4971,55 @@ const esc = (s) => String(s).replace(/[&<>"]/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let db = null;
+let graph = null;
 let hits = [];
 let selected = null;
 
 /* ------------------------------------------------------------------ query */
 
-const state = { q: '', sel: null, sort: 'name' };
+const state = { q: '', sel: null, sort: 'name', mode: 'explore' };
+
+/**
+ * Both modes stay in the document, and switching only changes which is shown.
+ *
+ * Nothing is rebuilt, so a round trip costs nothing and loses nothing: the
+ * result list keeps its scroll offset and its expanded groups, and the plan
+ * keeps everything about itself. That matters because the two are meant to be
+ * used together -- looking a material up mid-plan should not be a decision.
+ */
+function setMode(mode, { save = true } = {}) {
+  state.mode = mode === 'plan' ? 'plan' : 'explore';
+  const planning = state.mode === 'plan';
+  document.body.dataset.mode = state.mode;
+  $('#explore-main').hidden = planning;
+  $('#plan-main').hidden = !planning;
+  $('#explore-bar').hidden = planning;
+  $('#plan-bar').hidden = !planning;
+  $('#toggle-plan-options').hidden = !planning;
+  if (planning) { $('#ptable').hidden = true; $('#help').hidden = true; }
+  $('#toggle-table').hidden = planning;
+  $('#toggle-help').hidden = planning;
+  refreshPlanChrome();
+  for (const [id, name] of [['#mode-explore', 'explore'], ['#mode-plan', 'plan']]) {
+    $(id).setAttribute('aria-selected', String(state.mode === name));
+  }
+  if (planning) renderPlan();
+  if (save) writeHash({ replace: true });
+}
+
+/**
+ * The one bit of chrome that depends on the plan rather than the mode: there is
+ * no point offering a way back to a plan that does not exist yet.
+ */
+function refreshPlanChrome() {
+  $('#back-to-plan').hidden = state.mode === 'plan' || isEmptyPlan(getPlan());
+}
+
+/** Bring a material up in the explorer, whichever mode asked. */
+function openInExplorer(m) {
+  setMode('explore', { save: false });
+  select(m, { push: true });
+}
 
 /** Set when the reader asks a capped list to show everything. */
 let uncapped = false;
@@ -2716,8 +5048,10 @@ function readHash() {
   state.q = p.get('q') || '';
   state.sel = p.get('m') || null;
   state.sort = ['relevance', 'z', 'name'].includes(p.get('s')) ? p.get('s') : 'name';
+  state.mode = p.get('mode') === 'plan' ? 'plan' : 'explore';
   collapsed.clear();
   for (const key of unpackCollapsed(p.get('c'))) collapsed.add(key);
+  setPlan(readPlan(p), { save: false });
 }
 
 function writeHash({ replace = false } = {}) {
@@ -2727,6 +5061,10 @@ function writeHash({ replace = false } = {}) {
   if (state.sort !== 'name') p.set('s', state.sort);   // name is the default
   const packed = packCollapsed(collapsed);
   if (packed) p.set('c', packed);
+  // Both modes, always. A link made while planning still remembers the search
+  // it came from, and one made while searching still carries the plan.
+  if (state.mode === 'plan') p.set('mode', 'plan');
+  writePlan(getPlan(), p);
   const hash = p.toString() ? '#' + p.toString() : ' ';
   try {
     if (replace) history.replaceState(null, '', hash);
@@ -3229,6 +5567,17 @@ function reactionCard(rx, role, self) {
   if (rx.raw.Electrolysis) cond.push('electrolysis');
   if (rx.raw.Probability) cond.push(`p=${rx.raw.Probability}`);
   if (cond.length) card.append(el('div', 'rx-cond', cond.join('  ·  ')));
+
+  // Start a plan from this reaction: make what it makes, by this route.
+  const use = el('button', 'ghost small rx-plan', 'Plan this');
+  use.title = 'Plan a way to run this reaction';
+  use.addEventListener('click', () => {
+    const process = graph.byId.get(`rx:${rx.name}`);
+    if (!process) return;
+    setPlan(planProcess(getPlan(), process));
+    setMode('plan');
+  });
+  card.append(use);
   return card;
 }
 
@@ -3320,6 +5669,19 @@ function renderDetail(m) {
   if (m.name !== m.display) sub.append(el('span', 'mono faint', m.name));
   sub.append(el('span', 'mono faint', r.LocIdName));
   head.append(sub);
+
+  // Into the planner, from whichever end this material belongs at. Both switch
+  // modes, because having pressed one of them you are no longer searching.
+  const handoff = el('div', 'detail-plan');
+  const toPlan = (fn, label, title) => {
+    const b = el('button', 'ghost small', label);
+    b.title = title;
+    b.addEventListener('click', () => { setPlan(fn(getPlan(), m.name)); setMode('plan'); });
+    return b;
+  };
+  handoff.append(toPlan(addTarget, 'Make this', `Plan a way to produce ${m.display}`));
+  handoff.append(toPlan(addHave, 'I have this', `Tell the planner ${m.display} is available`));
+  head.append(handoff);
   pane.append(head);
 
   if (m.description) pane.append(el('div', 'detail-desc', m.description));
@@ -3645,6 +6007,9 @@ function renderHelp() {
 }
 
 function bindChrome() {
+  $('#mode-explore').addEventListener('click', () => setMode('explore'));
+  $('#mode-plan').addEventListener('click', () => setMode('plan'));
+  $('#back-to-plan').addEventListener('click', () => setMode('plan'));
   $('#q').addEventListener('input', (e) => setQuery(e.target.value, { fromInput: true }));
   $('#clear').addEventListener('click', () => { setQuery(''); $('#q').focus(); });
   for (const [btn, panel] of [['#toggle-table', '#ptable'], ['#toggle-help', '#help']]) {
@@ -3663,15 +6028,17 @@ function bindChrome() {
     renderChips();
     renderPeriodicTable();
     select(state.sel ? db.byName.get(state.sel) : null);
+    setMode(state.mode, { save: false });
   });
 }
 
 (async function boot() {
   try {
     db = await loadData();
+    graph = buildProcessGraph(db);
     // Exposed for the console and for tools/test_render.mjs.
     window.explorer = {
-      db, select, setQuery, renderDetail, runSearch,
+      db, graph, select, setQuery, renderDetail, runSearch, setMode, getPlan, setPlan,
       // What a page load does: re-read the fragment and rebuild from it.
       reload: () => {
         readHash();
@@ -3680,9 +6047,12 @@ function bindChrome() {
         renderChips();
         renderPeriodicTable();
         select(state.sel ? db.byName.get(state.sel) : null);
+        setMode(state.mode, { save: false });
       },
     };
     window.db = db;
+    initPlan({ db, graph, swatch, openInExplorer,
+               onChange: () => { refreshPlanChrome(); writeHash({ replace: true }); } });
     readHash();
     renderHelp();
     bindChrome();
@@ -3693,6 +6063,7 @@ function bindChrome() {
     renderChips();
     renderPeriodicTable();
     select(state.sel ? db.byName.get(state.sel) : null);
+    setMode(state.mode, { save: false });
     $('#boot').remove();
   } catch (err) {
     const boot = $('#boot');

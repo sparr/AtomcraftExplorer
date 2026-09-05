@@ -1,11 +1,39 @@
 /**
  * Executes the standalone build the way a browser would: one classic script,
  * no fetch, no module loader.  Catches anything the IIFE wrapping broke.
+ *
+ * The committed bundle is checked against the sources first. `npm test` is
+ * otherwise happy to pass against a build from an hour ago -- which it did,
+ * once, while the page it described had already stopped loading at all.
  */
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { installDom } from './dom-shim.mjs';
 
-const html = readFileSync(new URL('../dist/atomcraft-explorer.html', import.meta.url), 'utf8');
+const scratch = mkdtempSync(join(tmpdir(), 'atomcraft-bundle-'));
+const built = join(scratch, 'check.html');
+try {
+  execFileSync(process.execPath,
+    [new URL('bundle.mjs', import.meta.url).pathname, '--out', built], { stdio: 'pipe' });
+} catch (err) {
+  rmSync(scratch, { recursive: true, force: true });
+  console.log(`FAIL the bundler itself failed:\n${err.stderr?.toString() || err.message}`);
+  process.exit(1);
+}
+const fresh = readFileSync(built, 'utf8');
+rmSync(scratch, { recursive: true, force: true });
+
+const committed = readFileSync(new URL('../dist/atomcraft-explorer.html', import.meta.url), 'utf8');
+if (fresh !== committed) {
+  console.log('FAIL dist/atomcraft-explorer.html is stale -- run: npm run bundle');
+  process.exit(1);
+}
+console.log('ok    the committed bundle matches its sources');
+
+const html = committed;
 installDom([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
 
 // The bundle must not reach the network -- that is the whole point of it.

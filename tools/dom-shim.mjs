@@ -52,8 +52,12 @@ class Node {
     this.listeners.get(type).push(fn);
   }
   dispatch(type, ev = {}) {
-    for (const fn of this.listeners.get(type) || []) fn({ target: this, preventDefault() {}, ...ev });
+    for (const fn of this.listeners.get(type) || []) {
+      fn({ target: this, preventDefault() {}, stopPropagation() {}, ...ev });
+    }
   }
+  /** What a real button has, and what code reasonably calls on one. */
+  click() { this.dispatch('click'); }
   scrollIntoView() {}
   focus() {} blur() {} select() {}
   /** Depth-first walk, for assertions. */
