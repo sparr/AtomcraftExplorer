@@ -10,14 +10,14 @@ thing.** It is already built and committed, so there is nothing to run: download
 that one file and open it.
 
 No install, no build step, no server — and no copy of Atomcraft. The modules, the
-stylesheet and all 826 KB of game data are inlined into the page, and it fetches
+stylesheet and all 951 KB of game data are inlined into the page, and it fetches
 nothing at all. It works from a `file://` path, off a USB stick, or served from
-anywhere you can put a static file. It is 915 KB on disk and about 114 KB over a
+anywhere you can put a static file. It is 1.04 MB on disk and about 137 KB over a
 gzipped connection.
 
-What is in it: **1795 materials, 681 reactions, 118 elements**, with English
+What is in it: **1871 materials, 687 reactions, 118 elements**, with English
 display names, baked from the Steam build of Atomcraft (appid 2803490) as it
-stood on **2026-09-02**. Rebuild it against a newer build of the game whenever
+stood on **2026-09-05**. Rebuild it against a newer build of the game whenever
 you like — see below — but you never have to.
 
 Once it is open:
@@ -75,7 +75,7 @@ Both produce byte-identical bakes. `npm run pck-tools` shows which are visible;
 **2. An installed copy of Atomcraft.** Locators run in order, first hit wins.
 Steam sits ahead of itch deliberately: the game can be installed through both
 and the builds differ — on the machine this was written on, the Steam copy had
-1795 materials and 681 reactions against itch's 1728 and 610, with the itch set
+1871 materials and 687 reactions against itch's 1728 and 610, with the itch set
 a strict subset. Pass `--game-dir` to build from the itch copy instead.
 
 | | |
@@ -171,7 +171,7 @@ goes straight into a `data:` URI without being decoded.
 | Element tiles | the game's 16×16 periodic-table tile per element, carrying its symbol and family colour. The material count is in the cell's tooltip. | 21.6 KB |
 
 **There are no per-material images**, and no texture to map a material to. All
-1898 packed textures were checked against the 1795 material names, and
+1899 packed textures were checked against the 1871 material names, and
 `Tileset.res` is keyed by tile coordinates with no material names in it.
 
 `Art/Materials/GrayscaleMaterialTextures.png` — a 256×256 sheet of tileable
@@ -248,7 +248,7 @@ the impacts it covers.
 ## Sorting and grouping
 
 The result list sorts by **Name** (the default), **Atomic number** or
-**Relevance**. All three group: 1795 materials collapse to about 1000 rows, because
+**Relevance**. All three group: 1871 materials collapse to about 950 rows, because
 variants of one thing fold under it. `Iron` carries `Molten Iron`; `Uranium`
 carries its isotopes; `And Gate` carries all eight direction/state permutations;
 `Bits of Blender` files under `Blender`. The twisty at the left of a row expands
@@ -359,7 +359,7 @@ Everything is JavaScript — source, build and tests all run on Node.
 - **Display names come from the Godot translation resources.** They are stored as
   a perfect-hash table (SMAZ-compressed values, keys kept only as 32-bit hashes),
   so `tools/godot-translation.mjs` looks up the `LocIdName` values rather than
-  enumerating. 1198 of 1223 ids resolve; the rest fall back to the internal name.
+  enumerating. 1262 of 1283 ids resolve; the rest fall back to the internal name.
   All 28 shipped locales decode — the build currently bakes `--locale en`.
 - **Isotopes share their element's localized name**, so the mass number is
   re-appended: `Lead-212` rather than three entries all reading "Lead".
@@ -367,6 +367,13 @@ Everything is JavaScript — source, build and tests all run on Node.
   the pck is an empty stub. `State` is Solid/Liquid/Gas/Static/Plasma; `Direction`
   is an 8-way compass counter-clockwise from Right; decay modes 0/1/2/6 are
   alpha, beta-minus, beta-plus and spontaneous fission.
+- **`Mass` replaced `Density` and `Weight`.** The 2026-09-05 build drops both
+  and carries a single `Mass` instead, along with `SpecificHeat`,
+  `LaserAbsorption` and `IsReflective` — the last of which only two materials
+  have, the Mirror and its bits. That build also brings lasers, mirrors, prisms
+  and 20 elemental vapors, five crystal-growth reactions and one for blending a
+  chicken egg: 76 materials and 6 reactions more than the build before it, with
+  nothing removed.
 - **Elements are not all tagged as such.** Carbon ships as `MAT_SOLID_CARBON`, so
   only ~105 symbols are recoverable from the game data; `tools/elements.mjs` carries
   the real periodic table instead.
@@ -374,19 +381,19 @@ Everything is JavaScript — source, build and tests all run on Node.
   defaults an unset range to 0, and lighting is driven by that range, so those
   colours light nothing and are not shown. Every powered logic gate is one of
   them, all recorded red.
-- **39 references dangle** — mostly superheavy isotopes named as decay or impact
+- **43 references dangle** — mostly superheavy isotopes named as decay or impact
   products but never defined. The UI renders those as dead links rather than
   pretending they resolve.
-- The baking step drops nulls, falses and default zeroes, taking 2.9 MB of raw
-  JSON down to 826 KB. Fields where zero is a real value are kept — that means
-  the ones that are nullable (`Density`, `ThermalConductivity`, …) and the ones
+- The baking step drops nulls, falses and default zeroes, taking 4.1 MB of raw
+  JSON down to 951 KB. Fields where zero is a real value are kept — that means
+  the ones that are nullable (`Mass`, `ThermalConductivity`, …) and the ones
   that are enums, where 0 names a case: `State` 0 is Solid and
   `DecaySettings.Mode` 0 is alpha decay, which 192 materials use.
 
 ## Limitations
 
 - **The tests do not cover appearance.** They run against the DOM shim in
-  [`tools/dom-shim.mjs`](tools/dom-shim.mjs), which confirms all 1795 detail
+  [`tools/dom-shim.mjs`](tools/dom-shim.mjs), which confirms all 1871 detail
   panes build without throwing and contain what they should, but knows nothing
   of CSS. Layout and styling are checked by looking at the page.
 - **Enum labels are inferred.** Every `.cs` file in the `.pck` is a one-byte
@@ -407,16 +414,16 @@ Everything is JavaScript — source, build and tests all run on Node.
   added by a future update — it will quietly land in Terrain.
 - **The committed data is one build from one store.** The Steam and itch copies
   differ; on the machine this was built, itch had 1728 materials and 610
-  reactions against Steam's 1795 and 681, a strict subset. The bake is English
+  reactions against Steam's 1871 and 687, a strict subset. The bake is English
   only, though the decoder handles all 28 shipped locales.
 
 ## Tests
 
 ```sh
 npm test                      # all six suites
-node tools/test-formula.mjs   # parses + round-trips all 437 distinct formulas
+node tools/test-formula.mjs   # parses + round-trips all 436 distinct formulas
 node tools/test-search.mjs    # ranking assertions
-node tools/test-render.mjs    # renders all 1795 detail panes against a DOM shim
+node tools/test-render.mjs    # renders all 1871 detail panes against a DOM shim
 node tools/test-styles.mjs    # every class used in markup or code has a rule
 node tools/test-coverage.mjs  # every material field with a value reaches the UI
 node tools/test-bundle.mjs    # runs the standalone build with fetch() disabled

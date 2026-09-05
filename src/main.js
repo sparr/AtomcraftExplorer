@@ -36,7 +36,7 @@ const state = { q: '', sel: null, sort: 'name' };
 /** Set when the reader asks a capped list to show everything. */
 let uncapped = false;
 
-/** Groups whose variants are shown. Grouping hides 794 variant rows by default. */
+/** Groups whose variants are shown. Grouping hides 925 variant rows by default. */
 const expanded = new Set();
 
 /** Materials in rendered order, for keyboard navigation. */
@@ -428,12 +428,15 @@ function markSelected() {
 /* ----------------------------------------------------------------- detail */
 
 const NUMERIC_FIELDS = [
-  ['Density', 'Density'], ['Hardness', 'Hardness'], ['Weight', 'Weight'],
+  // `Mass` replaced `Density` and `Weight`, which the game no longer carries.
+  ['Mass', 'Mass'], ['Hardness', 'Hardness'],
   ['Friction', 'Friction'], ['Viscosity', 'Viscosity'], ['Bounciness', 'Bounciness'],
   ['ActorFriction', 'Actor friction'],
   ['DefaultTemperature', 'Default temperature', 'K'],
   ['ThermalConductivity', 'Thermal conductivity'],
+  ['SpecificHeat', 'Specific heat'],
   ['ConductanceDivisor', 'Conductance divisor'],
+  ['LaserAbsorption', 'Laser absorption'],
   ['HealthChange', 'Health change'], ['AcidDamage', 'Acid damage'],
   ['ToxicityLevel', 'Toxicity'], ['ExplosionRadius', 'Explosion radius'],
   ['LightRange', 'Light range'], ['Alpha', 'Alpha'],
@@ -446,7 +449,7 @@ const FLAG_FIELDS = [
   ['IsCarryingSignal', 'carries signal'], ['IsFoodIngredient', 'food ingredient'],
   ['CanBeCutByPlasma', 'cuttable by plasma'], ['CanPickUpStatic', 'pick up static'],
   ['DoNotBlockLaser', 'does not block laser'], ['IgnoreFogOfWar', 'ignores fog of war'],
-  ['IsOn', 'on'], ['IsPaintable', 'paintable'],
+  ['IsOn', 'on'], ['IsPaintable', 'paintable'], ['IsReflective', 'reflective'],
   ['SuppressInGuide', 'hidden from guide'],
 ];
 

@@ -45,7 +45,7 @@ const AUDIO_TYPES = ['Solid', 'Liquid', 'Metal', 'Rock'];
 
 // A 0 here is a real value, not "unset" -- these fields are either nullable
 // (so absent already means unset) or have a meaningful zero.
-const KEEP_ZERO = new Set(['State', 'Density', 'ThermalConductivity',
+const KEEP_ZERO = new Set(['State', 'Mass', 'ThermalConductivity',
                            'ConductanceDivisor', 'WireIndex', 'ActorFriction', 'LightRange',
                            // Enum members, where 0 names a case: DecaySettings.Mode 0
                            // is alpha decay, which 192 materials use.

@@ -10,34 +10,37 @@ import { parseFormula } from './formula.js';
  * "Referenced by" groups always appear in the same sequence rather than
  * shuffling with each material's own counts.
  *
- * Ordered by how often each relationship occurs across the whole data set
- * (4906 deduped references over 19 relationships), measured once rather than
- * recomputed per build. "dissolves into" is defined but currently unused by any
- * material. Anything not listed sorts to the end alphabetically; the render
- * test asserts the list still covers every relationship in the data.
+ * Ordered by how often each relationship occurred when the list was first
+ * written, and frozen there: `collapse.js` reads this order as its wire
+ * format, so reordering it would make saved links decode to the wrong
+ * sections. The counts below are from the current bake (5209 deduped
+ * references over 19 relationships), which is why a few no longer descend.
+ * "dissolves into" is defined but still unused by any material. Anything not
+ * listed sorts to the end alphabetically; the render test asserts the list
+ * still covers every relationship in the data.
  *
  * Each entry also carries the wording used to head its group, conjugated for
  * one subject and for several.
  */
 export const REFERENCE_RELATIONSHIPS = [
   // label                 subject is one material        subject is several
-  ['made of',            'is made of this',            'are made of this'],            // 1692
-  ['mines into',         'mines into this',            'mine into this'],              //  490
-  ['evaporates into',    'evaporates into this',       'evaporate into this'],         //  402
+  ['made of',            'is made of this',            'are made of this'],            // 1701
+  ['mines into',         'mines into this',            'mine into this'],              //  527
+  ['evaporates into',    'evaporates into this',       'evaporate into this'],         //  480
   ['decays into',        'decays into this',           'decay into this'],             //  258
-  ['alpha impact',       'becomes this under alpha impact',   'become this under alpha impact'],   // 234
-  ['neutron impact',     'becomes this under neutron impact', 'become this under neutron impact'], // 228
-  ['proton impact',      'becomes this under proton impact',  'become this under proton impact'],  // 221
+  ['alpha impact',       'becomes this under alpha impact',   'become this under alpha impact'],   //  234
+  ['neutron impact',     'becomes this under neutron impact', 'become this under neutron impact'], //  228
+  ['proton impact',      'becomes this under proton impact',  'become this under proton impact'],  //  221
   ['ignites into',       'ignites into this',          'ignite into this'],            //  210
-  ['builds into',        'builds into this',           'build into this'],             //  188
+  ['builds into',        'builds into this',           'build into this'],             //  231
   ['drops',              'drops this',                 'drop this'],                   //  157
-  ['rotates left into',  'rotates left into this',     'rotate left into this'],       //  147
-  ['rotates right into', 'rotates right into this',    'rotate right into this'],      //  147
-  ['condenses into',     'condenses into this',        'condense into this'],          //  144
+  ['rotates left into',  'rotates left into this',     'rotate left into this'],       //  181
+  ['rotates right into', 'rotates right into this',    'rotate right into this'],      //  181
+  ['condenses into',     'condenses into this',        'condense into this'],          //  177
   ['grows into',         'grows into this',            'grow into this'],              //  108
   ['combusts into',      'combusts into this',         'combust into this'],           //   88
-  ['turns off into',     'turns off into this',        'turn off into this'],          //   68
-  ['turns on into',      'turns on into this',         'turn on into this'],           //   56
+  ['turns off into',     'turns off into this',        'turn off into this'],          //   86
+  ['turns on into',      'turns on into this',         'turn on into this'],           //   73
   ['picked up into',     'is picked up into this',     'are picked up into this'],     //   40
   ['extinguishes into',  'extinguishes into this',     'extinguish into this'],        //   28
   ['dissolves into',     'dissolves into this',        'dissolve into this'],          //    0
