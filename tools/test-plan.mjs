@@ -1,0 +1,495 @@
+/**
+ * The planner's model: the process graph and the solver over it.
+ *
+ * Everything here runs against the real bake rather than a fixture, because the
+ * things that go wrong are properties of the game's data -- a material on both
+ * sides of a reaction, a combustion list that is a weighted bag, a phase change
+ * out of a wall -- and a fixture would be written from the same misreading as
+ * the code.
+ */
+import { readFileSync } from 'node:fs';
+import { loadData } from '../src/data.js';
+import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS } from '../src/plan-graph.js';
+import { solvePlan, reachableFrom,
+         rat, radd, rsub, rmul, rdiv, rcmp, rstr, R0 } from '../src/plan-solve.js';
+import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
+         formatTemperatureRange, heatingNeed, coolingNeed } from '../src/units.js';
+
+globalThis.fetch = async () => ({
+  ok: true,
+  json: async () => JSON.parse(readFileSync(new URL('../data/atomcraft.json', import.meta.url))),
+});
+
+const db = await loadData();
+const graph = buildProcessGraph(db);
+
+let fail = 0;
+const ok = (msg) => console.log(`ok    ${msg}`);
+const bad = (msg) => { console.log(`FAIL  ${msg}`); fail++; };
+const check = (cond, msg) => (cond ? ok(msg) : bad(msg));
+
+const byKind = new Map(PROCESS_KINDS.map((k) => [k.id, 0]));
+for (const p of graph.processes) byKind.set(p.kind, byKind.get(p.kind) + 1);
+console.log(`${graph.processes.length} processes over ${db.materials.length} materials: ` +
+  [...byKind].map(([k, n]) => `${k} ${n}`).join(', ') + '\n');
+
+/* ------------------------------------------------------------- fractions */
+
+console.log('--- exact arithmetic ---');
+check(rstr(radd(rat(1, 3n), rat(1, 6n))) === '1/2', '1/3 + 1/6 = 1/2');
+check(rstr(rsub(rat(1), rat(3, 2n))) === '-1/2', '1 - 3/2 = -1/2');
+check(rstr(rmul(rat(2, 3n), rat(3, 4n))) === '1/2', '2/3 × 3/4 = 1/2');
+check(rstr(rdiv(rat(1), rat(3))) === '1/3', '1 ÷ 3 = 1/3');
+check(rcmp(rat(1, 3n), rat(1, 4n)) === 1 && rcmp(rat(1, 4n), rat(1, 3n)) === -1, 'ordering');
+// A tenth added ten times is exactly one, which is the whole reason for this.
+let tenths = R0;
+for (let i = 0; i < 10; i++) tenths = radd(tenths, rat(1, 10n));
+check(rstr(tenths) === '1', 'ten tenths make exactly 1');
+
+/* ---------------------------------------------------------- temperatures */
+
+console.log('\n--- temperatures, as the game shows them ---');
+// The game's own struct: Celsius => Kelvin - 273, Fahrenheit => C * 9 / 5 + 32,
+// integer division throughout. Not 273.15, and not rounded the physics way.
+check(convertTemperature(273) === 0 && convertTemperature(2300) === 2027, '273 K is 0 °C, 2300 K is 2027 °C');
+check(convertTemperature(195) === -78, 'and it goes below zero: 195 K is -78 °C');
+check(convertTemperature(273, 'K') === 273, 'kelvin passes through');
+check(convertTemperature(373, 'F') === 212, 'water boils at 212 °F');
+check(formatTemperature(2300) === '2027 °C', 'formatted with the game\'s own suffix');
+// A change of 50 K is a change of 50 °C: the offset cancels. Sending a delta
+// through the absolute conversion would read +50 K as if it had cooled by 223.
+check(convertTemperatureDelta(50) === 50, 'a +50 K change is a +50 °C change');
+check(convertTemperatureDelta(50, 'F') === 90, 'and a +90 °F one');
+check(formatTemperatureRange(273, null) === '≥ 0 °C', 'a floor reads as a floor');
+check(formatTemperatureRange(null, 973) === '≤ 700 °C', 'and a ceiling as a ceiling');
+{
+  // The ambient band is not a threshold below which a requirement stops
+  // counting -- a chamber next to a cooled one has to be held at 0 °C.
+  check(heatingNeed(2300) === 'always', 'a 2027 °C floor is a furnace, always');
+  check(heatingNeed(AMBIENT.min) === 'sometimes',
+        'a floor of exactly 0 °C still needs holding: heating, or insulation');
+  check(heatingNeed(200) === 'none', 'a floor below anything the air reaches needs nothing');
+  check(coolingNeed(195) === 'always', 'a -78 °C ceiling is a cooler, always');
+  check(coolingNeed(1400) === 'none', 'a ceiling above the air needs nothing');
+}
+
+/* ----------------------------------------------------------------- graph */
+
+console.log('\n--- the process graph ---');
+{
+  // 9 Fallen Leaf in, 7 back out: only the difference is really consumed.
+  const p = graph.byId.get('rx:Compost from Fallen Leaves');
+  const consumed = p.consumes.find((c) => c.name === 'Fallen Leaf');
+  check(consumed?.count === 2, 'a material on both sides nets to what is really used');
+  check(!p.produces.some((o) => o.name === 'Fallen Leaf'),
+        'and it is not also counted as a product');
+}
+{
+  // Ethanol (Burning) lists Carbon Dioxide three times and Steam twice, and the
+  // game indexes that array at random -- so a repeat is a weight.
+  const p = graph.byId.get('burn:Ethanol (Burning)');
+  const co2 = p.produces.find((o) => o.name === 'Carbon Dioxide');
+  const steam = p.produces.find((o) => o.name === 'Steam');
+  check(p.consumes[0].count === 5 && co2.count === 3 && steam.count === 2,
+        'a repeated combustion product reads as a ratio, 5 burn to 3 and 2');
+  check(p.conditions.stochastic, 'and the process says its yield is a random draw');
+  const odds = new Map(p.conditions.outcomes.map((o) => [o.name, o.chance]));
+  check(Math.abs(odds.get('Carbon Dioxide') - 0.6) < 1e-9 && Math.abs(odds.get('Steam') - 0.4) < 1e-9,
+        'with each outcome carrying its own probability, 60% and 40%');
+  check(p.conditions.outcomes.reduce((a, o) => a + o.chance, 0) - 1 < 1e-9,
+        'and the chances sum to one');
+}
+{
+  // DropTable repeats each material by its rate and rolls uniformly over the
+  // array, so the rates are relative weights out of their own sum -- not
+  // chances out of a thousand, which would make a Bowieite Deposit's three
+  // sulfides 0.01% each.
+  const p = graph.byId.get('drop:Granite');
+  check(p.consumes[0].count === 6007, 'a drop table sums its own weights: 6007 Granite per roll');
+  check(p.produces.find((o) => o.name === 'Ruby').count === 2, 'and 2 of those give a Ruby');
+  const bow = graph.byId.get('drop:Bowieite Deposit');
+  check(bow.produces.length === 3 && bow.consumes[0].count === 3,
+        'a deposit whose rates are 1, 1, 1 drops one of its three, not one in a thousand');
+  check(graph.processes.filter((x) => x.id.startsWith('drop:Granite')).length === 1,
+        'one roll per swing, so one process per drop table rather than one per product');
+}
+{
+  const p = graph.processes.find((x) => x.id.startsWith('grow:') && x.requires.length);
+  check(p && !p.consumes.length && p.requires.length === 1 && p.produces.length === 1,
+        'a growing plant is required, not consumed');
+}
+check(!graph.processes.some((p) => [...p.consumes, ...p.produces, ...p.requires]
+        .some((x) => x.name === '+H2O')),
+      'the +H2O hydration marker is not a material');
+check(graph.processes.every((p) => p.produces.length),
+      'every process makes something (spontaneous fission makes nothing and is dropped)');
+{
+  const ids = new Set(graph.processes.map((p) => p.id));
+  check(ids.size === graph.processes.length, 'process ids are unique');
+}
+{
+  // Every name a process mentions has to resolve, or the graph has dead ends
+  // the solver would silently treat as unobtainable.
+  const missing = new Set();
+  for (const p of graph.processes) {
+    for (const { name } of [...p.consumes, ...p.produces, ...p.requires]) {
+      if (!db.byName.has(name) && !db.isDangling(name)) missing.add(name);
+    }
+  }
+  check(!missing.size, `every referenced material resolves${missing.size ? ': ' + [...missing].slice(0, 5) : ''}`);
+}
+
+/* ------------------------------------------------------- what a plan says */
+
+/** Assert the arithmetic of a solved plan holds together. */
+function audit(label, plan) {
+  const bad_ = (why) => bad(`${label}: ${why}`);
+  let good = true;
+
+  // Whole-numbered batch: the scale exists precisely to clear denominators.
+  for (const { process: p, runs } of plan.steps) {
+    if (runs.d !== 1n) { bad_(`${p.id} runs ${rstr(runs)} times after scaling`); good = false; }
+    if (runs.n <= 0n) { bad_(`${p.id} is in the plan but never runs`); good = false; }
+  }
+
+  // Nothing is consumed that is not either produced, held, or on the shopping
+  // list -- the plan has to account for every unit it spends.
+  const listed = new Map(plan.frontier.map((f) => [f.name, f.amount]));
+  for (const node of plan.dag.materials.values()) {
+    const need = plan.amountOf(node.name);
+    if (rcmp(need, R0) <= 0) continue;
+    const have = plan.spec.have.has(node.name);
+    const from = radd(plan.madeOf(node.name), listed.get(node.name) || R0);
+    if (!have && rcmp(from, need) < 0) {
+      bad_(`${node.name} needs ${rstr(need)} but only ${rstr(from)} is accounted for`);
+      good = false;
+    }
+  }
+
+  // Targets are made, not fetched.
+  for (const t of plan.spec.targets) {
+    if (plan.unreachable.includes(t.name)) continue;
+    if (rcmp(plan.madeOf(t.name), rmul(rat(t.amount), plan.scale)) < 0) {
+      bad_(`target ${t.name} is short`); good = false;
+    }
+  }
+
+  if (plan.stuck.length) { bad_(`${plan.stuck.length} nodes could not be ordered`); good = false; }
+  if (good) ok(`${label}: ${plan.steps.length} steps, ${plan.frontier.length} to fetch, ` +
+               `${plan.byproducts.length} spare, batch ×${rstr(plan.scale)}`);
+  return good;
+}
+
+console.log('\n--- worked plans ---');
+const vinegar = solvePlan(graph, { targets: ['Vinegar'] });
+audit('Vinegar', vinegar);
+check(vinegar.steps.some((s) => s.process.id === 'rx:Acetic Acid + Water = Vinegar'),
+      'the Vinegar plan ends with the reaction that makes Vinegar');
+check(!vinegar.unreachable.length, 'Vinegar is reachable, though nothing makes Acetic Acid but fermentation');
+
+const alu = solvePlan(graph, { targets: [{ name: 'Molten Aluminum', amount: 2 }] });
+audit('Molten Aluminum ×2', alu);
+check(!alu.dag.materials.has('Aluminum Wall (Turning Off)'),
+      'no plan melts a wall down for its metal');
+
+const acid = solvePlan(graph, { targets: ['Sulfuric Acid'], have: ['Water'] });
+audit('Sulfuric Acid with water on tap', acid);
+check(!acid.frontier.some((f) => f.name === 'Water'), 'water the reader has is not on the shopping list');
+
+/* ------------------------------------------------- the reader overrules it */
+
+console.log('\n--- choices ---');
+{
+  const before = solvePlan(graph, { targets: ['Steam'] });
+  const chosen = before.dag.materials.get('Steam').producer;
+  check(!!chosen, `Steam is made by one of its ${graph.producers('Steam').length} producers (${chosen})`);
+
+  const banned = solvePlan(graph, { targets: ['Steam'], excludeProcesses: [chosen] });
+  check(banned.dag.materials.get('Steam').producer !== chosen,
+        'excluding that producer picks a different one');
+  audit('Steam with its first choice banned', banned);
+
+  const pinned = solvePlan(graph, { targets: ['Steam'], pins: { Steam: 'evap:Water' } });
+  check(pinned.dag.materials.get('Steam').producer === 'evap:Water',
+        'pinning a producer overrides the search');
+  check(pinned.dag.materials.has('Water'), 'and pulls its input into the plan');
+  audit('Steam pinned to boiling water', pinned);
+
+  const stopped = solvePlan(graph, { targets: ['Steam'], pins: { Steam: 'evap:Water', Water: 'have' } });
+  check(stopped.dag.materials.get('Water').reason === 'have',
+        'pinning a material to "have" stops the plan there');
+}
+{
+  // A pin can point at a process that needs what it makes. That is a loop, and
+  // it has to be reported rather than hung on.
+  const loop = solvePlan(graph, {
+    targets: ['Water'],
+    pins: { Water: 'cond:Steam', Steam: 'evap:Water' },
+  });
+  check(loop.cycles.length > 0, `a circular pin is detected and broken (at ${loop.cycles.join(', ')})`);
+  check(!loop.stuck.length, 'and the rest of the plan still orders');
+}
+{
+  const ex = solvePlan(graph, { targets: ['Vinegar'], excludeMaterials: ['Berry'] });
+  check(!ex.dag.materials.has('Berry') || ex.dag.materials.get('Berry').reason !== 'produced',
+        'an excluded material is kept out of the plan');
+}
+
+/* ---------------------------------------------------- what you can hold */
+
+console.log('\n--- portability ---');
+{
+  // A Static thing that is not simply lying about outside exists only where it
+  // was placed. It can be made, and eaten in place by the 20 reactions that
+  // dissolve walls, but it can never be supplied as stock.
+  const isPlaced = (name) => graph.stateOf(name) === 'Static' &&
+    !['deposit', 'terrain', 'plant'].includes(graph.categoryOf(name));
+  check(isPlaced('Aluminum Wall (Turning Off)'), 'a wall counts as placed');
+  check(!isPlaced('Bauxite Deposit'), 'a deposit does not: the world put it there');
+
+  let leaked = null;
+  for (const name of ['Molten Aluminum', 'Molten Iron', 'Molten Copper', 'Rust', 'Glass',
+                      'Molten Nickel', 'Molten Zinc', 'Steel']) {
+    const plan = solvePlan(graph, { targets: [name] });
+    for (const node of plan.dag.materials.values()) {
+      if (node.reason !== 'produced' && node.reason !== 'have' && isPlaced(node.name)) {
+        leaked = `${name} would have you fetch ${node.name}`;
+      }
+    }
+  }
+  check(!leaked, `no metal is planned by dissolving something built${leaked ? ': ' + leaked : ''}`);
+
+  // The portable half of the same problem. `Aluminum Wire` is the item you
+  // carry to place a wire: Solid, so not caught by staticness, but got only by
+  // picking a placed wire back up. Melting one down for aluminium is only
+  // sensible if you already had the wire.
+  check(graph.isManufactured('Aluminum Wire') && graph.stateOf('Aluminum Wire') === 'Solid',
+        'a machine item is portable but still manufactured');
+  let scrapped = null;
+  for (const name of ['Molten Aluminum', 'Molten Copper', 'Molten Iron', 'Molten Zinc']) {
+    for (const f of solvePlan(graph, { targets: [name] }).frontier) {
+      if (graph.isManufactured(f.name)) scrapped = `${name} would have you fetch ${f.name}`;
+    }
+  }
+  check(!scrapped, `and no plan asks you to fetch one as stock${scrapped ? ': ' + scrapped : ''}`);
+
+  // It is still usable once the plan builds it, so the route is disqualified
+  // for being unfetchable rather than being cut out of the graph.
+  check(graph.producers('Molten Aluminum').some((p) => p.id === 'evap:Aluminum Wall (Turning Off)'),
+        'and the route is still in the graph, merely unreachable');
+}
+
+/* ------------------------------------------------------- placing by hand */
+
+console.log('\n--- placing things ---');
+{
+  // No machine builds a wall; somebody puts it there. So BuildsInto is never a
+  // way through to something else, but it is shown when the wall is the point.
+  const wall = solvePlan(graph, { targets: ['Iron Wall'] });
+  check(!wall.unreachable.length, 'a wall can be planned, though only a player can place one');
+  const last = wall.steps[wall.steps.length - 1];
+  check(last?.process.conditions.places, 'and placing it is the last step');
+  check(wall.steps.slice(0, -1).every((s) => !s.process.conditions.places),
+        'with no placing anywhere else in it');
+  check(wall.apparatus.byHand, 'the apparatus line says you do it yourself');
+  check(!wall.spec.kinds.has('handling'),
+        'and it happened with handling switched off, because it was asked for');
+
+  // Iron is a step on the way to an Iron Wall, so it must not itself become a
+  // wall en route.
+  const iron = solvePlan(graph, { targets: ['Iron'] });
+  check(!iron.steps.some((s) => s.process.conditions.places),
+        'a plan for loose iron places nothing');
+  check(!iron.dag.materials.has('Iron Wall'), 'and never walls itself in as an intermediate');
+}
+{
+  // Wall to wall, and only when a wall is the point. `Clay Wall into Ceramic
+  // Wall` reacts one placed thing into another, so getting there means placing
+  // the Clay Wall first -- a mid-plan placement, allowed because the end
+  // product is itself something you build.
+  const direct = 'BuildsInto:Ceramic';
+  const viaWall = solvePlan(graph, { targets: ['Ceramic Wall'], excludeProcesses: [direct] });
+  check(!viaWall.unreachable.length, 'a Ceramic Wall can be reached through a Clay Wall');
+  check(viaWall.steps.some((s) => s.process.id === 'BuildsInto:Clay'),
+        'placing the Clay Wall mid-plan');
+  check(viaWall.steps.some((s) => s.process.id === 'rx:Clay Wall into Ceramic Wall'),
+        'and reacting one wall into the other');
+
+  // The same placement must stay out of a plan that is not a building job.
+  const loose = solvePlan(graph, { targets: ['Ceramic'] });
+  check(!loose.steps.some((s) => s.process.conditions.places),
+        'while a plan for loose Ceramic places nothing at all');
+  check(!solvePlan(graph, { targets: ['Clay'] }).dag.materials.has('Clay Wall'),
+        'and no wall appears on the way to loose Clay');
+}
+{
+  // Placing works, so the solver could always reach for it. It should not:
+  // ice is water that froze, not a block you carried in.
+  const ice = solvePlan(graph, { targets: ['Ice'] });
+  check(ice.steps.some((s) => s.process.id === 'cond:Water'),
+        'ice is planned by freezing water');
+  check(!ice.steps.some((s) => s.process.conditions.places),
+        'not by placing a block of it, though the game would take either');
+  // And freezing is a ceiling, not a floor: it happens on the way *down*.
+  const freeze = graph.byId.get('cond:Water');
+  check(!freeze.conditions.temperature && freeze.conditions.maxTemperature === 272,
+        'condensation records a ceiling, so nothing fires a furnace to freeze something');
+  check(ice.apparatus.cooling === 'always' && ice.apparatus.ceiling === 272,
+        'and the plan asks for cooling below -1 °C');
+}
+
+/* ------------------------------------------------------------------ kinds */
+
+console.log('\n--- process kinds ---');
+{
+  const withMining = solvePlan(graph, { targets: ['Alumina'], kinds: [...DEFAULT_KINDS, 'mine'] });
+  const without = solvePlan(graph, { targets: ['Alumina'] });
+  check(without.steps.every((s) => s.process.kind !== 'mine'),
+        'mining stays out of a plan by default');
+  check(withMining.steps.length > 0, 'and can be turned on');
+
+  // The frontier says how the world hands over what it is asking for, even
+  // though the plan will not do it: that is the point of keeping every kind
+  // indexed and filtering only at solve time.
+  const annotated = [...without.frontier, ...alu.frontier, ...vinegar.frontier]
+    .filter((f) => f.routes.length);
+  check(annotated.length > 0,
+        `${annotated.length} frontier items name a route the plan is not allowed to take` +
+        (annotated[0] ? ` (${annotated[0].name}: ${annotated[0].routes[0].kind})` : ''));
+}
+{
+  const beams = solvePlan(graph, { targets: ['Neptunium'], kinds: [...DEFAULT_KINDS, 'beam'] });
+  check(beams.steps.some((s) => s.process.kind === 'beam') || !beams.unreachable.length,
+        'the accelerator is usable when allowed');
+}
+
+/* ------------------------------------------------------------- quantities */
+
+console.log('\n--- quantities ---');
+{
+  // Alumina Reduction: 1 Alumina + 3 Carbon -> 2 Molten Aluminum + 2 Carbon
+  // Monoxide. Asking for one of a thing made two at a time is the case that
+  // needs fractions, and the batch scale is what turns it back into whole runs.
+  const one = solvePlan(graph, { targets: [{ name: 'Molten Aluminum', amount: 1 }],
+                                 pins: { 'Molten Aluminum': 'rx:Alumina Reduction' } });
+  const step = one.steps.find((s) => s.process.id === 'rx:Alumina Reduction');
+  check(step && step.runs.d === 1n, 'a half-run is scaled up to a whole batch');
+  check(rcmp(one.scale, rat(1)) > 0, `the batch is scaled ×${rstr(one.scale)} to make it whole`);
+  check(rstr(one.amountOf('Carbon')) === String(3n * step.runs.n),
+        'and the inputs scale with it: 3 Carbon per run');
+  audit('one Molten Aluminum from a reaction that makes two', one);
+}
+{
+  // A catalyst is not an ingredient. `DoReaction` reads only InputTypes and
+  // never touches the catalyst, so one Blender makes yeast forever -- it is a
+  // condition on the apparatus, like a temperature.
+  const p = solvePlan(graph, { targets: [{ name: 'Clay', amount: 10 }],
+                               pins: { Clay: 'rx:Blending Apatite Gravel' } });
+  check(p.apparatus.catalysts.get('Blender') === 1, 'a catalysed plan says it needs a Blender');
+  check(!p.dag.materials.has('Blender'), 'but the Blender is not a material in the plan');
+  check(!p.frontier.some((f) => f.name === 'Blender'), 'and never lands on the shopping list');
+  check(rstr(p.amountOf('Blender')) === '0', 'ten runs consume no Blenders at all');
+  const one = solvePlan(graph, { targets: [{ name: 'Clay', amount: 1 }],
+                                 pins: { Clay: 'rx:Blending Apatite Gravel' } });
+  check(one.apparatus.catalysts.get('Blender') === p.apparatus.catalysts.get('Blender'),
+        'and one run needs no fewer');
+}
+{
+  const p = solvePlan(graph, { targets: [{ name: 'Vinegar', amount: 7 }] });
+  const one = solvePlan(graph, { targets: [{ name: 'Vinegar', amount: 1 }] });
+  const ratio = (plan) => plan.steps.map((s) => `${s.process.id}=${rstr(s.runs)}`).sort();
+  check(p.steps.length === one.steps.length, 'asking for seven does not change the route');
+  check(JSON.stringify(ratio(p)) !== JSON.stringify(ratio(one)), 'only the amounts');
+  audit('Vinegar ×7', p);
+}
+
+/* ----------------------------------------------------------- byproducts */
+
+console.log('\n--- byproducts ---');
+{
+  const plan = solvePlan(graph, { targets: ['Sulfuric Acid'], have: ['Water'] });
+  check(plan.byproducts.length > 0,
+        `spare output is reported (${plan.byproducts.map((b) => rstr(b.amount) + ' ' + b.name).join(', ')})`);
+  check(plan.byproducts.every((b) => !b.credited), 'and is waste until the reader says otherwise');
+
+  const fed = solvePlan(graph, { targets: ['Sulfuric Acid'], have: ['Water'],
+                                 credit: plan.byproducts.map((b) => b.name) });
+  check(fed.converged, 'crediting it back still settles on a batch size');
+  audit('Sulfuric Acid with byproducts fed back', fed);
+}
+
+/* ---------------------------------------------------- the other way round */
+
+console.log('\n--- starting from what you have ---');
+{
+  const reach = reachableFrom(graph, { have: ['Water', 'Carbon', 'Oxygen Gas'] });
+  check(reach.length > 0, `${reach.length} materials are reachable from water, carbon and oxygen`);
+  check(reach[0].cost <= reach[reach.length - 1].cost, 'nearest first');
+  console.log('      nearest:', reach.slice(0, 8).map((r) => r.name).join(', '));
+  check(!reach.some((r) => graph.producers(r.name).every((p) => !new Set(DEFAULT_KINDS).has(p.kind))),
+        'nothing is listed that no allowed process can make');
+  check(reachableFrom(graph, { have: [] }).length === 0,
+        'and with nothing in hand, nothing is reachable');
+
+  // Adding a material can only ever make things easier, never harder.
+  const more = reachableFrom(graph, { have: ['Water', 'Carbon', 'Oxygen Gas', 'Iron'] });
+  const before = new Map(reach.map((r) => [r.name, r.cost]));
+  const worse = more.filter((r) => before.has(r.name) && r.cost > before.get(r.name) + 1e-9);
+  check(!worse.length, 'having more never costs more');
+}
+{
+  // Forward expansion: name a process rather than a target, and the plan grows
+  // rightwards from it.
+  const fwd = solvePlan(graph, { have: ['Water'], include: ['evap:Water'] });
+  check(fwd.dag.processes.has('evap:Water'), 'an included process is in the plan with no target at all');
+  check(rstr(fwd.runsOf('evap:Water')) === '1', 'and runs once by default');
+  check(fwd.byproducts.some((b) => b.name === 'Steam'), 'its output is there to pick up');
+  const twice = solvePlan(graph, { have: ['Water'], include: ['evap:Water'], runs: { 'evap:Water': 4 } });
+  check(rstr(twice.amountOf('Water')) === '4', 'a hand-set batch size drives its inputs');
+}
+
+/* ------------------------------------------------------------ everything */
+
+console.log('\n--- every material as a target ---');
+{
+  const t0 = Date.now();
+  let made = 0, fetched = 0, threw = 0, worst = null, worstMs = 0, deepest = null;
+  for (const m of db.materials) {
+    let plan;
+    const t = Date.now();
+    try {
+      plan = solvePlan(graph, { targets: [m.name] });
+    } catch (err) {
+      if (threw++ < 3) bad(`${m.name} threw: ${err.message}`);
+      continue;
+    }
+    const ms = Date.now() - t;
+    if (ms > worstMs) { worstMs = ms; worst = m.name; }
+    if (plan.unreachable.length) fetched++; else made++;
+    if (!deepest || plan.steps.length > deepest.steps) {
+      deepest = { name: m.name, steps: plan.steps.length };
+    }
+    if (plan.stuck.length) bad(`${m.name}: ${plan.stuck.length} nodes would not order`);
+    for (const { runs } of plan.steps) {
+      if (runs.d !== 1n) { bad(`${m.name}: fractional run count survived scaling`); break; }
+    }
+  }
+  const total = Date.now() - t0;
+  check(!threw, `all ${db.materials.length} materials solve without throwing`);
+  console.log(`      ${made} can be made, ${fetched} can only be fetched`);
+  console.log(`      deepest: ${deepest.name} at ${deepest.steps} steps`);
+  console.log(`      ${total} ms total, ${(total / db.materials.length).toFixed(1)} ms each, ` +
+              `worst ${worst} at ${worstMs} ms`);
+  check(total / db.materials.length < 50, 'a plan solves fast enough to run on every keystroke');
+}
+
+console.log('\n--- determinism ---');
+{
+  const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };
+  const a = solvePlan(graph, spec), b = solvePlan(graph, spec);
+  const sig = (p) => p.steps.map((s) => `${s.process.id}×${rstr(s.runs)}`).join('|');
+  check(sig(a) === sig(b), 'the same question gets the same answer');
+}
+
+console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
+process.exit(fail ? 1 : 0);
