@@ -234,22 +234,22 @@ console.log('\n--- claiming what is left over ---');
   const before = { steps: nodes($('#plan-steps'), 'plan-step').length,
                    fetch: nodes($('#plan-side'), 'plan-item')
                      .filter((n) => n.textContent.includes('mine') || false).length };
-  const water = nodes($('#plan-side'), 'plan-item').find((n) => n.dataset.material === 'Water');
-  check(!!water, 'the spare water is listed as left over');
-  const keep = nodes(water, 'small').find((b) => b.textContent === 'Keep it');
+  const spare = nodes($('#plan-side'), 'plan-item')
+    .find((n) => n.dataset.material === 'Molten Silica');
+  check(!!spare, 'the spare silica is listed as left over');
+  const keep = nodes(spare, 'small').find((b) => b.textContent === 'Keep it');
   check(!!keep, 'and offers to be kept rather than wanted');
 
   keep.click();
   check(nodes($('#plan-steps'), 'plan-step').length === before.steps,
         `which changes nothing about the plan (${before.steps} steps either way)`);
-  check(!text('#plan-side').includes('Falling Snow') && !text('#plan-side').includes('Vanadinite'),
-        'and sends it after nothing');
-  check(text('#plan-side').includes('You also get'), 'the water moves to what you also get');
+  check(!text('#plan-side').includes('Vanadinite'), 'and sends it after nothing');
+  check(text('#plan-side').includes('You also get'), 'the silica moves to what you also get');
   const still = nodes($('#plan-side'), 'plan-item')
-    .filter((n) => n.dataset.material === 'Water');
+    .filter((n) => n.dataset.material === 'Molten Silica');
   check(still.length === 1 && still[0].textContent.includes('Kept'),
         'listed once, as kept');
-  check(!app.getPlan().targets.some((t) => t.name === 'Water'),
+  check(!app.getPlan().targets.some((t) => t.name === 'Molten Silica'),
         'without becoming something the plan has to make');
 }
 
@@ -257,38 +257,37 @@ console.log('\n--- claiming what is left over ---');
 
 console.log('\n--- trading a step for a charge ---');
 {
-  // The water is condensed out of spare steam rather than taken back off the
-  // acid: a step you run forever in place of a charge you lay in once. Which
-  // way round is better is the reader's call, so both are one press away.
-  app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Potassium'), 'Lithium'), 'Lepidolite'));
+  // The copper is made rather than taken back off its own loop: a step you run
+  // forever in place of a charge you lay in once. Which way round is better is
+  // the reader's call, so both are one press away.
+  app.setPlan(addTarget(emptyPlan(), 'Aqueous Magnesium Sulfate'));
   app.setMode('plan');
   const steps = () => nodes($('#plan-steps'), 'plan-step');
   const before = steps().length;
   const marked = steps().filter((r) => r.textContent.includes('does not have to be laid in'));
   check(marked.length === 1,
-        `exactly the step that was added says so, not everything that makes water (${marked.length})`);
-  check(marked[0].textContent.includes('Steam condenses into Water'),
-        'and it is the one condensing the steam');
+        `exactly the step that was added says so, not every step that makes any (${marked.length})`);
+  check(marked[0].textContent.includes('Copper'), 'and it is the one making the copper');
   const primeIt = nodes($('#plan-steps'), 'step-acts')
     .flatMap((a) => a.children).find((b) => b.textContent === 'Prime instead');
   check(!!primeIt, 'and offers to make that trade the other way');
 
   primeIt.click();
-  check(steps().length === before - 1, `which drops the step (${before} -> ${steps().length})`);
+  check(steps().length < before, `which drops the step (${before} -> ${steps().length})`);
   const charges = nodes($('#plan-side'), 'plan-item')
     .filter((n) => n.textContent.includes('never spent')).map((n) => n.dataset.material);
-  check(charges.includes('Water'), `and lays the water in instead: ${charges.join(', ')}`);
-  check(app.getPlan().credit.includes('Water'),
+  check(charges.includes('Copper'), `and lays the copper in instead: ${charges.join(', ')}`);
+  check(app.getPlan().credit.includes('Copper'),
         'held there by an explicit choice, which the solver will not overrule');
 
   // And back again, from the charge it created.
   const makeIt = nodes($('#plan-side'), 'plan-item')
-    .filter((n) => n.dataset.material === 'Water')
+    .filter((n) => n.dataset.material === 'Copper')
     .flatMap((n) => nodes(n, 'small')).find((b) => b.textContent === 'Make it instead');
   check(!!makeIt, 'the charge offers the reverse');
   makeIt.click();
   check(steps().length === before, 'which puts the step back');
-  check(!app.getPlan().credit.includes('Water'), 'and the choice with it');
+  check(!app.getPlan().credit.includes('Copper'), 'and the choice with it');
 }
 
 /* ------------------------------------------------------------- redirecting */

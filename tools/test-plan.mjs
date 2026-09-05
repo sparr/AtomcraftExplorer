@@ -107,7 +107,40 @@ console.log('\n--- phase chains ---');
         'and stopping at water is still there to be chosen');
   const split = solvePlan(graph, { targets: ['Ice'], have: ['Steam'],
                                    pins: { Ice: 'cond:Water' } });
-  check(split.steps.length === 2, 'choosing it gives the two-step version back');
+  check(split.steps.some((s) => s.process.id === 'cond:Water'),
+        'choosing it freezes water instead');
+  check(!split.steps.some((s) => s.process.id === chain.id), 'and the chain is not used');
+  // Water is collectable, so stopping at it costs a fetch rather than a step.
+  check(split.frontier.some((f) => f.name === 'Water'),
+        'though the water then has to come from somewhere: it is collected');
+}
+
+/* ----------------------------------------------------- what the sky gives */
+
+console.log('\n--- materials the weather delivers ---');
+{
+  // Nothing in the material list says water is collectable. It is in the
+  // simulation's weather branch: a Rainstorm sets tiles to Materials.WATER and
+  // a Snowstorm to Materials.SNOW_FALLING. Without that the planner inferred
+  // "raw" from the absence of a recipe -- so it understood Falling Snow, which
+  // nothing makes, and thought water, with 77 ways to make it, had to be
+  // manufactured.
+  check(graph.fallsFromSky('Water') && graph.fallsFromSky('Falling Snow'),
+        'rain and snow are known to fall');
+  check(!graph.fallsFromSky('Sulfuric Acid') && !graph.fallsFromSky('Coal (Burning)'),
+        'while acid rain and firestorms, which only the developer console starts, are not');
+  // "Snow" is a different material that merely displays as "Falling Snow".
+  check(!graph.fallsFromSky('Snow'), 'and it is the material named Falling Snow, not the one shown as it');
+
+  const water = solvePlan(graph, { targets: ['Water'] });
+  check(!water.steps.length && water.frontier.some((f) => f.name === 'Water'),
+        `asking for water is answered by going outside (${water.steps.length} steps)`);
+
+  let snow = 0;
+  for (const m of graph.db.materials) {
+    if (solvePlan(graph, { targets: [m.name] }).frontier.some((f) => f.name === 'Falling Snow')) snow++;
+  }
+  check(snow <= 1, `and hardly any plan fetches snow to melt any more (${snow} of ${graph.db.materials.length})`);
 }
 
 /* --------------------------------------------------- naming what happens */
@@ -628,12 +661,10 @@ console.log('\n--- a shortfall is a shortfall ---');
   }
   ok('everything the plan is short of reaches the shopping list');
 
-  // And with that true, wanting the water condenses the steam going spare
-  // rather than fetching snow for it.
-  check(plan.dag.materials.get('Water')?.producer === 'cond:Steam',
-        'the water comes from the steam the furnace is throwing off');
+  // And with that true, wanting the water no longer sends the planner after
+  // snow to melt -- water falls from the sky, so it is simply collected.
   check(!plan.frontier.some((f) => f.name === 'Falling Snow'),
-        'not from snow fetched for the purpose');
+        'and no snow is fetched to be melted into water');
 }
 
 /* ------------------------------------------------------------ closed loops */
@@ -669,17 +700,11 @@ console.log('\n--- a material that comes back ---');
   check(!primed.includes('Hydrogen Gas'),
         'nor one that could simply be made earlier');
 
-  // A step you run forever beats a charge you lay in once, so a loop that can
-  // be broken is broken: the water is condensed out of the spare steam rather
-  // than taken back off the acid, and only the chlorine has to be laid in.
-  check(plan.steps.some((s) => s.process.id === 'cond:Steam'),
-        'the water is made from the steam going spare');
+  // Insisting that a material stay on its loop brings its charge back.
   const stuckWith = solvePlan(graph, { targets: ['Potassium', 'Lithium'],
                                        have: ['Lepidolite'], credit: ['Water'] });
   check(stuckWith.priming.some((x) => x.name === 'Water'),
-        'where the reader insists on feeding it back, the charge comes back with it');
-  check(stuckWith.steps.length < plan.steps.length,
-        `which is the step it saves (${stuckWith.steps.length} against ${plan.steps.length})`);
+        'asking for a material to be fed back brings its charge with it');
 
   // Not every loop can be broken, and a trial that makes things worse is not
   // taken: refusing the chlorine sends the planner back to fetching Vanadinite.
@@ -687,6 +712,17 @@ console.log('\n--- a material that comes back ---');
                                   have: ['Lepidolite'], noFeedBack: ['Chlorine Gas'] });
   check(noCl.frontier.length > plan.frontier.length,
         'refusing the chlorine costs a shopping list, which is why it was left alone');
+
+  // A step traded for a charge, on a plan where that still comes up: the
+  // hydrogen for Aluminum Carbide is made rather than taken off its own loop.
+  const traded = solvePlan(graph, { targets: ['Aluminum Carbide'] });
+  check(traded.brokenLoops.includes('Hydrogen Gas'),
+        `a loop broken with a step: ${traded.brokenLoops.join(', ')}`);
+  const held = solvePlan(graph, { targets: ['Aluminum Carbide'], credit: ['Hydrogen Gas'] });
+  check(held.priming.some((x) => x.name === 'Hydrogen Gas'),
+        'and left on its loop it wants laying in instead');
+  check(held.steps.length < traded.steps.length,
+        `which is the step it saves (${held.steps.length} against ${traded.steps.length})`);
 
   const off = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'],
                                  feedBackAll: false });
@@ -835,28 +871,21 @@ console.log('\n--- byproducts ---');
   // Feeding a byproduct back has to make it *usable*, not merely cancel demand
   // for the same material. The furnace throwing off steam is a reason to
   // condense the steam, not to go and fetch snow.
-  const before = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'],
-                                    feedBackAll: false });
-  check(before.frontier.some((f) => f.name === 'Falling Snow'),
-        'told to feed nothing back, the plan fetches snow to make its water');
-  check(before.byproducts.some((b) => b.name === 'Steam'), 'while throwing steam away');
-
-  const fed = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'],
-                                 feedBackAll: false, credit: ['Steam'] });
-  check(fed.steps.some((s) => s.process.id === 'cond:Steam'),
-        'fed back, the steam is what becomes the water');
-  check(!fed.frontier.some((f) => f.name === 'Falling Snow'), 'and the snow is not wanted');
-  const spare = fed.byproducts.find((b) => b.name === 'Steam');
-  check(spare && rstr(spare.amount) === '2',
-        `with the rest of it still spare (${spare && rstr(spare.amount)} of 3)`);
-  audit('Potassium with the steam fed back', fed);
+  const before = solvePlan(graph, { targets: ['Aluminum Chloride'], feedBackAll: false });
+  const fed = solvePlan(graph, { targets: ['Aluminum Chloride'] });
+  check(fed.frontier.length < before.frontier.length,
+        `feeding back shortens the shopping list (${before.frontier.length} -> ` +
+        `${fed.frontier.length})`);
+  check(fed.spec.credit.size > 0,
+        `by using what it already makes: ${[...fed.spec.credit].join(', ')}`);
+  audit('Aluminum Chloride with its own output fed back', fed);
 
   // On by default, and worked out rather than asked for: which materials are
   // spare cannot be known until the plan exists, and knowing changes the plan.
-  const auto = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'] });
+  const auto = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'] });
   check(auto.spec.feedBackAll, 'every spare output is fed back by default');
-  check(auto.steps.some((s) => s.process.id === 'cond:Steam'),
-        'so the steam becomes the water with nobody having to say so');
+  check(auto.spec.credit.size > 0,
+        `with nobody having to say so: ${[...auto.spec.credit].slice(0, 4).join(', ')}…`);
   check(!auto.frontier.length, 'and there is nothing left to fetch');
 
   // But a free supply is an unlimited one as far as the cost model is
@@ -870,11 +899,12 @@ console.log('\n--- byproducts ---');
         'and never leaves the plan short of something it talked itself into using');
 
   // A named exception is honoured.
-  const except = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'],
-                                    noFeedBack: ['Steam'] });
-  check(!except.steps.some((s) => s.process.id === 'cond:Steam'),
-        'naming one as an exception keeps it out');
-  check(except.frontier.some((f) => f.name === 'Falling Snow'), 'and the snow comes back');
+  const kept = [...auto.spec.credit][0];
+  const except = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'],
+                                    noFeedBack: [kept] });
+  check(!except.spec.credit.has(kept), `naming ${kept} as an exception keeps it out`);
+  check(except.frontier.length >= auto.frontier.length,
+        'and the plan is no better off for it');
 
   // Feeding back what the plan cannot make enough of leaves the shortfall.
   const short = solvePlan(graph, { targets: [{ name: 'Potassium', amount: 40 }],

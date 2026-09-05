@@ -43,6 +43,31 @@ export const KIND = new Map(PROCESS_KINDS.map((k) => [k.id, k]));
 export const DEFAULT_KINDS = PROCESS_KINDS.filter((k) => k.automatic).map((k) => k.id);
 
 /**
+ * What falls out of the sky.
+ *
+ * The world hands these over for nothing, which no amount of reading the
+ * material list will tell you: they are named in the simulation's weather
+ * branch, not in the data. `Simulation.cs` sets the tile directly, one in 128
+ * per tick along the top of the weather range.
+ *
+ * Only these two. `Simulation.cs` has branches for a Firestorm dropping
+ * `BURNING_COAL` and an AcidRain dropping `SULFURIC_ACID`, but `Weather.Process`
+ * only ever turns Sunny into a Rainstorm or a Snowstorm, and the only callers
+ * of `StartFirestorm` and `StartAcidRain` are in `Console.cs`. Weather nobody
+ * can have without the developer console is not a supply.
+ *
+ * Without this the planner had no way to know that water is collectable. It
+ * inferred "raw" from the absence of a recipe, which is why it understood that
+ * Falling Snow could simply be gathered -- nothing makes any -- and thought
+ * water, with 77 ways to make it, had to be manufactured. It is the same
+ * storm.
+ */
+export const FALLS_FROM_SKY = new Set([
+  'Water',          // Rainstorm -- Materials.WATER
+  'Falling Snow',   // Snowstorm -- Materials.SNOW_FALLING
+]);
+
+/**
  * `+H2O` is the marker for water of hydration in a Composition, not a material
  * anyone can hold. It carries an Evaporation, so left in the graph it would
  * offer itself as a (never obtainable) source of Steam.
@@ -667,6 +692,8 @@ export function buildProcessGraph(db) {
     category,
     categoryOf: (name) => category.get(name) || 'other',
     stateOf: (name) => state.get(name) || null,
+    /** Does the weather deliver this one? */
+    fallsFromSky: (name) => FALLS_FROM_SKY.has(name),
     isManufactured: (name) => manufactured.has(name),
     producersOf,
     consumersOf,

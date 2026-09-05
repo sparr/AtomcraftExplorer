@@ -269,6 +269,15 @@ costs more than a warm room, waiting out a half-life costs more than boiling a
 kettle, and doing something by hand costs more than anything the game will do
 for you.
 
+**Some of it falls out of the sky.** Nothing in the material list says so — it
+is in the simulation's weather branch, where a Rainstorm sets tiles to Water and
+a Snowstorm to Falling Snow. Without that the planner could only infer "raw"
+from the absence of a recipe, which is why it understood that snow could simply
+be gathered, nothing making any, and thought water — with 77 ways to make it —
+had to be manufactured. It is the same storm. Firestorms and acid rain drop coal
+and sulfuric acid in the same code, but only the developer console ever starts
+one, so they are not counted.
+
 What it costs to simply *have* a material decides how far back a plan reaches.
 An ore is cheap — that is where a chain is meant to bottom out — and something
 you could make is dear, so the plan works backwards through it. Two things

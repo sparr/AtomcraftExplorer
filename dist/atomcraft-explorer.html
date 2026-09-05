@@ -3192,6 +3192,31 @@ const KIND = new Map(PROCESS_KINDS.map((k) => [k.id, k]));
 const DEFAULT_KINDS = PROCESS_KINDS.filter((k) => k.automatic).map((k) => k.id);
 
 /**
+ * What falls out of the sky.
+ *
+ * The world hands these over for nothing, which no amount of reading the
+ * material list will tell you: they are named in the simulation's weather
+ * branch, not in the data. `Simulation.cs` sets the tile directly, one in 128
+ * per tick along the top of the weather range.
+ *
+ * Only these two. `Simulation.cs` has branches for a Firestorm dropping
+ * `BURNING_COAL` and an AcidRain dropping `SULFURIC_ACID`, but `Weather.Process`
+ * only ever turns Sunny into a Rainstorm or a Snowstorm, and the only callers
+ * of `StartFirestorm` and `StartAcidRain` are in `Console.cs`. Weather nobody
+ * can have without the developer console is not a supply.
+ *
+ * Without this the planner had no way to know that water is collectable. It
+ * inferred "raw" from the absence of a recipe, which is why it understood that
+ * Falling Snow could simply be gathered -- nothing makes any -- and thought
+ * water, with 77 ways to make it, had to be manufactured. It is the same
+ * storm.
+ */
+const FALLS_FROM_SKY = new Set([
+  'Water',          // Rainstorm -- Materials.WATER
+  'Falling Snow',   // Snowstorm -- Materials.SNOW_FALLING
+]);
+
+/**
  * `+H2O` is the marker for water of hydration in a Composition, not a material
  * anyone can hold. It carries an Evaporation, so left in the graph it would
  * offer itself as a (never obtainable) source of Steam.
@@ -3816,6 +3841,8 @@ function buildProcessGraph(db) {
     category,
     categoryOf: (name) => category.get(name) || 'other',
     stateOf: (name) => state.get(name) || null,
+    /** Does the weather deliver this one? */
+    fallsFromSky: (name) => FALLS_FROM_SKY.has(name),
     isManufactured: (name) => manufactured.has(name),
     producersOf,
     consumersOf,
@@ -3845,7 +3872,7 @@ function buildProcessGraph(db) {
   return graph;
 }
 
-return { PROCESS_KINDS, KIND, DEFAULT_KINDS, operatingWindow, buildProcessGraph };
+return { PROCESS_KINDS, KIND, DEFAULT_KINDS, FALLS_FROM_SKY, operatingWindow, buildProcessGraph };
 })();
 
 const __mod_plan_state = (() => {
@@ -4452,6 +4479,12 @@ function solveCosts(graph, spec) {
     // the furnace is throwing off and condensing it, rather than fetching snow.
     if (spec.credit.has(name)) return 0;
     if (excludeMaterials.has(name) || spec.closed) return Infinity;
+    // The weather delivers a few materials for nothing. Nothing in the
+    // material list says so, and without it the planner could not tell that
+    // water is collectable: it inferred "raw" from having no recipe, so it
+    // understood Falling Snow, which nothing makes, and thought water -- with
+    // 77 ways to make it -- had to be manufactured. It is the same storm.
+    if (graph.fallsFromSky(name)) return weights.acquireWorld;
     if (WORLDLY.has(graph.categoryOf(name))) return weights.acquireWorld;
     if (placed(graph, name)) return Infinity;
     // `acquireRaw` means the world hands it over. A thing the player builds is
@@ -4564,9 +4597,17 @@ function extract(graph, spec, solved) {
       const id = choice.get(name);
       if (!id) return null;
       // Making it has to actually beat having it, or every plan drags a whole
-      // chemistry set behind materials the reader could simply pick up. A
-      // target is exempt: it is the thing being asked for.
-      if (wanted.has(name)) return graph.byId.get(id);
+      // chemistry set behind materials the reader could simply pick up.
+      //
+      // A target is normally exempt -- asking for Vinegar and being told to go
+      // and find Vinegar is not a plan -- but not when the world simply hands
+      // the stuff over. Asking for water when it rains is answered by going
+      // outside, and the rule without this had the planner fetch snow and melt
+      // it instead.
+      if (wanted.has(name)) {
+        return graph.fallsFromSky(name) || WORLDLY.has(graph.categoryOf(name))
+          ? null : graph.byId.get(id);
+      }
       return (made.get(name) ?? Infinity) < acquire(name) ? graph.byId.get(id) : null;
     };
 

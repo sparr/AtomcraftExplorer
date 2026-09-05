@@ -306,6 +306,12 @@ export function solveCosts(graph, spec) {
     // the furnace is throwing off and condensing it, rather than fetching snow.
     if (spec.credit.has(name)) return 0;
     if (excludeMaterials.has(name) || spec.closed) return Infinity;
+    // The weather delivers a few materials for nothing. Nothing in the
+    // material list says so, and without it the planner could not tell that
+    // water is collectable: it inferred "raw" from having no recipe, so it
+    // understood Falling Snow, which nothing makes, and thought water -- with
+    // 77 ways to make it -- had to be manufactured. It is the same storm.
+    if (graph.fallsFromSky(name)) return weights.acquireWorld;
     if (WORLDLY.has(graph.categoryOf(name))) return weights.acquireWorld;
     if (placed(graph, name)) return Infinity;
     // `acquireRaw` means the world hands it over. A thing the player builds is
@@ -418,9 +424,17 @@ export function extract(graph, spec, solved) {
       const id = choice.get(name);
       if (!id) return null;
       // Making it has to actually beat having it, or every plan drags a whole
-      // chemistry set behind materials the reader could simply pick up. A
-      // target is exempt: it is the thing being asked for.
-      if (wanted.has(name)) return graph.byId.get(id);
+      // chemistry set behind materials the reader could simply pick up.
+      //
+      // A target is normally exempt -- asking for Vinegar and being told to go
+      // and find Vinegar is not a plan -- but not when the world simply hands
+      // the stuff over. Asking for water when it rains is answered by going
+      // outside, and the rule without this had the planner fetch snow and melt
+      // it instead.
+      if (wanted.has(name)) {
+        return graph.fallsFromSky(name) || WORLDLY.has(graph.categoryOf(name))
+          ? null : graph.byId.get(id);
+      }
       return (made.get(name) ?? Infinity) < acquire(name) ? graph.byId.get(id) : null;
     };
 
