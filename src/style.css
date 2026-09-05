@@ -734,8 +734,6 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 }
 .rx-avoids { color: var(--warm); }
 .rx-also { color: var(--danger); }
-/* Which of several dodged reactions is the one that set the limit. */
-.rx-binding { color: var(--fg-dim); }
 .rx-why { color: var(--fg-faint); }
 /* A side reaction the plan wants anyway, somewhere else. */
 .rx-also.wanted { color: var(--fg-faint); }

@@ -74,10 +74,10 @@ check($('#plan-empty').hidden && !$('#plan-work').hidden, 'a plan with a target 
 // Every side reaction says when it would happen, since a step may dodge
 // several and only one of them explains the limit it ended up with.
 const avoided = nodes($('#plan-steps'), 'rx-avoids');
-check(avoided.length > 0 && avoided.every((n) => /°C/.test(n.textContent)),
-      'each dodged side reaction names the temperature it starts at');
-check(avoided.some((n) => n.textContent.includes('sets the limit')),
-      'and the one that set the step\'s limit says so');
+check(avoided.length > 0 && avoided.every((n) => /at [≥≤]|at \d|any temperature/.test(n.textContent)),
+      'each dodged side reaction says at what temperature it would happen');
+check(avoided.some((n) => /at ≥|at ≤/.test(n.textContent)),
+      'as a bound rather than a sentence');
 const also = nodes($('#plan-steps'), 'rx-also');
 check(also.every((n) => /°C|any temperature/.test(n.textContent)),
       'so does one that cannot be dodged');
@@ -86,6 +86,18 @@ check(also.some((n) => /a step of this plan|no temperature in range/.test(n.text
 
 const steps = nodes($('#plan-steps'), 'plan-step');
 check(steps.length === 4, `Vinegar comes out as ${steps.length} steps`);
+{
+  // A run is a whole thing, so a plan that would need half of one is multiplied
+  // up -- and has to say what that leaves you with, since the goal bar still
+  // says what you asked for.
+  app.setPlan(addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite'));
+  const head = text('#plan-steps');
+  check(head.includes('one batch makes 2 Potassium'),
+        `a doubled plan says what a batch makes: ${head.slice(0, 60).trim()}`);
+  app.setPlan(addTarget(emptyPlan(), 'Vinegar'));
+  check(!text('#plan-steps').includes('one batch makes'),
+        'and a plan that comes out whole says nothing about it');
+}
 check(text('#plan-steps').includes('Acetic Acid'), 'naming the materials along the way');
 check(goals().includes('Vinegar'), 'and the goal bar says what it is for');
 check(text('#plan-side').includes('Death Moss Spore'), 'the side lists what to go and fetch');

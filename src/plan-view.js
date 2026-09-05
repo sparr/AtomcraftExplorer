@@ -12,7 +12,7 @@
  * else is drawn beside it later.
  */
 import { search } from './search.js';
-import { solvePlan, routesFor, usesFor, rstr, rcmp, R0 } from './plan-solve.js';
+import { solvePlan, routesFor, usesFor, rat, rmul, rstr, rcmp, R0 } from './plan-solve.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
 import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
@@ -101,11 +101,15 @@ const amount = (r) => rstr(r);
  */
 function firesAt([lo, hi]) {
   const open = !Number.isFinite(hi);
-  if (lo > 0 && open) return `${formatTemperature(lo)} and above`;
+  if (lo > 0 && open) return `≥ ${formatTemperature(lo)}`;
   if (lo > 0) return `${formatTemperature(lo)}–${formatTemperature(hi)}`;
-  if (!open) return `${formatTemperature(hi)} and below`;
+  if (!open) return `≤ ${formatTemperature(hi)}`;
   return 'any temperature';
 }
+
+/** "a", "a and b", "a, b and c". */
+const listed = (parts) => (parts.length < 2 ? (parts[0] || '')
+  : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`);
 
 /**
  * Everything currently showing suggestions, so a click elsewhere can put them
@@ -258,13 +262,9 @@ function conditions(step) {
   }
   // Kept out of this range: what would happen, and where.
   for (const a of w.avoided) {
-    const line = el('span', 'rx-avoids');
-    line.append(`avoids ${a.label}, which starts at ${firesAt(a.range)}`);
-    if (a.binding) {
-      line.append(el('span', 'rx-binding', ' — this is what sets the limit'));
-    }
+    const line = el('span', 'rx-avoids', `avoids ${a.label} at ${firesAt(a.range)}`);
     line.title = a.binding
-      ? "The step's range stops just short of this."
+      ? "The step's range stops just short of this one."
       : 'Also dodged, though something else is the tighter limit.';
     out.append(line);
   }
@@ -277,7 +277,7 @@ function conditions(step) {
     if (sharing.has(u.id)) continue;
     const wanted = solved.dag.processes.has(u.id);
     const line = el('span', 'rx-also');
-    line.append(`this also runs ${u.label} (${firesAt(u.range)})`);
+    line.append(`this also runs ${u.label} at ${firesAt(u.range)}`);
     line.append(el('span', 'rx-why',
       wanted ? ' — which is a step of this plan anyway'
              : ' — no temperature in range avoids it'));
@@ -314,8 +314,23 @@ function renderSteps() {
 
   const head = el('div', 'plan-steps-head');
   head.append(el('h2', null, `${solved.steps.length} step${solved.steps.length === 1 ? '' : 's'}`));
-  if (rcmp(solved.scale, R0) > 0 && solved.scale.n !== 1n) {
-    head.append(el('span', 'muted', `scaled ×${rstr(solved.scale)} to come out whole`));
+  // A run is a whole thing. Where getting exactly what was asked for would take
+  // a fraction of one -- the potassium hydroxide electrolysis goes two at a
+  // time, so one Potassium is half a run of it -- the plan is multiplied up.
+  // Saying only that it was "scaled ×2" leaves the reader to work out what they
+  // now get, while the goal bar still says 1.
+  if (solved.scale.n !== 1n) {
+    const makes = plan.targets.map((t) => {
+      const m = ctx.db.byName.get(t.name);
+      return `${rstr(rmul(rat(t.amount), solved.scale))} ${m ? m.display : t.name}`;
+    });
+    const note = el('span', 'muted', makes.length
+      ? `one batch makes ${listed(makes)}`
+      : `every run multiplied by ${rstr(solved.scale)} to come out whole`);
+    note.title = `A run is a whole thing, and making exactly what was asked for ` +
+      `would take a fraction of one, so the whole plan is multiplied by ` +
+      `${rstr(solved.scale)}.`;
+    head.append(note);
   }
   box.append(head);
 
@@ -623,10 +638,10 @@ function renderSide() {
   // over without some in the chamber to begin with.
   if (solved.priming.length) {
     const prime = el('section', 'plan-panel priming');
-    prime.append(el('h2', null, 'To get it going'));
-    prime.append(el('p', 'muted',
-      'The plan gives all of this back as fast as it uses it, so it needs none ' +
-      'of it over a cycle — but it cannot start without some in the chamber.'));
+    const title = el('h2', null, 'To get it going');
+    title.title = 'The plan gives all of this back as fast as it uses it, so it needs ' +
+      'none of it over a cycle — but it cannot start without some in the chamber.';
+    prime.append(title);
     const ul = el('ul', 'plan-list');
     for (const item of solved.priming) {
       const li = el('li', 'plan-item');
