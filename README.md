@@ -268,6 +268,11 @@ have water" about a material the plan had already decided to synthesise, and how
 you take a different route to something without banning steps one at a time
 until it gives up.
 
+Routes through something you have come next, ahead of the price order. The
+three ways to Carbon that eat carbon dioxide sat at 115, 116 and 117 of 153,
+behind six shown and a **Show all** button — a list you could only search if you
+already knew the answer.
+
 Deposits are not offered that way. A deposit is in the ground somewhere and you
 are going to go and find it, so it is stated rather than asked about.
 
@@ -328,6 +333,34 @@ cannot be had at all: a wall exists only where it was placed, and a machine part
 is manufactured rather than found, so neither is ever fed into a furnace for its
 metal.
 
+**A price of zero is not a reason.** Costing what you have at nothing says a
+route is not *charged* for eating your carbon dioxide. It never said a route was
+worth anything for doing so — and asked for Carbon with carbon dioxide in hand,
+the planner reached for a mushroom spore that turns straight into it for 1.56
+and left the stock alone. The reduction the question was about, 4 K + CO₂ → 2
+K₂O + C, costs 13.22, and nearly all of that is the four Potassium.
+
+No weight fixes that. Small enough to leave the rest of the scale meaning
+anything and it never overturns the spore; large enough to overturn the spore
+and every price below it collapses together. So it is asked as a separate
+question, after the costing rather than inside it: is there a route through what
+you said you had, and what happens to the plan if it takes one. Each is solved
+as though it had been pinned, and they are judged the way two plans are always
+judged here — by the shopping list they leave.
+
+Which is what makes it worth the solves. The potassium route is the dearest of
+the three ways through carbon dioxide and it is the one you want: its own 2 K₂O
+comes back round through the hydroxide and the electrolysis to make the
+potassium again, so the plan asks for Water and a charge of Potassium Oxide laid
+in once. The cost model cannot see that — it prices the potassium as though you
+had to fetch Lepidolite for it every run — and the finished plan can, because by
+then the loop has been found. The magnesium route is cheaper by the model, and
+sends you out for Vanadinite besides.
+
+Only a declared stock does this. Pressing "I have it" on a line of the shopping
+list is waving something off, not naming feedstock, and a plan must not
+restructure itself around a material you were trying to stop thinking about.
+
 Working on something where it lies costs extra for the same reason. Heating a
 Corundum Deposit in the ground really does produce the melt, and it is nobody's
 production line — so the ore route wins wherever there is one, and what you are
@@ -372,17 +405,17 @@ Molten Aluminum out of Water would climb until it ran out of patience. Typing
 an amount turns balancing off, because a box that will not hold what you put in
 it is worse than no box.
 
-**"I have it" means two different things**, and only balancing can tell them
-apart. Lepidolite you have three of, and how much Potassium that comes to is
-the question. Carbon you can go on making, so holding the plan to whatever the
+**"I have it" means two different things.** Lepidolite you have three of, and
+how much Potassium that comes to is the question. Carbon you can go on making, so holding the plan to whatever the
 first guess happened to need costs you the third Silicon for no reason. Each
 chip on the have row says which it is and flips on one press:
 
     have    3 Lepidolite  all I have      9 Carbon  as needed
 
-Both stop the plan working out how to make the material; the difference is
-only whether the amounts are balanced against it. The number is the same
-either way — all you have, or all it will take. **As needed** is the default
+Both stop the plan working out how to make the material. A stock is what the
+amounts are balanced against, and it is also feedstock you are asking the
+planner to get through, which is the subject of *Choosing the route* above. The
+number is the same either way — all you have, or all it will take. **As needed** is the default
 wherever something is being waved off rather than declared: pressing "I have
 it" on a line of the shopping list is not a statement about how much of it you
 have, and before this it quietly became one.
