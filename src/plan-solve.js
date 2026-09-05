@@ -953,9 +953,39 @@ const better = (a, b) => {
  * Kinds rather than amounts: how much comes off scales with the batch, and a
  * plan is not worse for being asked about in larger numbers.
  */
+/**
+ * How much of the reader's own stock a plan gets through.
+ *
+ * Only a declared stock, the same distinction `balanceTargets` draws: what you
+ * are sitting on and asking questions about, not something you waved off the
+ * shopping list.
+ */
+const stockLoad = (p) => {
+  let total = 0;
+  for (const name of p.spec.have) {
+    if (p.spec.plenty.has(name)) continue;
+    total += rnum(p.amountOf(name));
+  }
+  return total;
+};
+
+/**
+ * The same, with what the plan throws away counted above its length, and what
+ * it gets through of the feed above that again.
+ *
+ * The feed is there because closing a shopping list is not one thing. Carbon
+ * out of Carbon Monoxide, told to get rid of the carbon dioxide, needs two
+ * Water for its potassium; it can have them by electrolysing carbon dioxide,
+ * or by burning the spare hydrogen back to steam and condensing it. Both empty
+ * the list completely. The first does it in seven steps and the second in
+ * eight, so on length alone the first wins -- and it wins while eating six
+ * Carbon Monoxide where the other eats two. Length cannot see the feed, and
+ * the feed is the thing the reader actually said they had.
+ */
 const scoreWaste = (p) => [p.frontier.filter((f) => f.alternatives > 0).length,
                            p.frontier.length,
                            p.byproducts.filter((b) => !b.kept).length,
+                           stockLoad(p),
                            p.steps.length, p.priming.length];
 
 /**

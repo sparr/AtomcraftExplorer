@@ -1438,6 +1438,35 @@ console.log('\n--- getting rid of a leftover ---');
         'and naming something it does not leave over does nothing at all');
 }
 
+console.log('\n--- closing the list is not one thing ---');
+{
+  // Getting rid of the carbon dioxide needs two Water for the potassium, and
+  // there are two ways to have them without going shopping: electrolyse carbon
+  // dioxide, or burn the spare hydrogen back to steam and condense it. Both
+  // leave nothing at all to fetch. The first does it in seven steps and the
+  // second in eight, so on length alone the first wins -- while eating six
+  // Carbon Monoxide where the other eats two.
+  const spec = { targets: [{ name: 'Carbon', amount: 1 }],
+                 have: ['Carbon Monoxide'], consume: ['Carbon Dioxide'] };
+  const plan = solvePlan(graph, spec);
+
+  check(plan.frontier.length === 0, 'the plan has nothing left to fetch');
+  check(rstr(plan.amountOf('Carbon Monoxide')) === '2',
+        `and gets there on two Carbon Monoxide, not six: ${rstr(plan.amountOf('Carbon Monoxide'))}`);
+  check(plan.steps.some((s) => s.process.id === 'rx:Hydrogen Combustion'),
+        'by burning its own spare hydrogen back for the water');
+  check(!plan.steps.some((s) => s.process.id === 'rx:Electrolysis of Carbon Dioxide'),
+        'rather than electrolysing carbon dioxide it would have to make first');
+
+  // Two Carbon Monoxide are two carbons and two oxygens, and that is exactly
+  // what comes out: the Carbon asked for, one more over, and an Oxygen Gas.
+  check(rstr(plan.madeOf('Carbon')) === '2',
+        `every carbon in the feed comes back out: ${rstr(plan.madeOf('Carbon'))}`);
+  check(plan.byproducts.map((b) => `${b.name}×${rstr(b.amount)}`).join(', ') ===
+          'Carbon×1, Oxygen Gas×1',
+        `and the difference is all that is left: ${plan.byproducts.map((b) => b.name).join(', ')}`);
+}
+
 console.log('\n--- determinism ---');
 {
   const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };

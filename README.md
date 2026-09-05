@@ -644,6 +644,21 @@ It is sized to the surplus and no further, and it goes in as a step the reader
 put there, so the ordinary comparison never has to like it. That is the point:
 some of what a plan should do is not something a plan can be argued into.
 
+**Closing the shopping list is not one thing, and the cheapest way to close it
+is not the shortest.** Getting the carbon dioxide out of the Carbon plan needs
+two Water for its potassium, and there are two ways to have them without going
+shopping: electrolyse carbon dioxide, or burn the spare hydrogen back to steam
+and condense it. Both leave nothing at all to fetch. The first takes seven steps
+and the second eight — so on length alone the first wins, and it wins while
+eating six Carbon Monoxide where the other eats two.
+
+Length cannot see the feed, and the feed is the thing the reader said they had.
+So what a plan gets through of its stock is counted too, above its length: among
+ways of closing the list that leave the same list and the same leavings, the one
+that spends less of what you brought wins. Two Carbon Monoxide are two carbons
+and two oxygens, and that is now exactly what comes back — the Carbon asked for,
+one more over, and an Oxygen Gas.
+
 ### One reaction at a time
 
 A chamber holds a reaction's inputs, its outputs and its catalyst together, and
