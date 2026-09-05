@@ -221,6 +221,44 @@ console.log('\n--- reactions that share a chamber ---');
         'and they are no longer a footnote on the step that displaced them');
 }
 
+/* ------------------------------------------------------- a step or a charge */
+
+console.log('\n--- trading a step for a charge ---');
+{
+  // The water is condensed out of spare steam rather than taken back off the
+  // acid: a step you run forever in place of a charge you lay in once. Which
+  // way round is better is the reader's call, so both are one press away.
+  app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Potassium'), 'Lithium'), 'Lepidolite'));
+  app.setMode('plan');
+  const steps = () => nodes($('#plan-steps'), 'plan-step');
+  const before = steps().length;
+  const marked = steps().filter((r) => r.textContent.includes('does not have to be laid in'));
+  check(marked.length === 1,
+        `exactly the step that was added says so, not everything that makes water (${marked.length})`);
+  check(marked[0].textContent.includes('Steam condenses into Water'),
+        'and it is the one condensing the steam');
+  const primeIt = nodes($('#plan-steps'), 'step-acts')
+    .flatMap((a) => a.children).find((b) => b.textContent === 'Prime instead');
+  check(!!primeIt, 'and offers to make that trade the other way');
+
+  primeIt.click();
+  check(steps().length === before - 1, `which drops the step (${before} -> ${steps().length})`);
+  const charges = nodes($('#plan-side'), 'plan-item')
+    .filter((n) => n.textContent.includes('never spent')).map((n) => n.dataset.material);
+  check(charges.includes('Water'), `and lays the water in instead: ${charges.join(', ')}`);
+  check(app.getPlan().credit.includes('Water'),
+        'held there by an explicit choice, which the solver will not overrule');
+
+  // And back again, from the charge it created.
+  const makeIt = nodes($('#plan-side'), 'plan-item')
+    .filter((n) => n.dataset.material === 'Water')
+    .flatMap((n) => nodes(n, 'small')).find((b) => b.textContent === 'Make it instead');
+  check(!!makeIt, 'the charge offers the reverse');
+  makeIt.click();
+  check(steps().length === before, 'which puts the step back');
+  check(!app.getPlan().credit.includes('Water'), 'and the choice with it');
+}
+
 /* ------------------------------------------------------------- redirecting */
 
 console.log('\n--- changing how something is made ---');

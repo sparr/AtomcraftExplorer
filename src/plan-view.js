@@ -18,7 +18,8 @@ import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
          removeHave, pin, toggle, toggleKind, setOption,
-         selectMaterial, includeProcess, isFedBack, toggleFedBack } from './plan-state.js';
+         selectMaterial, includeProcess, isFedBack, toggleFedBack,
+         primeInstead, makeInstead } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -372,9 +373,10 @@ function renderSteps() {
     tr.append(what);
 
     const acts = el('td', 'step-acts');
-    // The constructive action first. Banning a step one at a time until the
-    // solver lands on something you like is not choosing, and the inspector
-    // was no use to anyone who did not think to click the output.
+    // What this step is in the plan to make, as against what it also throws
+    // off. The constructive action first: banning a step one at a time until
+    // the solver lands on something you like is not choosing, and the
+    // inspector was no use to anyone who did not think to click the output.
     const made = step.process.produces
       .map((o) => o.name)
       .find((n) => solved.dag.materials.get(n)?.producer === step.process.id);
@@ -383,6 +385,24 @@ function renderSteps() {
       tr.append(el('td', 'step-acts'));
       tbody.append(tr);
       continue;
+    }
+
+    // Some steps are here only because the plan would otherwise have to be
+    // primed: the water is condensed out of spare steam rather than taken back
+    // off the acid, which costs a step and saves a charge. That is a trade the
+    // reader may want the other way round, so it is offered where the step it
+    // bought is standing.
+    // Only the step *chosen* to make it. Others may produce it in passing --
+    // the acid step hands back water too -- and they are not here for it.
+    const loop = made && solved.brokenLoops.includes(made) ? made : null;
+    if (loop) {
+      const why = el('div', 'step-loop');
+      why.append(`here so the ${ctx.db.byName.get(loop)?.display ?? loop} ` +
+                 'does not have to be laid in');
+      what.append(why);
+      acts.append(button('ghost small', 'Prime instead',
+        `Drop this step and lay in the ${loop} to start the loop off`,
+        () => edit(primeInstead, loop)));
     }
     if (made) {
       acts.append(button('ghost small', 'Other ways',
@@ -657,7 +677,7 @@ function renderSide() {
       const acts = el('div', 'plan-item-acts');
       acts.append(button('ghost small', 'Make it instead',
                          `Add a step that makes ${item.name}, rather than laying some in`,
-                         () => edit(toggleFedBack, item.name)));
+                         () => edit(makeInstead, item.name)));
       li.append(acts);
       ul.append(li);
     }

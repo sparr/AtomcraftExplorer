@@ -176,9 +176,16 @@ Hydrogen looks like it loops — it is consumed by the acid and produced by the
 potassium hydroxide electrolysis — but that electrolysis can be done long before
 the acid is wanted, so nothing has to be laid in for it.
 
-A charge is a one-off and an extra step is forever, so which of the two you
-would rather have is not the solver's call. Each priming charge offers **Make it
-instead**, which takes that material off the loop and adds a step making it.
+A charge is a one-off and an extra step is forever, so the planner takes the
+step wherever it can: the Lithium plan condenses its water out of the steam it
+is already throwing off, and only the chlorine has to be laid in. A loop it
+cannot break without making things worse is left alone — refusing the chlorine
+sends it back to fetching Vanadinite, so the charge stands.
+
+Which of the two you would rather have is still not the solver's call, and both
+are one press away where the trade shows up. A step that is only there to save a
+charge says so and offers **Prime instead**; a charge offers **Make it instead**.
+Either choice is held against the solver, which will not overrule it.
 
 Which materials are spare cannot be known before the plan exists, and knowing
 changes the plan, so this is worked out by going round until it settles. A free
