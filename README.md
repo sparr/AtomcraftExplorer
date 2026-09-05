@@ -166,8 +166,19 @@ Some of it comes back round. Chlorine goes into the hydrochloric acid on the way
 to Lithium and comes straight out of the electrolysis further down, in the same
 amount, so over a cycle the plan needs none — it is a **priming charge**, listed
 apart from the shopping list because none of it is spent. Left to itself the
-planner used to go and fetch Vanadinite to make chlorine it already had. 53 of
+planner used to go and fetch Vanadinite to make chlorine it already had. 51 of
 the 1795 possible targets have a loop like that in them.
+
+Whether something needs priming is a question about whether *any* order works,
+not about the order the steps are printed in, so it is answered by trying: run
+whatever can run, and only when nothing can does something have to be laid in.
+Hydrogen looks like it loops — it is consumed by the acid and produced by the
+potassium hydroxide electrolysis — but that electrolysis can be done long before
+the acid is wanted, so nothing has to be laid in for it.
+
+A charge is a one-off and an extra step is forever, so which of the two you
+would rather have is not the solver's call. Each priming charge offers **Make it
+instead**, which takes that material off the loop and adds a step making it.
 
 Which materials are spare cannot be known before the plan exists, and knowing
 changes the plan, so this is worked out by going round until it settles. A free

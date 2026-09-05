@@ -625,13 +625,30 @@ console.log('\n--- a material that comes back ---');
   const primed = plan.priming.map((x) => x.name);
   check(primed.includes('Chlorine Gas'), `the chlorine is a priming charge instead: ${primed}`);
   const cl = plan.priming.find((x) => x.name === 'Chlorine Gas');
-  check(rstr(cl.amount) === '1', 'of exactly what the loop is short of at its deepest');
+  check(rstr(cl.amount) === '1', 'of exactly what the loop is short of');
   check(rcmp(plan.madeOf('Chlorine Gas'), plan.amountOf('Chlorine Gas')) >= 0,
         'and the plan makes back everything it takes');
 
   // Steam is used and made too, but made first, so nothing has to be laid in.
   check(!primed.includes('Steam'),
         'a byproduct made before it is wanted needs no priming');
+
+  // Nor does hydrogen, though it is used before it is *listed* as being made.
+  // Nothing forces that order: the potassium hydroxide can be electrolysed for
+  // it long before the acid is wanted, which is why this is a question about
+  // whether some order works rather than a walk down the printed one.
+  check(!primed.includes('Hydrogen Gas'),
+        'nor one that could simply be made earlier');
+
+  // And the reader can trade the charge for a step. Making the water outright
+  // from the spare steam breaks the loop it sits in.
+  const noLoop = solvePlan(graph, { targets: ['Potassium', 'Lithium'],
+                                    have: ['Lepidolite'], noFeedBack: ['Water'] });
+  check(!noLoop.priming.some((x) => x.name === 'Water'),
+        'refusing to take the water off the loop removes its charge');
+  check(noLoop.steps.length > plan.steps.length,
+        `at the price of a step (${plan.steps.length} -> ${noLoop.steps.length})`);
+  check(!noLoop.frontier.length, 'and still nothing to fetch');
 
   const off = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'],
                                  feedBackAll: false });

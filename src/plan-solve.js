@@ -862,36 +862,86 @@ function solveOnce(graph, spec) {
   apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
 
   /**
-   * How much of a material has to be in the chamber before any of this runs.
+   * What has to be in the chamber before any of this can turn over.
    *
-   * A material can be consumed early and handed back later in the same
-   * quantity -- chlorine goes into the hydrochloric acid and comes out of the
-   * lithium electrolysis -- so over a whole cycle the plan neither needs nor
-   * makes any. It still cannot start without some. Walking the steps in order
-   * and taking the deepest the running balance goes gives exactly that: the
-   * charge you put in once and never spend.
+   * Not a walk down the listed order -- that reports a charge whenever a
+   * producer happens to be printed after a consumer, whether or not anything
+   * forced it to be. It is a question about whether *some* order works, so it
+   * is answered by trying: run whatever can run, and only when nothing can does
+   * something have to be laid in.
+   *
+   * Chlorine really does need priming. Nothing makes any until the lithium
+   * electrolysis, which cannot happen until the acid, which needs the chlorine.
+   * Hydrogen only looked like it did: the potassium hydroxide can be
+   * electrolysed for it long before the acid is wanted.
    */
   const priming = [];
-  for (const node of dag.materials.values()) {
-    let balance = R0;
-    let deepest = R0;
-    for (const { process: p, runs } of steps) {
-      for (const i of p.consumes) {
-        if (i.name === node.name) balance = rsub(balance, rmul(runs, rat(i.count)));
+  {
+    const unlimited = (name) => {
+      const node = dag.materials.get(name);
+      return !node || ['have', 'acquire', 'raw'].includes(node.reason);
+    };
+    const stock = new Map();
+    const held = (name) => stock.get(name) || R0;
+    const left = new Set(steps);
+    const charge = new Map();
+
+    const missing = (step) => {
+      const short = [];
+      for (const i of step.process.consumes) {
+        if (unlimited(i.name)) continue;
+        const want = rmul(step.runs, rat(i.count));
+        if (rcmp(held(i.name), want) < 0) short.push([i.name, rsub(want, held(i.name))]);
       }
-      if (rcmp(balance, deepest) < 0) deepest = balance;
-      for (const o of p.produces) {
-        if (o.name === node.name) balance = radd(balance, rmul(runs, rat(o.count)));
+      // Apparatus has to be there, but is not spent.
+      for (const r of step.process.requires) {
+        if (unlimited(r.name)) continue;
+        if (rcmp(held(r.name), rat(r.count)) < 0) {
+          short.push([r.name, rsub(rat(r.count), held(r.name))]);
+        }
       }
+      return short;
+    };
+
+    const run = (step) => {
+      for (const i of step.process.consumes) {
+        if (unlimited(i.name)) continue;
+        stock.set(i.name, rsub(held(i.name), rmul(step.runs, rat(i.count))));
+      }
+      for (const o of step.process.produces) {
+        stock.set(o.name, radd(held(o.name), rmul(step.runs, rat(o.count))));
+      }
+      left.delete(step);
+    };
+
+    while (left.size) {
+      const ready = [...left].find((step) => !missing(step).length);
+      if (ready) { run(ready); continue; }
+      // Nothing can run. Lay in whichever shortfall is cheapest to go and get:
+      // being told to prime with water beats being told to prime with acid,
+      // and the search already has an opinion about what things cost.
+      let best = null;
+      for (const step of left) {
+        const short = missing(step);
+        // What it would really take to get one, not what the search charges
+        // for it: a material being fed back costs nothing there, which is the
+        // whole reason it is the one short of a charge.
+        const price = short.reduce((a, [name, amount]) =>
+          a + (solved.made.get(name) ?? solved.cost.get(name) ?? 100) * rnum(amount), 0);
+        if (!best || price < best.price) best = { step, short, price };
+      }
+      for (const [name, amount] of best.short) {
+        charge.set(name, radd(charge.get(name) || R0, amount));
+        stock.set(name, radd(held(name), amount));
+      }
+      run(best.step);
     }
-    if (rcmp(deepest, R0) >= 0) continue;
-    const charge = rsub(R0, deepest);
-    // Only a loop: something the plan ends up supplying for itself. Anything it
-    // is genuinely short of belongs on the shopping list instead.
-    if (rcmp(at(scaled.supply, node.name), at(scaled.demand, node.name)) < 0) continue;
-    priming.push({ name: node.name, amount: charge });
+
+    for (const [name, amount] of charge) {
+      if (rcmp(amount, R0) > 0) priming.push({ name, amount });
+    }
+    priming.sort((a, b) => a.name.localeCompare(b.name));
   }
-  priming.sort((a, b) => a.name.localeCompare(b.name));
 
   return {
     spec, graph, dag, order, stuck, priming,

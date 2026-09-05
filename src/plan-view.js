@@ -635,6 +635,15 @@ function renderSide() {
       line.append(el('span', 'amount', amount(item.amount)), ' ', matLink(item.name));
       li.append(line);
       li.append(el('div', 'plan-how', 'put in once, never spent'));
+      // A charge is a one-off and an extra step is forever, so which is better
+      // is the reader's call, not the solver's. This is the other option, at
+      // the moment it arises: make the material outright instead of taking it
+      // back off the loop.
+      const acts = el('div', 'plan-item-acts');
+      acts.append(button('ghost small', 'Make it instead',
+                         `Add a step that makes ${item.name}, rather than laying some in`,
+                         () => edit(toggleFedBack, item.name)));
+      li.append(acts);
       ul.append(li);
     }
     prime.append(ul);
