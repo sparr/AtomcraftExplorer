@@ -7,22 +7,28 @@ and it finds the processes in between.
 
 ## Using it
 
-**[`dist/atomcraft-explorer.html`](dist/atomcraft-explorer.html) is the whole
-thing.** It is already built and committed, so there is nothing to run: download
-that one file and open it.
+**It is live at <https://sparr.github.io/AtomcraftExplorer/>.** Nothing to
+download, nothing to install.
 
-No install, no build step, no server — and no copy of Atomcraft. The modules, the
-stylesheet and all 951 KB of game data are inlined into the page, and it fetches
-nothing at all. It works from a `file://` path, off a USB stick, or served from
-anywhere you can put a static file. It is 1.04 MB on disk and about 137 KB over a
-gzipped connection.
+That page is one file — [`dist/atomcraft-explorer.html`](dist/atomcraft-explorer.html),
+committed to the repository and served as the site root. The modules, the
+stylesheet and all 951 KB of game data are inlined into it and it fetches
+nothing at all, so downloading it gets you the same thing offline: from a
+`file://` path, off a USB stick, or served from anywhere you can put a static
+file. No build step, no server, and no copy of Atomcraft. It is 1.04 MB on disk
+and about 137 KB over a gzipped connection.
 
 What is in it: **1871 materials, 687 reactions, 118 elements**, with English
 display names, baked from the Steam build of Atomcraft (appid 2803490) as it
 stood on **2026-09-05**. Rebuild it against a newer build of the game whenever
-you like — see below — but you never have to.
+you like — see [Rebuilding it](#rebuilding-it) — but you never have to.
 
-Once it is open:
+Everything down to [the particle accelerator](#the-particle-accelerator) is
+about using that page. [Rebuilding it](#rebuilding-it) onwards is for baking
+your own copy against your own install. [Layout](#layout) onwards is for
+changing the code.
+
+Once it is open, **Explore**:
 
 - Type a name, a formula, or an element symbol: `water`, `Al2O3`, `Cu`. Bare
   terms also match what a material is *made of*, so `H2O` finds Seawater and
@@ -30,283 +36,21 @@ Once it is open:
 - Filters narrow things down: `state:gas`, `el:Au`, `z:80-92`, `is:radioactive`,
   `-is:hidden`. The full list is under [Searching](#searching).
 - `/` focuses the search box, `↑`/`↓` move, `Esc` clears.
-- **Make this** and **I have this** on any material, and **Plan this** on any
-  reaction, hand it to the planner. See [Planning](#planning).
-- The whole view lives in the URL — both modes at once, so a link made while
-  planning still remembers the search it came from.
 
-## Rebuilding it
+and **Plan**:
 
-Only needed to pick up a newer version of the game, or to change the code.
+- Name something to make, or something you have, and it works out the rest:
+  the steps and how many times each runs, what is left to fetch, what comes out
+  besides what you asked for, and what it all has to be built out of.
+- Every choice it made is one press from being changed — a different route to a
+  material, a step you would rather not run, something you turn out to have
+  already. See [Planning](#planning).
 
-```sh
-npm install              # two dependencies, plus it wires up the git hook
-npm run build            # locate the game, extract, bake -> dist/atomcraft-explorer.html
-```
-
-This reads the game's `.pck` directly: it locates your installed copy, pulls three
-files out of the archive, and inlines them into the page.
-
-**Or run the modular source**, which is what you want while editing:
-
-```sh
-npm run serve            # python3 -m http.server 8099, or any static server
-```
-
-and open <http://127.0.0.1:8099>.
-
-That second path needs a server for a reason worth knowing: browsers give every
-`file://` document an opaque origin, and both `fetch()` and ES-module `import`
-are same-origin operations. So `index.html` — which uses `<script type="module">`
-and fetches `data/atomcraft.json` — is blocked on `file://` by CORS, no matter
-where the files sit. The standalone build sidesteps both by being one classic
-`<script>` with its data already inside it.
-
-## Getting the game data
-
-`npm run build-data` needs two things.
-
-**1. A Godot `.pck` extractor on your PATH.** Either one works:
-
-| | |
-| --- | --- |
-| [`godotpcktool`](https://github.com/hhyyrylainen/GodotPckTool) | preferred — supports regex filtering, so it pulls 3 files out of a 234 MB archive in ~0.2 s |
-| [`GodotPCKExplorer.Console`](https://github.com/DmitriySalnikov/GodotPCKExplorer) | no filtering, so it extracts the whole archive to a temp dir (~1.6 s) and the build picks through it |
-
-Both produce byte-identical bakes. `npm run pck-tools` shows which are visible;
-`--pck-tool <name>` forces one.
-
-**2. An installed copy of Atomcraft.** Locators run in order, first hit wins.
-Steam sits ahead of itch deliberately: the game can be installed through both
-and the builds differ — on the machine this was written on, the Steam copy had
-1871 materials and 687 reactions against itch's 1728 and 610, with the itch set
-a strict subset. Pass `--game-dir` to build from the itch copy instead.
-
-| | |
-| --- | --- |
-| explicit | `--pck <file>`, `--game-dir <dir>`, or `ATOMCRAFT_PCK` / `ATOMCRAFT_GAME_DIR` |
-| Steam | [`@ciberus/find-steam-app`](https://www.npmjs.com/package/@ciberus/find-steam-app)'s own lookup — by name, or by `--steam-appid` |
-| itch | [`find-itch-games`](https://www.npmjs.com/package/find-itch-games)'s own lookup — by name, or by `--itch-game-id` |
-
-`npm run locate` prints what it found and how. If a store locator comes up empty
-— or gets it wrong — pass the path explicitly; nothing tries to outsmart the
-library. Extraction goes to a temp directory that is removed afterwards;
-`--keep-extracted` leaves it and says where.
-
-If you already have the `.pck` unpacked, `--data-dir <dir>` skips locating and
-extracting entirely.
-
-## Scripts
-
-| | |
-| --- | --- |
-| `npm run build` | both steps below |
-| `npm run build-data` | locate + extract + bake → `data/atomcraft.json` |
-| `npm run bundle` | inline everything → `dist/atomcraft-explorer.html` |
-| `npm test` | formula, plan, search, render and bundle suites |
-| `npm run locate` | show which game install was found |
-| `npm run pck-tools` | show which extractors are on PATH |
-| `npm run serve` | static server for the modular version |
-| `npm run clean` | remove `dist/` |
-
-Two runtime dependencies (`@ciberus/find-steam-app` and `find-itch-games`, both
-used only at build time), no bundler config.
-
-Both build outputs — `data/atomcraft.json` and `dist/atomcraft-explorer.html` —
-are committed, so a fresh clone runs without the game, an extractor, or Steam.
-
-## The pre-commit hook
-
-Because the bundle is committed, it can go stale. `.githooks/pre-commit` blocks
-any commit where `dist/atomcraft-explorer.html` no longer matches the sources
-that feed it (`src/`, `index.html`, `data/atomcraft.json`, `tools/bundle.mjs`).
-
-It rebuilds from the **index** rather than the working tree — via
-`git checkout-index` into a temp dir — so it validates exactly what is being
-committed, including partial staging with `git add -p`. When nothing
-contributing is staged it exits in a few milliseconds.
-
-Enable it after cloning:
-
-```sh
-npm install              # runs the `prepare` script, or set it by hand:
-git config core.hooksPath .githooks
-```
-
-It also warns — without blocking — when `tools/build-data.mjs`,
-`tools/elements.mjs` or `tools/godot-translation.mjs` change but
-`data/atomcraft.json` does not, since that staleness can only be checked with
-`../Atomcraft.pck` present.
-
-## Planning
-
-The second mode builds a **production plan**: a set of processes that reaches
-the materials you want from the ones you have, with every choice along the way
-shown and overridable.
-
-Start from either end. Name an output and it works backwards; name what you have
-and see what that can become. Both end up in the same plan, and you can add to
-either side at any point. The **make** row is what you ask for; the **have** row
-says how much of each you would actually have to supply, worked out from the
-plan rather than typed in — a zero there means the material was named but never
-used.
-
-What comes out is a list of steps with exact amounts, a **shopping list** of
-everything the plan still needs somebody to go and fetch, whatever it leaves
-**left over**, and a summary of the **apparatus** it all takes. Each of those is
-a place to make a decision: mark something as already in hand, pick a different
-route to it, ban a step you would rather not run, or **keep** a byproduct —
-counting spare output as a product rather than waste, which asks for nothing to
-be made. That is not the same as adding it to what you want: a target sets a
-fresh batch going, and its amount is stated *before* the batch scaling while a
-leftover is shown after it, so wanting the 1 spare Water would have demanded 2.
-
-**Spare output is fed back into the plan** — every bit of it, by default. A
-furnace throwing off steam is a reason to condense the steam rather than fetch
-snow, so a plan for Potassium from Lepidolite makes its water out of its own
-exhaust and asks for nothing at all. The steam it does not need is still listed
-as spare, individual outputs can be excluded, and the whole thing can be
-switched off under Options.
-
-Some of it comes back round. Chlorine goes into the hydrochloric acid on the way
-to Lithium and comes straight out of the electrolysis further down, in the same
-amount, so over a cycle the plan needs none — it is a **priming charge**, listed
-apart from the shopping list because none of it is spent. Left to itself the
-planner used to go and fetch Vanadinite to make chlorine it already had. 51 of
-the 1795 possible targets have a loop like that in them.
-
-Whether something needs priming is a question about whether *any* order works,
-not about the order the steps are printed in, so it is answered by trying: run
-whatever can run, and only when nothing can does something have to be laid in.
-Hydrogen looks like it loops — it is consumed by the acid and produced by the
-potassium hydroxide electrolysis — but that electrolysis can be done long before
-the acid is wanted, so nothing has to be laid in for it.
-
-A charge is a one-off and an extra step is forever, so the planner takes the
-step wherever it can: the Lithium plan condenses its water out of the steam it
-is already throwing off, and only the chlorine has to be laid in. A loop it
-cannot break without making things worse is left alone — refusing the chlorine
-sends it back to fetching Vanadinite, so the charge stands.
-
-Which of the two you would rather have is still not the solver's call, and both
-are one press away where the trade shows up. A step that is only there to save a
-charge says so and offers **Prime instead**; a charge offers **Make it instead**.
-Either choice is held against the solver, which will not overrule it.
-
-Which materials are spare cannot be known before the plan exists, and knowing
-changes the plan, so this is worked out by going round until it settles. A free
-supply is an *unlimited* one as far as the route search is concerned, so any
-byproduct that would promise more than it delivers is refused rather than
-planned around: feeding back never lengthens a plan, and over all 1795 possible
-targets it shortens 68 shopping lists and lengthens none.
-
-### Reactions are not enough
-
-681 reactions are not a production graph on their own. 121 of their feedstocks
-have no reaction that makes them at all — Bauxite is mined, Liquid Chlorine is
-condensed, Nuts drop off a tree — so a *process* here is any transformation the
-game supports, and you choose which kinds are allowed:
-
-| on by default | reactions, phase changes, fire, growth, nuclear decay |
-| off | mining and drops, particle beams, machine handling |
-
-The rule behind the split is whether the game does it unattended. What is
-switched off still shows up as *annotation*: a thing to fetch says how the world
-hands it over — `⛏ Bauxite Deposit mines into Bauxite` — without putting a step
-in the plan for something you have to go and do.
-
-Placing a block is the exception. No machine builds an Aluminum Wall, so a
-plan for a loose material never places anything; but ask for the wall itself and
-the plan smelts the iron and ends with you putting it down.
-
-### Saying what you mean
-
-Click any material in a plan and the inspector says what it is doing there and
-every way of getting it, best first — with **I have it** at the top, because
-having one is an alternative to every way of making one. That is how you say "I
-have water" about a material the plan had already decided to synthesise, and how
-you take a different route to something without banning steps one at a time
-until it gives up.
-
-Deposits are not offered that way. A deposit is in the ground somewhere and you
-are going to go and find it, so it is stated rather than asked about.
-
-### Naming what actually happens
-
-The game keeps one field for going up in temperature and one for coming down,
-and calls them evaporation and condensation whatever the states involved. Most
-are neither: of 431 transitions, 287 are a solid becoming a liquid. So the verb
-comes from the pair of states — **melts**, **evaporates**, **sublimates**,
-**solidifies**, **condenses**, **freezes** — and both the planner and the
-material detail pane use it.
-
-A run of transitions in the same direction is one step, too. Steam does not stop
-at Water on the way to Ice, so cooling it far enough is *Steam condenses and
-solidifies into Ice*, held below the tighter of the two thresholds. Stopping at
-the middle is still there in the alternatives, since asking for Water is what
-that means.
-
-### What else is in the chamber
-
-A tile runs the first reaction in its own list that is valid this tick and then
-stops. The list belongs to the material, so the rivals are the reactions sharing
-a `PrimaryInput` — and most carry a 1-in-P gate, which is what lets the later
-ones get a turn at all.
-
-Lepidolite's three decompositions are gated at 51, 52 and 50, so each takes
-about a third of the ore. A plan for Potassium therefore asks for **three**
-Lepidolite per reaction's worth of output, and lists the lithium and the alumina
-among what it leaves over — they are coming out of your furnace whether the plan
-mentions them or not. The other two reactions appear as steps of their own,
-marked as sharing the chamber, with no controls: they are not a choice.
-
-Where an earlier rival has no gate at all it fires every time and the ones after
-it never run. 18 reactions are dead that way, and no plan routes through them.
-
-### Choosing the route
-
-178 materials have more than one producing reaction — Steam has 108 — so the
-planner picks, and shows what it picked. The search is a shortest-hyperpath
-fixpoint over the whole graph, weighted so that awkward routes lose: a furnace
-costs more than a warm room, waiting out a half-life costs more than boiling a
-kettle, and doing something by hand costs more than anything the game will do
-for you.
-
-**Some of it falls out of the sky.** Nothing in the material list says so — it
-is in the simulation's weather branch, where a Rainstorm sets tiles to Water and
-a Snowstorm to Falling Snow. Without that the planner could only infer "raw"
-from the absence of a recipe, which is why it understood that snow could simply
-be gathered, nothing making any, and thought water — with 77 ways to make it —
-had to be manufactured. It is the same storm. Firestorms and acid rain drop coal
-and sulfuric acid in the same code, but only the developer console ever starts
-one, so they are not counted.
-
-What it costs to simply *have* a material decides how far back a plan reaches.
-An ore is cheap — that is where a chain is meant to bottom out — and something
-you could make is dear, so the plan works backwards through it. Two things
-cannot be had at all: a wall exists only where it was placed, and a machine part
-is manufactured rather than found, so neither is ever fed into a furnace for its
-metal.
-
-Working on something where it lies costs extra for the same reason. Heating a
-Corundum Deposit in the ground really does produce the melt, and it is nobody's
-production line — so the ore route wins wherever there is one, and what you are
-asked for is the Bauxite you would actually be carrying.
-
-### One reaction at a time
-
-A chamber holds a reaction's inputs, its outputs and its catalyst together, and
-those are the ingredients of *other* reactions. So each step is given the
-temperature range at which it runs and nothing else does:
-
-    Acetic Acid + Water = Vinegar
-      stated  ≥ 0 °C
-      usable  0–124 °C        avoids: Water evaporates into Steam
-
-681 processes are narrowed this way. Where no temperature dodges the side
-reaction — Alumina Reduction runs at 2027 °C, well past alumina's melting point
-— it says so rather than pretending the step is impossible. The whole check can
-be switched off.
+Either mode reaches the other. **Make this** and **I have this** on any
+material, and **Plan this** on any reaction, hand it to the planner; every
+material in a plan opens back in the explorer. Switching loses nothing, and the
+whole view lives in the URL — both modes at once, so a link made while planning
+still remembers the search it came from.
 
 ## Searching
 
@@ -332,92 +76,6 @@ anyway, ranked below anything matching by name.
 
 The **Periodic table** panel is the same filter with a click target — shading
 shows how many materials contain each element.
-
-## The game's art
-
-Two kinds of art are pulled out of the `.pck` and inlined into the page.
-`tools/ctex.mjs` reads Godot's `GST2` container, whose payload is a WebP that
-goes straight into a `data:` URI without being decoded.
-
-| | what | cost |
-| --- | --- | --- |
-| Swatch shapes | filled square, droplet, puff — white masks tinted with each material's colour, the way the game draws them. Static and Plasma fall back to the square. | 0.3 KB |
-| Element tiles | the game's 16×16 periodic-table tile per element, carrying its symbol and family colour. The material count is in the cell's tooltip. | 21.6 KB |
-
-**There are no per-material images**, and no texture to map a material to. All
-1899 packed textures were checked against the 1871 material names, and
-`Tileset.res` is keyed by tile coordinates with no material names in it.
-
-`Art/Materials/GrayscaleMaterialTextures.png` — a 256×256 sheet of tileable
-greyscale patterns — looks like it ought to be that mapping, and is not.
-Decompiling `Atomcraft.dll` with `ilspycmd` settles it: the 19 `ColorDelegate`
-names a material can carry (`Sand` on 532 materials, `Granite` on 81, down to
-the animated `LeftConveyor`, `RightConveyor` and `CheckerPulse`) are all
-implemented in `MaterialColorDelegates` as **procedural** functions — named
-noise patterns lerped over the material's base colour, with no image sampling
-anywhere in that class or in `MaterialColorIndex`. A material's appearance is
-computed per pixel, never sampled from a sheet. The world tilemap is likewise
-generated at run time: `Tilesets` builds a 512×512 atlas of 8×8 tiles, 64 to a
-row, indexed by material.
-
-### Reproducing the shading
-
-The rules are in the binary rather than the pck, so `npm run extract-patterns`
-decompiles `Atomcraft.MaterialColorDelegates` and writes the numbers to
-`src/patterns.js`. That file is checked in, so neither the game nor `ilspycmd`
-is needed to build the page — only to refresh it against a new game build.
-
-A material's colour is its base `Color` blended toward a tint by
-`table[y % rows][x % cols] × amount`:
-
-| delegate | table | tint | amount |
-| --- | --- | --- | --- |
-| `Granite` | `GranitePattern` 6×6, 2 values | DarkGray | 0.5 |
-| `Crystal` | `CrystalPattern` 9×9, 5 values | White | 0.5 |
-| `MetalBits`, `SparklyMetal` | `MetallicShavings` 9×9, 3 values | White | 0.9 |
-| `Bark` | `BarkNoisePattern` 9×9, 10 values | DarkerOrange | 0.25 |
-| `Sand`, `Gravel`, `Dirt`, `Lava` | 64×64, filled with `GD.Randf()` at startup | White / Black / Yellow | 0.5–0.15 |
-
-Twelve delegates animate. The gems route to `Twinkle`, which sparkles white over
-a colour they each pass in — read the other way round, Ruby renders as a flat red
-square, since its base is red too. `SparklyMetal` twinkles over the metallic
-pattern; `Lava` walks its table; the conveyors scroll theirs one column a tick.
-`Limestone` has its own sampler and is approximated here from what it looks like
-in game: vertical stripes, light-mid-dark-mid.
-
-`src/pattern-render.js` draws this to a canvas, cached per delegate and colour,
-and falls back to the flat colour where there is no canvas. The random tables are
-regenerated from a fixed seed, so a material looks the same on every visit —
-the game re-rolls them each run.
-
-## The particle accelerator
-
-The accelerator fires one of three beams, and each material's detail pane gets a
-**Particle accelerator** section showing, per beam, what it turns into and what
-turns into it.
-
-`BaseMaterial.TryParticleCollision` decides this by looking the result up in the
-struck material's own `TurnsIntoFrom<beam>Impact` field — a table, not
-arithmetic — and does nothing where that field is unset. It fires on a cadence
-rather than every tick, gated on `(tick + tile) % 32`.
-
-The table is nonetheless exactly consistent with the physics, in all 654
-mappings that resolve to a defined material:
-
-| beam | change | mappings |
-| --- | --- | --- |
-| Proton | Z+1 | 214 |
-| Neutron | N+1 | 226 |
-| Alpha | Z+2, N+2 | 214 |
-
-Not one exception. Note the alpha beam *absorbs* a helium nucleus, the reverse
-of the alpha decay shown under Nuclear. A test asserts every mapping still
-matches the label the section prints, so those labels cannot quietly become
-wrong.
-
-277 materials name a beam result and another 12 are only ever a target; the
-section is omitted for everything else, and `Referenced by` no longer repeats
-the impacts it covers.
 
 ## Sorting and grouping
 
@@ -503,7 +161,287 @@ sections and the result list's category headings, which is why slots carry a
 `sec:` / `subsec:` / `cat:` prefix. Slots may be appended but never reordered,
 or old links decode to the wrong sections.
 
+## Planning
+
+The second mode builds a **production plan**: a set of processes that reaches
+the materials you want from the ones you have, with every choice along the way
+shown and overridable.
+
+Start from either end. Name an output and it works backwards; name what you have
+and see what that can become. Both end up in the same plan, and you can add to
+either side at any point. The **make** row is what you ask for; the **have** row
+says how much of each you would actually have to supply, worked out from the
+plan rather than typed in — a zero there means the material was named but never
+used.
+
+What comes out is a list of steps with exact amounts, a **shopping list** of
+everything the plan still needs somebody to go and fetch, whatever it leaves
+**left over**, and a summary of the **apparatus** it all takes. Each of those is
+a place to make a decision: mark something as already in hand, pick a different
+route to it, ban a step you would rather not run, or **keep** a byproduct —
+counting spare output as a product rather than waste, which asks for nothing to
+be made. That is not the same as adding it to what you want: a target sets a
+fresh batch going, and its amount is stated *before* the batch scaling while a
+leftover is shown after it, so wanting the 1 spare Water would have demanded 2.
+
+**Spare output is fed back into the plan** — every bit of it, by default,
+rather than fetching more of something the plan is already throwing away. What
+it does not need is still listed as spare, individual outputs can be excluded,
+and the whole thing can be switched off under Options. Over all 1871 possible
+targets it shortens 57 shopping lists and lengthens none, and cuts the number of
+times a plan gives up and tells you to fetch something it could have made from
+408 to 393.
+
+Some of it comes back round. Chlorine goes into the hydrochloric acid on the way
+to Lithium and comes straight out of the electrolysis further down, in the same
+amount, so over a cycle the plan needs none — it is a **priming charge**, listed
+apart from the shopping list because none of it is spent. Left to itself the
+planner used to go and fetch Vanadinite to make chlorine it already had. 37 of
+the 1871 possible targets have a loop like that in them.
+
+Whether something needs priming is a question about whether *any* order works,
+not about the order the steps are printed in, so it is answered by trying: run
+whatever can run, and only when nothing can does something have to be laid in.
+Hydrogen looks like it loops — it is consumed by the acid and produced by the
+potassium hydroxide electrolysis — but that electrolysis can be done long before
+the acid is wanted, so nothing has to be laid in for it.
+
+A charge is a one-off and an extra step is forever, so the planner takes the
+step wherever it can. A loop it cannot break without making things worse is left
+alone: asking for Potassium and Lithium out of Lepidolite comes to 14 steps with
+nothing to fetch and one Chlorine Gas to lay in, because refusing that one sends
+the planner back to fetching Vanadinite for it.
+
+Which of the two you would rather have is still not the solver's call, and both
+are one press away where the trade shows up. A step that is only there to save a
+charge says so and offers **Prime instead**; a charge offers **Make it instead**.
+Either choice is held against the solver, which will not overrule it.
+
+Which materials are spare cannot be known before the plan exists, and knowing
+changes the plan, so this is worked out by going round until it settles.
+
+### Reactions are not enough
+
+687 reactions are not a production graph on their own. 171 of their feedstocks
+have no reaction that makes them at all — Bauxite is mined, Liquid Chlorine is
+condensed, Nuts drop off a tree — so a *process* here is any transformation the
+game supports, and you choose which kinds are allowed:
+
+| on by default | reactions, phase changes, fire, growth, nuclear decay |
+| off | mining and drops, particle beams, machine handling |
+
+The rule behind the split is whether the game does it unattended. What is
+switched off still shows up as *annotation*: a thing to fetch says how the world
+hands it over — `⛏ Bauxite Deposit mines into Bauxite` — without putting a step
+in the plan for something you have to go and do.
+
+Placing a block is the exception. No machine builds an Aluminum Wall, so a
+plan for a loose material never places anything; but ask for the wall itself and
+the plan smelts the iron and ends with you putting it down.
+
+### Saying what you mean
+
+Click any material in a plan and the inspector says what it is doing there and
+every way of getting it, best first — with **I have it** at the top, because
+having one is an alternative to every way of making one. That is how you say "I
+have water" about a material the plan had already decided to synthesise, and how
+you take a different route to something without banning steps one at a time
+until it gives up.
+
+Deposits are not offered that way. A deposit is in the ground somewhere and you
+are going to go and find it, so it is stated rather than asked about.
+
+### Naming what actually happens
+
+The game keeps one field for going up in temperature and one for coming down,
+and calls them evaporation and condensation whatever the states involved. Most
+are neither: of 655 transitions, 360 are a solid becoming a liquid. So the verb
+comes from the pair of states — **melts**, **evaporates**, **sublimates**,
+**solidifies**, **condenses**, **freezes** — and both the planner and the
+material detail pane use it.
+
+A run of transitions in the same direction is one step, too. Steam does not stop
+at Water on the way to Ice, so cooling it far enough is *Steam condenses and
+solidifies into Ice*, held below the tighter of the two thresholds. Stopping at
+the middle is still there in the alternatives, since asking for Water is what
+that means.
+
+### What else is in the chamber
+
+A tile runs the first reaction in its own list that is valid this tick and then
+stops. The list belongs to the material, so the rivals are the reactions sharing
+a `PrimaryInput` — and most carry a 1-in-P gate, which is what lets the later
+ones get a turn at all.
+
+Lepidolite's three decompositions are gated at 51, 52 and 50, so each takes
+about a third of the ore. A plan for Potassium therefore asks for **three**
+Lepidolite per reaction's worth of output, and lists the lithium and the alumina
+among what it leaves over — they are coming out of your furnace whether the plan
+mentions them or not. The other two reactions appear as steps of their own,
+marked as sharing the chamber, with no controls: they are not a choice.
+
+Where an earlier rival has no gate at all it fires every time and the ones after
+it never run. 16 reactions are dead that way, and no plan routes through them.
+
+### Choosing the route
+
+178 materials have more than one producing reaction — Steam has 112 — so the
+planner picks, and shows what it picked. The search is a shortest-hyperpath
+fixpoint over the whole graph, weighted so that awkward routes lose: a furnace
+costs more than a warm room, waiting out a half-life costs more than boiling a
+kettle, and doing something by hand costs more than anything the game will do
+for you.
+
+**Some of it falls out of the sky.** Nothing in the material list says so — it
+is in the simulation's weather branch, where a Rainstorm sets tiles to Water and
+a Snowstorm to Falling Snow. Without that the planner could only infer "raw"
+from the absence of a recipe, which is why it understood that snow could simply
+be gathered, nothing making any, and thought water — with 76 ways to make it —
+had to be manufactured. It is the same storm. Firestorms and acid rain drop coal
+and sulfuric acid in the same code, but only the developer console ever starts
+one, so they are not counted.
+
+What it costs to simply *have* a material decides how far back a plan reaches.
+An ore is cheap — that is where a chain is meant to bottom out — and something
+you could make is dear, so the plan works backwards through it. Two things
+cannot be had at all: a wall exists only where it was placed, and a machine part
+is manufactured rather than found, so neither is ever fed into a furnace for its
+metal.
+
+Working on something where it lies costs extra for the same reason. Heating a
+Corundum Deposit in the ground really does produce the melt, and it is nobody's
+production line — so the ore route wins wherever there is one, and what you are
+asked for is the Bauxite you would actually be carrying.
+
+### One reaction at a time
+
+A chamber holds a reaction's inputs, its outputs and its catalyst together, and
+those are the ingredients of *other* reactions. So each step is given the
+temperature range at which it runs and nothing else does:
+
+    Acetic Acid + Water = Vinegar
+      stated  ≥ 0 °C
+      usable  0–124 °C        avoids: Water evaporates into Steam
+
+802 processes are narrowed this way. Where no temperature dodges the side
+reaction — Alumina Reduction runs at 2027 °C, well past alumina's melting point
+— it says so rather than pretending the step is impossible. The whole check can
+be switched off.
+
+## The particle accelerator
+
+The accelerator fires one of three beams, and each material's detail pane gets a
+**Particle accelerator** section showing, per beam, what it turns into and what
+turns into it.
+
+`BaseMaterial.TryParticleCollision` decides this by looking the result up in the
+struck material's own `TurnsIntoFrom<beam>Impact` field — a table, not
+arithmetic — and does nothing where that field is unset. It fires on a cadence
+rather than every tick, gated on `(tick + tile) % 32`.
+
+The table is nonetheless exactly consistent with the physics, in all 654
+mappings that resolve to a defined material:
+
+| beam | change | mappings |
+| --- | --- | --- |
+| Proton | Z+1 | 214 |
+| Neutron | N+1 | 226 |
+| Alpha | Z+2, N+2 | 214 |
+
+Not one exception. Note the alpha beam *absorbs* a helium nucleus, the reverse
+of the alpha decay shown under Nuclear. A test asserts every mapping still
+matches the label the section prints, so those labels cannot quietly become
+wrong.
+
+277 materials name a beam result and another 12 are only ever a target; the
+section is omitted for everything else, and `Referenced by` no longer repeats
+the impacts it covers.
+
+## Rebuilding it
+
+Only needed to pick up a newer version of the game, or to change the code.
+
+```sh
+npm install              # two dependencies, plus it wires up the git hook
+npm run build            # locate the game, extract, bake -> dist/atomcraft-explorer.html
+```
+
+This reads the game's `.pck` directly: it locates your installed copy, pulls three
+files out of the archive, and inlines them into the page.
+
+**Or run the modular source**, which is what you want while editing:
+
+```sh
+npm run serve            # python3 -m http.server 8099, or any static server
+```
+
+and open <http://127.0.0.1:8099>.
+
+That second path needs a server for a reason worth knowing: browsers give every
+`file://` document an opaque origin, and both `fetch()` and ES-module `import`
+are same-origin operations. So `index.html` — which uses `<script type="module">`
+and fetches `data/atomcraft.json` — is blocked on `file://` by CORS, no matter
+where the files sit. The standalone build sidesteps both by being one classic
+`<script>` with its data already inside it.
+
+## Getting the game data
+
+`npm run build-data` needs two things.
+
+**1. A Godot `.pck` extractor on your PATH.** Either one works:
+
+| | |
+| --- | --- |
+| [`godotpcktool`](https://github.com/hhyyrylainen/GodotPckTool) | preferred — supports regex filtering, so it pulls 3 files out of a 234 MB archive in ~0.2 s |
+| [`GodotPCKExplorer.Console`](https://github.com/DmitriySalnikov/GodotPCKExplorer) | no filtering, so it extracts the whole archive to a temp dir (~1.6 s) and the build picks through it |
+
+Both produce byte-identical bakes. `npm run pck-tools` shows which are visible;
+`--pck-tool <name>` forces one.
+
+**2. An installed copy of Atomcraft.** Locators run in order, first hit wins.
+Steam sits ahead of itch deliberately: the game can be installed through both
+and the builds differ — on the machine this was written on, the Steam copy had
+1871 materials and 687 reactions against itch's 1728 and 610, with the itch set
+a strict subset. Pass `--game-dir` to build from the itch copy instead.
+
+| | |
+| --- | --- |
+| explicit | `--pck <file>`, `--game-dir <dir>`, or `ATOMCRAFT_PCK` / `ATOMCRAFT_GAME_DIR` |
+| Steam | [`@ciberus/find-steam-app`](https://www.npmjs.com/package/@ciberus/find-steam-app)'s own lookup — by name, or by `--steam-appid` |
+| itch | [`find-itch-games`](https://www.npmjs.com/package/find-itch-games)'s own lookup — by name, or by `--itch-game-id` |
+
+`npm run locate` prints what it found and how. If a store locator comes up empty
+— or gets it wrong — pass the path explicitly; nothing tries to outsmart the
+library. Extraction goes to a temp directory that is removed afterwards;
+`--keep-extracted` leaves it and says where.
+
+If you already have the `.pck` unpacked, `--data-dir <dir>` skips locating and
+extracting entirely.
+
+## Scripts
+
+| | |
+| --- | --- |
+| `npm run build` | both steps below |
+| `npm run build-data` | locate + extract + bake → `data/atomcraft.json` |
+| `npm run bundle` | inline everything → `dist/atomcraft-explorer.html` |
+| `npm test` | all eleven suites: formula, planner, both modes, search, grouping, art, styles, fields, render, bundle |
+| `npm run locate` | show which game install was found |
+| `npm run pck-tools` | show which extractors are on PATH |
+| `npm run serve` | static server for the modular version |
+| `npm run audit` | print every grouping decision and why |
+| `npm run extract-patterns` | re-read the shading tables out of the game binary |
+| `npm run clean` | remove `dist/` |
+
+Two runtime dependencies (`@ciberus/find-steam-app` and `find-itch-games`, both
+used only at build time), no bundler config.
+
+Both build outputs — `data/atomcraft.json` and `dist/atomcraft-explorer.html` —
+are committed, so a fresh clone runs without the game, an extractor, or Steam.
+
 ## Layout
+
+Everything from here is about the source rather than the page.
 
 ```
 index.html                    markup and panels
@@ -532,6 +470,86 @@ LICENSE                       MIT
 ```
 
 Everything is JavaScript — source, build and tests all run on Node.
+
+## The pre-commit hook
+
+Because the bundle is committed, it can go stale. `.githooks/pre-commit` blocks
+any commit where `dist/atomcraft-explorer.html` no longer matches the sources
+that feed it (`src/`, `index.html`, `data/atomcraft.json`, `tools/bundle.mjs`).
+
+It rebuilds from the **index** rather than the working tree — via
+`git checkout-index` into a temp dir — so it validates exactly what is being
+committed, including partial staging with `git add -p`. When nothing
+contributing is staged it exits in a few milliseconds.
+
+Enable it after cloning:
+
+```sh
+npm install              # runs the `prepare` script, or set it by hand:
+git config core.hooksPath .githooks
+```
+
+It also warns — without blocking — when `tools/build-data.mjs`,
+`tools/elements.mjs` or `tools/godot-translation.mjs` change but
+`data/atomcraft.json` does not, since that staleness can only be checked with
+`../Atomcraft.pck` present.
+
+## The game's art
+
+Two kinds of art are pulled out of the `.pck` and inlined into the page.
+`tools/ctex.mjs` reads Godot's `GST2` container, whose payload is a WebP that
+goes straight into a `data:` URI without being decoded.
+
+| | what | cost |
+| --- | --- | --- |
+| Swatch shapes | filled square, droplet, puff — white masks tinted with each material's colour, the way the game draws them. Static and Plasma fall back to the square. | 0.3 KB |
+| Element tiles | the game's 16×16 periodic-table tile per element, carrying its symbol and family colour. The material count is in the cell's tooltip. | 21.6 KB |
+
+**There are no per-material images**, and no texture to map a material to. All
+1899 packed textures were checked against the 1871 material names, and
+`Tileset.res` is keyed by tile coordinates with no material names in it.
+
+`Art/Materials/GrayscaleMaterialTextures.png` — a 256×256 sheet of tileable
+greyscale patterns — looks like it ought to be that mapping, and is not.
+Decompiling `Atomcraft.dll` with `ilspycmd` settles it: the 19 `ColorDelegate`
+names a material can carry (`Sand` on 532 materials, `Granite` on 81, down to
+the animated `LeftConveyor`, `RightConveyor` and `CheckerPulse`) are all
+implemented in `MaterialColorDelegates` as **procedural** functions — named
+noise patterns lerped over the material's base colour, with no image sampling
+anywhere in that class or in `MaterialColorIndex`. A material's appearance is
+computed per pixel, never sampled from a sheet. The world tilemap is likewise
+generated at run time: `Tilesets` builds a 512×512 atlas of 8×8 tiles, 64 to a
+row, indexed by material.
+
+### Reproducing the shading
+
+The rules are in the binary rather than the pck, so `npm run extract-patterns`
+decompiles `Atomcraft.MaterialColorDelegates` and writes the numbers to
+`src/patterns.js`. That file is checked in, so neither the game nor `ilspycmd`
+is needed to build the page — only to refresh it against a new game build.
+
+A material's colour is its base `Color` blended toward a tint by
+`table[y % rows][x % cols] × amount`:
+
+| delegate | table | tint | amount |
+| --- | --- | --- | --- |
+| `Granite` | `GranitePattern` 6×6, 2 values | DarkGray | 0.5 |
+| `Crystal` | `CrystalPattern` 9×9, 5 values | White | 0.5 |
+| `MetalBits`, `SparklyMetal` | `MetallicShavings` 9×9, 3 values | White | 0.9 |
+| `Bark` | `BarkNoisePattern` 9×9, 10 values | DarkerOrange | 0.25 |
+| `Sand`, `Gravel`, `Dirt`, `Lava` | 64×64, filled with `GD.Randf()` at startup | White / Black / Yellow | 0.5–0.15 |
+
+Twelve delegates animate. The gems route to `Twinkle`, which sparkles white over
+a colour they each pass in — read the other way round, Ruby renders as a flat red
+square, since its base is red too. `SparklyMetal` twinkles over the metallic
+pattern; `Lava` walks its table; the conveyors scroll theirs one column a tick.
+`Limestone` has its own sampler and is approximated here from what it looks like
+in game: vertical stripes, light-mid-dark-mid.
+
+`src/pattern-render.js` draws this to a canvas, cached per delegate and colour,
+and falls back to the flat colour where there is no canvas. The random tables are
+regenerated from a fixed seed, so a material looks the same on every visit —
+the game re-rolls them each run.
 
 ## Notes on the source data
 
@@ -569,6 +587,24 @@ Everything is JavaScript — source, build and tests all run on Node.
   that are enums, where 0 names a case: `State` 0 is Solid and
   `DecaySettings.Mode` 0 is alpha decay, which 192 materials use.
 
+## Tests
+
+```sh
+npm test                      # all eleven suites
+node tools/test-formula.mjs   # parses + round-trips all 436 distinct formulas
+node tools/test-plan.mjs      # the process graph and the route solver
+node tools/test-plan-ui.mjs   # both modes, and that switching loses nothing
+node tools/test-search.mjs    # ranking assertions
+node tools/test-render.mjs    # renders all 1871 detail panes against a DOM shim
+node tools/test-styles.mjs    # every class used in markup or code has a rule
+node tools/test-coverage.mjs  # the UI's fields and the game's agree, both ways
+node tools/test-bundle.mjs    # runs the standalone build with fetch() disabled
+```
+
+The DOM shim deliberately mimics browser quirks rather than smoothing them over
+— `append(null)` stringifies to the text `"null"`, for instance, which is how a
+real rendering bug got caught.
+
 ## Limitations
 
 - **A field the UI reads by property access can still go unnoticed.**
@@ -595,6 +631,24 @@ Everything is JavaScript — source, build and tests all run on Node.
   fetch, which catches most of the damage, but a plan that over-commits a
   surplus and then asks you to make up the difference can still be the best one
   found. Closing that properly means putting amounts into the search itself.
+- **What the weather delivers is a hand-written list**, read out of the
+  assembly rather than the data — the same weakness as the biological category
+  further down. Nothing here would notice the game adding a storm, or renaming what one
+  drops. `tools/test-plan.mjs` only checks that the two names still resolve.
+- **Competing reactions are only found where they share a `PrimaryInput`.**
+  That is the list the game actually iterates, so it is right about which
+  reactions divide a feed between them. But two reactions with *different*
+  primary inputs that both consume your material will both run in a real
+  chamber, and no plan here says so.
+- **Amounts are for one batch, in sequence.** The priming charge is what has to
+  be in the chamber before a single batch turns over; a loop that only runs
+  short at higher throughput, or several chambers drawing on one supply at once,
+  is not something the plan can express.
+- **The route weights are preferences, not game numbers.** What a furnace
+  "costs" against a slow reaction, or fetching an ore against making one, is a
+  judgment written into one table in [`src/plan-solve.js`](src/plan-solve.js).
+  They were tuned against plans that came out obviously wrong, which is a good
+  way to catch nonsense and no guarantee of the best answer.
 - **The grouping rules describe this data set, not documented game semantics.**
   Each guard in [`src/grouping.js`](src/grouping.js) exists because an audit
   caught a specific wrong merge — machines melting into their metal, deposits
@@ -608,24 +662,6 @@ Everything is JavaScript — source, build and tests all run on Node.
   differ; on the machine this was built, itch had 1728 materials and 610
   reactions against Steam's 1871 and 687, a strict subset. The bake is English
   only, though the decoder handles all 28 shipped locales.
-
-## Tests
-
-```sh
-npm test                      # all eleven suites
-node tools/test-formula.mjs   # parses + round-trips all 436 distinct formulas
-node tools/test-plan.mjs      # the process graph and the route solver
-node tools/test-plan-ui.mjs   # both modes, and that switching loses nothing
-node tools/test-search.mjs    # ranking assertions
-node tools/test-render.mjs    # renders all 1871 detail panes against a DOM shim
-node tools/test-styles.mjs    # every class used in markup or code has a rule
-node tools/test-coverage.mjs  # the UI's fields and the game's agree, both ways
-node tools/test-bundle.mjs    # runs the standalone build with fetch() disabled
-```
-
-The DOM shim deliberately mimics browser quirks rather than smoothing them over
-— `append(null)` stringifies to the text `"null"`, for instance, which is how a
-real rendering bug got caught.
 
 ## AI disclosure
 
@@ -649,7 +685,7 @@ What the automated checks do and do not cover is set out under
 
 [MIT](LICENSE)
 
-The licence covers the code. `data/atomcraft.json` and the copy of it inlined
+The license covers the code. `data/atomcraft.json` and the copy of it inlined
 into `dist/atomcraft-explorer.html` are extracted from Atomcraft and belong to
 the game's authors; `npm run build` regenerates both from a copy of the game you
 already own.
