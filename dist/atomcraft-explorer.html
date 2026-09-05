@@ -2539,6 +2539,119 @@ function search(db, query, { limit = 250 } = {}) {
 return { FIELDS, TERM_RE, parseQuery, search };
 })();
 
+const __mod_units = (() => {
+/**
+ * Temperatures, in the units the game itself shows.
+ *
+ * The data stores kelvin, and the game converts on the way out. Its own
+ * `Temperature` struct is the whole specification:
+ *
+ *     public int Celsius    => Kelvin - 273;
+ *     public int Fahrenheit => Celsius * 9 / 5 + 32;
+ *
+ * Note 273, not 273.15, and integer division throughout -- so this rounds the
+ * way the game rounds rather than the way physics would. Celsius is the default
+ * here because that is what the game shows; a device setting offers all three,
+ * which is why all three are here.
+ */
+
+/**
+ * The band ambient air moves within, 0 to 22 °C.
+ *
+ * There is no single ambient temperature: `PlanetType` carries a table indexed
+ * by depth with a separate one for night, so it shifts with time of day, season
+ * and how far down you are. This is the range it shifts inside.
+ *
+ * What this is *not* is a threshold below which a requirement stops counting.
+ * A reaction wanting 0 °C still wants it: a cooled chamber a few tiles away
+ * will pull the one next to it under, so holding a reaction at 0 °C can mean
+ * heating or insulating it. Every stated temperature is reported. This band
+ * only answers a narrower question -- whether the air alone could ever get
+ * there -- which is what decides if a *furnace* is on the shopping list.
+ */
+const AMBIENT = { min: 273, max: 295 };
+
+/**
+ * How much equipment a floor of `kelvin` implies.
+ *
+ * 'always' -- hotter than the air ever gets; that is a furnace.
+ * 'sometimes' -- inside the band, so it depends on the hour, the depth and
+ *                what is next door. Heating or insulation may still be needed.
+ * 'none' -- colder than the air ever gets.
+ */
+function heatingNeed(kelvin) {
+  if (kelvin == null) return 'none';
+  if (kelvin > AMBIENT.max) return 'always';
+  // Inclusive at the bottom: a floor of exactly 0 °C is still a floor. Sitting
+  // it beside a chamber you are cooling will drag it under, so it may want
+  // heating or insulation even though the air outside would have managed.
+  return kelvin >= AMBIENT.min ? 'sometimes' : 'none';
+}
+
+/** The same for a ceiling: how much cooling holding under `kelvin` implies. */
+function coolingNeed(kelvin) {
+  if (kelvin == null) return 'none';
+  if (kelvin < AMBIENT.min) return 'always';
+  return kelvin <= AMBIENT.max ? 'sometimes' : 'none';
+}
+
+const TEMPERATURE_UNITS = [
+  { id: 'C', label: 'Celsius', suffix: '°C' },
+  { id: 'K', label: 'Kelvin', suffix: 'K' },
+  { id: 'F', label: 'Fahrenheit', suffix: '°F' },
+];
+
+const DEFAULT_TEMPERATURE_UNIT = 'C';
+
+/** Integer division that truncates toward zero, as C# does. */
+const idiv = (a, b) => Math.trunc(a / b);
+
+/** A temperature on the scale, in the given unit. */
+function convertTemperature(kelvin, unit = DEFAULT_TEMPERATURE_UNIT) {
+  const k = Math.round(kelvin);
+  if (unit === 'K') return k;
+  const c = k - 273;
+  return unit === 'F' ? idiv(c * 9, 5) + 32 : c;
+}
+
+/**
+ * A *change* in temperature, which is not a point on the scale.
+ *
+ * 50 K hotter is 50 °C hotter; the offset cancels. Only the Fahrenheit scaling
+ * survives, so `ChangeInTemperature` must come through here and not through
+ * `convertTemperature`, or a +50 K reaction reads as if it cooled by 223.
+ */
+function convertTemperatureDelta(deltaK, unit = DEFAULT_TEMPERATURE_UNIT) {
+  const d = Math.round(deltaK);
+  return unit === 'F' ? idiv(d * 9, 5) : d;
+}
+
+const suffixOf = (unit) =>
+  (TEMPERATURE_UNITS.find((u) => u.id === unit) || TEMPERATURE_UNITS[0]).suffix;
+
+/** "1027 °C". */
+function formatTemperature(kelvin, unit = DEFAULT_TEMPERATURE_UNIT) {
+  return `${convertTemperature(kelvin, unit)} ${suffixOf(unit)}`;
+}
+
+/** "+50 °C", signed, because a delta reads wrong without it. */
+function formatTemperatureDelta(deltaK, unit = DEFAULT_TEMPERATURE_UNIT) {
+  const d = convertTemperatureDelta(deltaK, unit);
+  return `${d > 0 ? '+' : ''}${d} ${suffixOf(unit)}`;
+}
+
+/** "≥ 1027 °C", "≤ 300 °C", "20–200 °C" -- the band a process needs. */
+function formatTemperatureRange(min, max, unit = DEFAULT_TEMPERATURE_UNIT) {
+  const s = suffixOf(unit);
+  if (min && max) return `${convertTemperature(min, unit)}–${convertTemperature(max, unit)} ${s}`;
+  if (min) return `≥ ${convertTemperature(min, unit)} ${s}`;
+  if (max) return `≤ ${convertTemperature(max, unit)} ${s}`;
+  return null;
+}
+
+return { AMBIENT, heatingNeed, coolingNeed, TEMPERATURE_UNITS, DEFAULT_TEMPERATURE_UNIT, convertTemperature, convertTemperatureDelta, formatTemperature, formatTemperatureDelta, formatTemperatureRange };
+})();
+
 const __mod_main = (() => {
 /** Search UI: query box, element filter, result list, material detail. */
 const {loadData, REFERENCE_ORDER, referencePhrase} = __mod_data;
@@ -2547,6 +2660,7 @@ const {buildGroups, filterGroups, CATEGORIES} = __mod_grouping;
 const {patternStrip, recipeFor} = __mod_pattern_render;
 const {search, parseQuery, FIELDS, TERM_RE} = __mod_search;
 const {formulaHtml} = __mod_formula;
+const {formatTemperature, formatTemperatureDelta, formatTemperatureRange} = __mod_units;
 
 // Material icons are drawn at this many pixels and scaled up by that factor,
 // so they stay crisp. The CSS reads the same two numbers.
@@ -2974,7 +3088,9 @@ const NUMERIC_FIELDS = [
   ['Mass', 'Mass'], ['Hardness', 'Hardness'],
   ['Friction', 'Friction'], ['Viscosity', 'Viscosity'], ['Bounciness', 'Bounciness'],
   ['ActorFriction', 'Actor friction'],
-  ['DefaultTemperature', 'Default temperature', 'K'],
+  // Stored in kelvin; shown the way the game shows it, so the third element is
+  // a formatter rather than a unit suffix.
+  ['DefaultTemperature', 'Default temperature', formatTemperature],
   ['ThermalConductivity', 'Thermal conductivity'],
   ['SpecificHeat', 'Specific heat'],
   ['ConductanceDivisor', 'Conductance divisor'],
@@ -3073,7 +3189,7 @@ function phaseLine(t, verb) {
   const span = el('span');
   // A handful of materials evaporate into nothing at all.
   span.append(`${verb} `, matLink(t.TargetMaterialName));
-  span.append(` at ${t.Temperature || 0} K`);
+  span.append(` at ${formatTemperature(t.Temperature || 0)}`);
   if (t.Amount > 1) span.append(` ×${t.Amount}`);
   if (t.Probability) span.append(` (p=${t.Probability})`);
   return span;
@@ -3105,14 +3221,11 @@ function reactionCard(rx, role, self) {
   if (rx.catalysts.length) {
     cond.push('catalyst: ' + rx.catalysts.map(([n, c]) => (c !== 1 ? `${c} ` : '') + n).join(', '));
   }
-  const t = rx.raw.Temperature, tmax = rx.raw.MaxTemperature;
-  if (t && tmax) cond.push(`${t}–${tmax} K`);
-  else if (t) cond.push(`≥ ${t} K`);
-  else if (tmax) cond.push(`≤ ${tmax} K`);
-  if (rx.raw.ChangeInTemperature) {
-    const d = rx.raw.ChangeInTemperature;
-    cond.push(`${d > 0 ? '+' : ''}${d} K`);
-  }
+  const band = formatTemperatureRange(rx.raw.Temperature, rx.raw.MaxTemperature);
+  if (band) cond.push(band);
+  // A change, not a point on the scale: the offset cancels, so this must not
+  // go through the same conversion.
+  if (rx.raw.ChangeInTemperature) cond.push(formatTemperatureDelta(rx.raw.ChangeInTemperature));
   if (rx.raw.Electrolysis) cond.push('electrolysis');
   if (rx.raw.Probability) cond.push(`p=${rx.raw.Probability}`);
   if (cond.length) card.append(el('div', 'rx-cond', cond.join('  ·  ')));
@@ -3274,8 +3387,8 @@ function renderDetail(m) {
     const spark = r.Ignition.RequiresSpark;
     const w = el('span');
     w.append('to ', matLink(r.Ignition.TargetMaterialName));
-    if (t && spark) w.append(` at ${t} K, with a spark`);
-    else if (t) w.append(` at ${t} K`);
+    if (t && spark) w.append(` at ${formatTemperature(t)}, with a spark`);
+    else if (t) w.append(` at ${formatTemperature(t)}`);
     else if (spark) w.append(' on a spark, at any temperature');
     else w.append(' at any temperature');
     if (r.Ignition.Explodes) w.append(' (explodes)');
@@ -3350,7 +3463,7 @@ function renderDetail(m) {
   // --- physical ----------------------------------------------------------
   const nums = NUMERIC_FIELDS
     .filter(([f]) => r[f] !== undefined && r[f] !== null)
-    .map(([f, label, unit]) => [label, `${r[f]}${unit ? ' ' + unit : ''}`]);
+    .map(([f, label, format]) => [label, format ? format(r[f]) : String(r[f])]);
   if (r.Direction) nums.push(['Direction', db.enums.Direction[r.Direction] || r.Direction]);
   if (r.RequiredSupportDirection) {
     nums.push(['Needs support', db.enums.Direction[r.RequiredSupportDirection]]);

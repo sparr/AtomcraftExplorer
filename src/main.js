@@ -5,6 +5,7 @@ import { buildGroups, filterGroups, CATEGORIES } from './grouping.js';
 import { patternStrip, recipeFor } from './pattern-render.js';
 import { search, parseQuery, FIELDS, TERM_RE } from './search.js';
 import { formulaHtml } from './formula.js';
+import { formatTemperature, formatTemperatureDelta, formatTemperatureRange } from './units.js';
 
 // Material icons are drawn at this many pixels and scaled up by that factor,
 // so they stay crisp. The CSS reads the same two numbers.
@@ -432,7 +433,9 @@ const NUMERIC_FIELDS = [
   ['Mass', 'Mass'], ['Hardness', 'Hardness'],
   ['Friction', 'Friction'], ['Viscosity', 'Viscosity'], ['Bounciness', 'Bounciness'],
   ['ActorFriction', 'Actor friction'],
-  ['DefaultTemperature', 'Default temperature', 'K'],
+  // Stored in kelvin; shown the way the game shows it, so the third element is
+  // a formatter rather than a unit suffix.
+  ['DefaultTemperature', 'Default temperature', formatTemperature],
   ['ThermalConductivity', 'Thermal conductivity'],
   ['SpecificHeat', 'Specific heat'],
   ['ConductanceDivisor', 'Conductance divisor'],
@@ -531,7 +534,7 @@ function phaseLine(t, verb) {
   const span = el('span');
   // A handful of materials evaporate into nothing at all.
   span.append(`${verb} `, matLink(t.TargetMaterialName));
-  span.append(` at ${t.Temperature || 0} K`);
+  span.append(` at ${formatTemperature(t.Temperature || 0)}`);
   if (t.Amount > 1) span.append(` ×${t.Amount}`);
   if (t.Probability) span.append(` (p=${t.Probability})`);
   return span;
@@ -563,14 +566,11 @@ function reactionCard(rx, role, self) {
   if (rx.catalysts.length) {
     cond.push('catalyst: ' + rx.catalysts.map(([n, c]) => (c !== 1 ? `${c} ` : '') + n).join(', '));
   }
-  const t = rx.raw.Temperature, tmax = rx.raw.MaxTemperature;
-  if (t && tmax) cond.push(`${t}–${tmax} K`);
-  else if (t) cond.push(`≥ ${t} K`);
-  else if (tmax) cond.push(`≤ ${tmax} K`);
-  if (rx.raw.ChangeInTemperature) {
-    const d = rx.raw.ChangeInTemperature;
-    cond.push(`${d > 0 ? '+' : ''}${d} K`);
-  }
+  const band = formatTemperatureRange(rx.raw.Temperature, rx.raw.MaxTemperature);
+  if (band) cond.push(band);
+  // A change, not a point on the scale: the offset cancels, so this must not
+  // go through the same conversion.
+  if (rx.raw.ChangeInTemperature) cond.push(formatTemperatureDelta(rx.raw.ChangeInTemperature));
   if (rx.raw.Electrolysis) cond.push('electrolysis');
   if (rx.raw.Probability) cond.push(`p=${rx.raw.Probability}`);
   if (cond.length) card.append(el('div', 'rx-cond', cond.join('  ·  ')));
@@ -732,8 +732,8 @@ function renderDetail(m) {
     const spark = r.Ignition.RequiresSpark;
     const w = el('span');
     w.append('to ', matLink(r.Ignition.TargetMaterialName));
-    if (t && spark) w.append(` at ${t} K, with a spark`);
-    else if (t) w.append(` at ${t} K`);
+    if (t && spark) w.append(` at ${formatTemperature(t)}, with a spark`);
+    else if (t) w.append(` at ${formatTemperature(t)}`);
     else if (spark) w.append(' on a spark, at any temperature');
     else w.append(' at any temperature');
     if (r.Ignition.Explodes) w.append(' (explodes)');
@@ -808,7 +808,7 @@ function renderDetail(m) {
   // --- physical ----------------------------------------------------------
   const nums = NUMERIC_FIELDS
     .filter(([f]) => r[f] !== undefined && r[f] !== null)
-    .map(([f, label, unit]) => [label, `${r[f]}${unit ? ' ' + unit : ''}`]);
+    .map(([f, label, format]) => [label, format ? format(r[f]) : String(r[f])]);
   if (r.Direction) nums.push(['Direction', db.enums.Direction[r.Direction] || r.Direction]);
   if (r.RequiredSupportDirection) {
     nums.push(['Needs support', db.enums.Direction[r.RequiredSupportDirection]]);
