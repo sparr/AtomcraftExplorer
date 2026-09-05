@@ -227,7 +227,7 @@ have no reaction that makes them at all — Bauxite is mined, Liquid Chlorine is
 condensed, Nuts drop off a tree — so a *process* here is any transformation the
 game supports, and you choose which kinds are allowed:
 
-| on by default | reactions, phase changes, fire, growth, nuclear decay |
+| on by default | reactions, water filters, phase changes, fire, growth, nuclear decay |
 | off | mining and drops, particle beams, machine handling |
 
 The rule behind the split is whether the game does it unattended. What is
@@ -238,6 +238,23 @@ in the plan for something you have to go and do.
 Placing a block is the exception. No machine builds an Aluminum Wall, so a
 plan for a loose material never places anything; but ask for the wall itself and
 the plan smelts the iron and ends with you putting it down.
+
+### Taking the water out
+
+A Water Filter or a Block Water splits a material into its dry half and water,
+and nothing in the reaction list says so. The rule is in the two blocks'
+`OnImpact`, and it reads the `Composition`: exactly two parts, one of them the
+`+H2O` marker, and the tile comes apart into the other part and water. One tile
+in, one tile of each out — the code sets two tiles and never looks at the counts
+the composition states.
+
+69 materials qualify, and for some it is the only way. **Cream** has no reaction
+that makes any; it comes out of Milk through a filter and no other way, which is
+what puts Butter within reach at all.
+
+The seven aqueous materials whose composition runs to three or four parts —
+`Aqueous Zinc Sulfate` is Zinc + Sulfate Ion + `+H2O` — fail that `Count != 2`
+test and pass straight through. That is the game's rule, not a shortcut here.
 
 ### Saying what you mean
 
