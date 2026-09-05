@@ -189,8 +189,11 @@ async function main() {
     const disp = lookup(m.LocIdName);
     if (disp === null) untranslated++;
     else if (disp !== m.Name) rec.Display = disp;
-    if (ISOTOPE_RE.test(m.Name) && m.ProtonNumber) {
-      rec.MassNumber = m.ProtonNumber + m.NeutronNumber;
+    // Any material with a proton number is a specific nuclide, whether or not
+    // its name says so: 25 of them are named for the bare element while
+    // carrying a definite Z and N, so "Americium" is really Am-243.
+    if (m.ProtonNumber) {
+      rec.MassNumber = m.ProtonNumber + (m.NeutronNumber || 0);
     }
     return rec;
   });
