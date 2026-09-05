@@ -333,6 +333,48 @@ Corundum Deposit in the ground really does produce the melt, and it is nobody's
 production line — so the ore route wins wherever there is one, and what you are
 asked for is the Bauxite you would actually be carrying.
 
+### Running a route on the leavings
+
+Picking a route can mean two things, and a click cannot say which. Ask for
+2 Potassium, 2 Lithium, 2 Aluminum and 3 Silicon out of Lepidolite and the plan
+puts nine Carbon into the two reductions and gets eight Carbon Monoxide back —
+three Carbon in, two out, twice over — which it has no use for. The Boudouard
+equilibrium turns two of those into a Carbon, so picking it for Carbon looks
+like free money.
+
+Taken as the whole answer it is not. Nine Carbon by that route wants eighteen
+Carbon Monoxide, and to find the other ten the plan gasifies ninety Wood and
+decomposes four Vanadinite — a factory built to feed a reaction whose entire
+appeal was the surplus. Taken the other way it runs four times on the eight
+that are there, and the mushroom spores that were making all nine now make
+five:
+
+    4×  2 Carbon Monoxide → Carbon Dioxide + Carbon
+        on the spare Carbon Monoxide — the other 5 Carbon come from
+        Bitter Oyster Spore turns into Carbon
+
+So both readings are worked out and the better one is kept, judged on the same
+scale as everything else: what it leaves you to fetch. Where nothing is spare
+to run on, the second reading makes nothing at all and a pin is just a pin.
+
+Two routes are then live at once, and each says how much of the total it
+covers. This one is a recycle loop — the Carbon Monoxide only comes back after
+the Carbon has gone in — so it also wants four Carbon laid in to set it
+turning, which the panel offers to undo by dropping the route rather than by
+adding a step.
+
+**Use the spare** says it outright, on any route the plan could already feed
+from its leavings. It is not a claim about how the material is made, so it
+composes with the ones that are: press it on the Boudouard equilibrium, then
+say you have Carbon, and the plan eats all eight Carbon Monoxide for four
+Carbon while asking you for the other five —
+
+    have    3 Lepidolite    5 Carbon
+
+— rather than the nine it would have wanted without it, and with no mushrooms
+in the plan at all. The have row is net of whatever the plan makes for itself,
+which is the only reading of it that is a number you can go and act on.
+
 ### One reaction at a time
 
 A chamber holds a reaction's inputs, its outputs and its catalyst together, and
@@ -651,6 +693,10 @@ real rendering bug got caught.
   fetch, which catches most of the damage, but a plan that over-commits a
   surplus and then asks you to make up the difference can still be the best one
   found. Closing that properly means putting amounts into the search itself.
+  A route picked by hand is the one case where amounts do decide: it can be run
+  on the surplus alone, with the old route making up the difference. The
+  planner will not reach for that by itself — nothing tries a spare byproduct
+  through a conversion unless you name the conversion.
 - **What the weather delivers is a hand-written list**, read out of the
   assembly rather than the data — the same weakness as the biological category
   further down. Nothing here would notice the game adding a storm, or renaming what one

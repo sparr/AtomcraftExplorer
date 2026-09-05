@@ -52,6 +52,7 @@ export const rdiv = (a, b) => rat(a.n * b.d, a.d * b.n);
 export const rcmp = (a, b) => { const l = a.n * b.d, r = b.n * a.d;
                                 return l < r ? -1 : l > r ? 1 : 0; };
 export const rmax = (a, b) => (rcmp(a, b) >= 0 ? a : b);
+export const rmin = (a, b) => (rcmp(a, b) <= 0 ? a : b);
 export const rnum = (a) => Number(a.n) / Number(a.d);
 export const rzero = (a) => a.n === 0n;
 
@@ -215,6 +216,20 @@ export function normalizeSpec(spec = {}) {
     pins: new Map(Object.entries(spec.pins || {})),
     /** processes the reader added going forwards, from what they have. */
     include: new Set(spec.include || []),
+    /**
+     * Routes run on what the plan is already throwing away, and no further.
+     *
+     * The other reading of a pin. "Make Carbon by the Boudouard equilibrium"
+     * taken as the whole answer wants eighteen Carbon Monoxide, and the plan
+     * goes off to gasify ninety Wood for them -- to feed a reaction whose
+     * entire appeal was the eight Carbon Monoxide already going spare. Taken
+     * this way it runs four times on what is there and the material's usual
+     * producer makes up the difference.
+     *
+     * Not written to the URL: `solvePlan` works out which reading of a pin is
+     * the better one, so the question the reader asked is still just the pin.
+     */
+    alsoUse: new Set(spec.alsoUse || []),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
@@ -497,6 +512,28 @@ export function extract(graph, spec, solved) {
       if (p) visitProcess(p, new Set());
     }
 
+    /**
+     * Then the routes running on the leavings, which are not visited.
+     *
+     * Walking into their inputs is exactly what this is meant to avoid: asking
+     * how the eight spare Carbon Monoxide would be *made* is what fetches the
+     * ninety Wood. They take what is over and no more, so their inputs enter
+     * the plan as leaves and `amounts` sizes the run from what is actually
+     * there -- nothing, if it comes to that, and then the step drops out.
+     */
+    const extra = new Set();
+    for (const id of spec.alsoUse) {
+      const p = graph.byId.get(id);
+      if (!p || processes.has(id)) continue;
+      processes.set(p.id, p);
+      extra.add(p.id);
+      for (const { name } of [...p.consumes, ...p.requires, ...p.produces]) {
+        if (materials.has(name)) continue;
+        materials.set(name, { name, producer: null, reason: 'byproduct',
+                              consumers: [], byproductOf: [] });
+      }
+    }
+
     if (looped && attempt < 20) continue;
 
     // Cross-link, now that every node exists.
@@ -508,7 +545,7 @@ export function extract(graph, spec, solved) {
       }
     }
 
-    return { materials, processes, cycles, forced, groups };
+    return { materials, processes, cycles, forced, groups, extra };
   }
 }
 
@@ -541,6 +578,18 @@ export function topoOrder(dag) {
   // to be settled at the same moment -- which means after it, in this order.
   for (const [rival, leader] of dag.forced) {
     if (dag.processes.has(leader)) edge(leader, rival);
+  }
+  // A route running on the leavings comes after whatever leaves them, or it is
+  // printed before the steps whose spare output it lives on. It is only ever a
+  // *target* of an edge -- nothing names it as a producer -- so this can add
+  // no cycle.
+  for (const id of dag.extra) {
+    for (const { name } of dag.processes.get(id).consumes) {
+      const node = dag.materials.get(name);
+      for (const from of node ? [node.producer, ...node.byproductOf] : []) {
+        if (from && from !== id && dag.processes.has(from)) edge(from, id);
+      }
+    }
   }
 
   const queue = nodes.filter((id) => !indeg.get(id));
@@ -578,7 +627,10 @@ export function topoOrder(dag) {
  * which is a real answer -- some loops have no fixed batch size.
  */
 export function amounts(dag, spec, order) {
-  const useCredit = spec.credit.size > 0;
+  const extra = [...dag.extra].map((id) => dag.processes.get(id)).filter(Boolean);
+  // A surplus route hands its output back to the plan, which is a credit like
+  // any other -- so the same fixpoint settles both.
+  const useCredit = spec.credit.size > 0 || extra.length > 0;
   let credit = new Map();
   let runs = new Map(), demand = new Map(), supply = new Map();
   let converged = true;
@@ -615,6 +667,9 @@ export function amounts(dag, spec, order) {
       // A rival's run count comes from the reaction it shares a chamber with,
       // never from demand: nobody asked for it, it just happens.
       if (dag.forced.has(id)) continue;
+      // A surplus route is sized by what is left over, which is not known
+      // until everything else has said what it takes. It is booked below.
+      if (dag.extra.has(id)) continue;
 
       // What this process still has to cover, after any credited surplus.
       let need = R0;
@@ -639,6 +694,41 @@ export function amounts(dag, spec, order) {
       }
     }
 
+    /**
+     * Then the routes running on the leavings, on what is actually left.
+     *
+     * Two bounds, and the smaller wins: how many runs the spare inputs will
+     * feed, and how many the plan has a use for. Eight spare Carbon Monoxide
+     * feed four runs of the Boudouard equilibrium, the plan wants nine Carbon,
+     * so it runs four times and five still come from somewhere else. Where
+     * nothing is spare the first bound is zero and the step is not in the plan
+     * at all.
+     */
+    const handedBack = new Map();
+    for (const p of extra) {
+      const left = (name) => rsub(supply.get(name) || R0, demand.get(name) || R0);
+      let cap = null;
+      for (const { name, count } of p.consumes) {
+        const over = left(name);
+        const runsOn = rcmp(over, R0) > 0 ? rdiv(over, rat(count)) : R0;
+        cap = cap === null ? runsOn : rmin(cap, runsOn);
+      }
+      // Apparatus is not spent, but it still has to be there and spare.
+      for (const { name, count } of p.requires) {
+        if (rcmp(left(name), rat(count)) < 0) cap = R0;
+      }
+      let want = R0;
+      for (const { name, count } of p.produces) {
+        want = rmax(want, rdiv(demand.get(name) || R0, rat(count)));
+      }
+      const n = cap === null ? want : rmin(cap, want);
+      book(p, n);
+      if (rzero(n)) continue;
+      for (const { name, count } of p.produces) {
+        handedBack.set(name, radd(handedBack.get(name) || R0, rmul(n, rat(count))));
+      }
+    }
+
     if (!useCredit) break;
     const next = new Map();
     for (const name of spec.credit) {
@@ -655,6 +745,12 @@ export function amounts(dag, spec, order) {
         }
       }
       next.set(name, spare);
+    }
+    // What a surplus route hands over is a credit too -- it is the whole
+    // reason it is here. A name the reader credited outright is left alone:
+    // the sum above already counted this run among its producers.
+    for (const [name, amount] of handedBack) {
+      if (!spec.credit.has(name)) next.set(name, amount);
     }
     const same = next.size === credit.size &&
                  [...next].every(([k, v]) => credit.has(k) && rcmp(credit.get(k), v) === 0);
@@ -674,6 +770,24 @@ export function batchScale(runs) {
 }
 
 /* ------------------------------------------------------------------- plan */
+
+/**
+ * Which of two plans is the better one to be handed.
+ *
+ * Being told to fetch something the plan could have made is the worst outcome
+ * -- "go and find some Molten Beryllium" is a shrug, not a plan -- so those
+ * count first, then the shopping list, then the length of it, then how much
+ * has to be laid in to start.
+ *
+ * Counting only the length of the shopping list gets this backwards: a plan
+ * that gives up entirely has a very short one.
+ */
+const score = (p) => [p.frontier.filter((f) => f.alternatives > 0).length,
+                      p.frontier.length, p.steps.length, p.priming.length];
+const better = (a, b) => {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+};
 
 /**
  * Everything the views need, as data.
@@ -701,14 +815,53 @@ export function batchScale(runs) {
  * existence.
  */
 export function solvePlan(graph, rawSpec) {
-  const spec = normalizeSpec(rawSpec);
-  if (!spec.feedBackAll) {
-    const only = solveOnce(graph, spec);
+  let spec = normalizeSpec(rawSpec);
+  const solve = (s) => {
+    if (s.feedBackAll) return solveFedBack(graph, s);
+    const only = solveOnce(graph, s);
     only.brokenLoops = [];
     return only;
+  };
+
+  let plan = solve(spec);
+  const sharedPins = new Map();
+
+  /**
+   * A pin that reads two ways.
+   *
+   * "Make Carbon by the Boudouard equilibrium" can mean make all of it that
+   * way, or run it on the two-Carbon-Monoxide-per-Carbon the plan is already
+   * throwing off. Taken the first way it wants eighteen Carbon Monoxide when
+   * eight are going spare, and the plan goes off to gasify ninety Wood for the
+   * rest -- to feed a reaction whose entire appeal was the spare. Taken the
+   * second it makes four of the nine and the old route makes five.
+   *
+   * A pin cannot say which was meant, so both are worked out and the better
+   * one kept. Where there is nothing spare to run on, the second reading makes
+   * nothing and the pin stands exactly as written.
+   */
+  for (const [name, id] of spec.pins) {
+    if (id === 'have' || spec.alsoUse.has(id)) continue;
+    const p = graph.byId.get(id);
+    // Nothing to share out: a route with no inputs, or one whose inputs the
+    // plan does not leave any of, is the same question either way round.
+    if (!p || !p.consumes.length) continue;
+    if (!p.consumes.some((i) => rcmp(plan.otherSupplyOf(i.name), R0) > 0)) continue;
+
+    const pins = new Map(spec.pins);
+    pins.delete(name);
+    const shared = { ...spec, pins, alsoUse: new Set([...spec.alsoUse, id]) };
+    const trial = solve(shared);
+    // It has to actually run. Otherwise this is not a second reading of the
+    // pin at all, it is the pin thrown away.
+    if (rzero(trial.runsOf(id))) continue;
+    if (!better(score(trial), score(plan))) continue;
+    spec = shared;
+    plan = trial;
+    sharedPins.set(name, id);
   }
 
-  let plan = solveFedBack(graph, spec);
+  if (!spec.feedBackAll) { plan.sharedPins = sharedPins; return plan; }
 
   /**
    * A step is preferred to a charge.
@@ -747,6 +900,7 @@ export function solvePlan(graph, rawSpec) {
    * the reader may want it either way round.
    */
   plan.brokenLoops = [...off].filter((n) => rcmp(plan.otherSupplyOf(n), R0) > 0);
+  plan.sharedPins = sharedPins;
   return plan;
 }
 
@@ -767,24 +921,6 @@ function solveFedBack(graph, spec) {
    * offered again. What the reader credited by hand stands regardless: the
    * shortfall is then their business, and it is reported.
    */
-  /**
-   * Which of two plans is the better one to be handed.
-   *
-   * Being told to fetch something the plan could have made is the worst
-   * outcome -- "go and find some Molten Beryllium" is a shrug, not a plan --
-   * so those count first, then the shopping list, then the length of it, then
-   * how much has to be laid in to start.
-   *
-   * Counting only the length of the shopping list gets this backwards: a plan
-   * that gives up entirely has a very short one.
-   */
-  const score = (p) => [p.frontier.filter((f) => f.alternatives > 0).length,
-                        p.frontier.length, p.steps.length, p.priming.length];
-  const better = (a, b) => {
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
-    return false;
-  };
-
   /** Solves are cheap but not free. */
   let budget = 16;
   const solve = (credit) => (budget-- > 0 ? solveOnce(graph, { ...spec, credit }) : null);
@@ -1083,6 +1219,12 @@ function solveOnce(graph, spec) {
     spec, graph, dag, order, stuck, priming,
     /** Filled in by the caller when a loop was broken to avoid a charge. */
     brokenLoops: [],
+    /**
+     * Pins the caller read as "run it on the leavings" rather than as the
+     * whole answer: material -> process. Kept so the pane can undo the one
+     * choice that put a surplus route in the plan.
+     */
+    sharedPins: new Map(),
     cost: solved.cost,
     choice: solved.choice,
     scale,
@@ -1155,7 +1297,7 @@ export function routesFor(plan, name) {
   const chosen = plan.dag.materials.get(name)?.producer;
 
   const routes = graph.producers(name)
-    .filter((p) => spec.kinds.has(p.kind) || p.id === chosen)
+    .filter((p) => spec.kinds.has(p.kind) || p.id === chosen || spec.alsoUse.has(p.id))
     .map((p) => {
       const inputs = [...p.consumes, ...p.requires].map((i) => ({
         ...i,
@@ -1164,18 +1306,45 @@ export function routesFor(plan, name) {
       }));
       let c = processCost(p, spec.weights, spec.avoidSideEffects);
       for (const i of inputs) c += cost.get(i.name) ?? Infinity;
+      const runs = plan.runsOf(p.id);
+      const yields = p.produces.find((o) => o.name === name)?.count ?? 0;
+      // Could be switched on right now and get somewhere: the plan is already
+      // leaving enough of everything it eats for one run of it.
+      const runnable = p.consumes.length > 0 && p.consumes.every(({ name: i, count }) =>
+        rcmp(rsub(plan.madeOf(i), plan.amountOf(i)), rat(count)) >= 0);
       return {
         process: p,
         cost: c,
         inputs,
         chosen: p.id === chosen,
+        /**
+         * In the plan, but only on the leavings: it makes what the spare will
+         * stretch to and the chosen route makes the rest. Both rows are then
+         * live at once, which is the truth of it.
+         */
+        spare: spec.alsoUse.has(p.id) && !rzero(runs),
+        /** Enough is going spare to run it, whether or not it has been asked for. */
+        runnable,
+        runs,
+        /** How much of this material it supplies, as the plan stands. */
+        covers: rmul(runs, rat(yields)),
         banned: spec.excludeProcesses.has(p.id),
         /** How much of what it needs you would not have to go on and plan. */
         ready: inputs.filter((i) => i.have || i.inPlan).length,
       };
     });
 
+  // A route the plan is already using heads the list. Carbon has 153 of them
+  // and eight are shown: a route picked out by hand that then costs more than
+  // the one it joined would otherwise disappear off the end of the list.
+  const using = (r) => Number(r.chosen || r.spare);
   routes.sort((a, b) => Number(a.banned) - Number(b.banned) ||
+                        using(b) - using(a) ||
+                        // Then the ones the plan could feed out of its own
+                        // leavings, which is the offer worth noticing and is
+                        // otherwise buried: Carbon has 153 routes and eight
+                        // are shown.
+                        Number(b.runnable) - Number(a.runnable) ||
                         a.cost - b.cost ||
                         a.process.label.localeCompare(b.process.label));
   return routes;

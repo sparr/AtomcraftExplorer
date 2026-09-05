@@ -870,6 +870,12 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 /* What a route would need, and how much of it you would not have to chase. */
 .route-in.have { color: var(--ok); }
 .route-in.inplan { color: var(--accent); }
+/* Two routes can be running at once -- one on the plan's leavings, one making
+   up the difference -- so each says how much of the total it covers. */
+.route-share { display: block; font-size: 12px; color: var(--accent); margin-top: 2px; }
+/* The other thing a route can be: a use for what the plan already throws off.
+   Sits under the row rather than in it, since the row is one big button. */
+.route-acts { display: flex; gap: 6px; align-items: center; padding: 0 10px 8px 10px; }
 
 /* ---------- what you could do with what you have ---------- */
 
@@ -895,6 +901,11 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .step-shared .step-what { border-left: 2px solid var(--line); padding-left: 8px; }
 .step-share { font-size: 12px; color: var(--warm); margin-top: 2px; }
 .step-share-with { color: var(--fg-dim); }
+
+/* A step that runs only on what the plan already throws off. It is in the plan
+   on purpose, unlike a chamber-mate, so it is marked rather than dimmed. */
+.step-spare-run .step-what { border-left: 2px solid var(--accent); padding-left: 8px; }
+.step-spare { font-size: 12px; color: var(--accent); margin-top: 2px; }
 
 /* The charge a closed loop needs before it will turn over. Not a shopping
    list: none of it is spent. */

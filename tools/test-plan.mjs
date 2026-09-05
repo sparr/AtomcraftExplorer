@@ -12,7 +12,7 @@ import { loadData } from '../src/data.js';
 import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS,
          operatingWindow } from '../src/plan-graph.js';
 import { solvePlan, reachableFrom, routesFor, competitionOf, shareRatio, processCost,
-         rat, radd, rsub, rmul, rdiv, rcmp, rstr, R0 } from '../src/plan-solve.js';
+         rat, radd, rsub, rmul, rdiv, rcmp, rstr, rzero, R0 } from '../src/plan-solve.js';
 import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
          formatTemperatureRange, heatingNeed, coolingNeed } from '../src/units.js';
 
@@ -831,8 +831,17 @@ console.log('\n--- other ways to make a thing ---');
   const routes = routesFor(plan, 'Carbon');
   check(routes.length > 20, `${routes.length} ways to make Carbon, so they have to be ranked`);
   check(routes[0].chosen, 'the one in use sorts first');
-  check(routes.every((r, i) => i === 0 || r.cost >= routes[i - 1].cost || r.banned),
-        'and the rest by what they cost');
+  // Then the ones the plan could feed out of its own leavings, and only then
+  // by price. Carbon has 153 routes and eight are shown, so an offer that
+  // costs nothing to take has to come off the bottom of the list.
+  const tier = (r) => (r.banned ? 3 : r.chosen || r.spare ? 0 : r.runnable ? 1 : 2);
+  check(routes.every((r, i) => i === 0 || tier(r) >= tier(routes[i - 1])),
+        'then the ones it could run on what it is throwing away');
+  check(routes.every((r, i) => i === 0 || tier(r) !== tier(routes[i - 1]) ||
+                               r.cost >= routes[i - 1].cost),
+        'and within each of those, by what they cost');
+  check(routes.some((r) => r.runnable && /Boudouard/.test(r.process.label)),
+        'the Boudouard equilibrium being one: the reduction leaves Carbon Monoxide');
   const known = routes.filter((r) => r.ready);
   check(known.length > 0, `${known.length} of them need something already in the plan or in hand`);
 
@@ -1044,6 +1053,95 @@ console.log('\n--- every material as a target ---');
   console.log(`      ${total} ms total, ${(total / db.materials.length).toFixed(1)} ms each, ` +
               `worst ${worst} at ${worstMs} ms`);
   check(total / db.materials.length < 50, 'a plan solves fast enough to run on every keystroke');
+}
+
+console.log('\n--- a route run on what the plan throws away ---');
+{
+  // Nine Carbon go into the two reductions and eight Carbon Monoxide come back
+  // out of them, which the Boudouard equilibrium turns into four more Carbon,
+  // two apiece. Pinning it used to mean "make all nine that way", which wants
+  // eighteen Carbon Monoxide -- so the plan built a factory for the other ten.
+  const spec = {
+    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
+              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
+    have: ['Lepidolite'],
+  };
+  const BOUD = 'rx:Boudouard Equilibrium 500-725K';
+  const plain = solvePlan(graph, spec);
+  check(rstr(plain.amountOf('Carbon')) === '9' && rstr(plain.madeOf('Carbon Monoxide')) === '8',
+        'the plan wants 9 Carbon and leaves 8 Carbon Monoxide');
+
+  const pinned = solvePlan(graph, { ...spec, pins: { Carbon: BOUD } });
+  check(rstr(pinned.runsOf(BOUD)) === '4',
+        'pinning the Boudouard equilibrium runs it 4 times, on the 8 spare');
+  const rest = pinned.dag.materials.get('Carbon')?.producer;
+  check(rest && rest !== BOUD && rstr(pinned.runsOf(rest)) === '5',
+        `and the other 5 Carbon still come from ${rest}`);
+  check(rstr(pinned.amountOf('Carbon Monoxide')) === '8' &&
+        rstr(pinned.madeOf('Carbon Monoxide')) === '8',
+        'every spare Carbon Monoxide is taken and none is fetched');
+  check(!pinned.frontier.some((f) => f.name === 'Wood' || f.name === 'Vanadinite'),
+        'no Carbon Monoxide factory: neither Wood nor Vanadinite on the list');
+  check(pinned.frontier.length === 1 && rstr(pinned.frontier[0].amount) === '5',
+        'the shopping list is 5 of one thing, where the plain plan asks for 9');
+  check(pinned.sharedPins.get('Carbon') === BOUD, 'and the plan says which pin it read that way');
+
+  // Both routes are live, and the list has to show both -- Carbon has 153 of
+  // them and eight are shown, so a dearer one picked by hand would otherwise
+  // drop off the end.
+  const routes = routesFor(pinned, 'Carbon');
+  const boud = routes.find((r) => r.process.id === BOUD);
+  check(boud?.spare && rstr(boud.covers) === '4', 'the route list marks it as running on the spare');
+  check(routes.indexOf(boud) < 2 && routes[0].chosen,
+        'and puts both routes the plan is using at the top');
+
+  // The other reading has to survive: where nothing is spare to run on, a pin
+  // is still a pin.
+  const charcoal = solvePlan(graph, { ...spec, pins: { Carbon: 'rx:Blending Charcoal' } });
+  check(charcoal.dag.materials.get('Carbon')?.producer === 'rx:Blending Charcoal',
+        'a pin whose inputs nothing leaves spare is still taken as the whole answer');
+  check(charcoal.sharedPins.size === 0, 'and is not reported as one that was shared');
+
+  // It is a recycle loop, so it needs charging before it will turn over: the
+  // reductions cannot hand back Carbon Monoxide until they have had Carbon.
+  check(pinned.priming.some((x) => x.name === 'Carbon' && rstr(x.amount) === '4'),
+        'the loop is reported as needing 4 Carbon laid in to start');
+  check(pinned.converged, 'and the run counts settle');
+}
+
+console.log('\n--- supplying part of it yourself ---');
+{
+  // The other half of the same idea. Turning the eight spare Carbon Monoxide
+  // into four Carbon is worth doing whether or not you want the plan to make
+  // the other five: saying you have Carbon and running the route on the spare
+  // are two separate statements, and they compose.
+  const BOUD = 'rx:Boudouard Equilibrium 500-725K';
+  const spec = {
+    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
+              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
+    have: ['Lepidolite', 'Carbon'],
+  };
+  const plain = solvePlan(graph, spec);
+  check(rstr(plain.madeOf('Carbon Monoxide')) === '8' && rzero(plain.runsOf(BOUD)),
+        'saying you have the Carbon leaves all 8 Carbon Monoxide unused');
+
+  const shared = solvePlan(graph, { ...spec, alsoUse: [BOUD] });
+  check(rstr(shared.runsOf(BOUD)) === '4', 'asking for the route on the spare runs it 4 times');
+  check(rstr(shared.amountOf('Carbon')) === '9' && rstr(shared.madeOf('Carbon')) === '4',
+        'of the 9 Carbon the plan wants it makes 4, so 5 are yours to supply');
+  check(rstr(shared.amountOf('Carbon Monoxide')) === '8' &&
+        rstr(shared.madeOf('Carbon Monoxide')) === '8', 'and every spare one is taken');
+  check(!shared.frontier.length, 'with nothing left to fetch');
+  check(!shared.steps.some((s) => s.process.id.startsWith('evap:Bitter Oyster')),
+        'and no mushrooms: the other 5 Carbon are not made at all');
+  check(!shared.priming.some((x) => x.name === 'Carbon'),
+        'nor is the loop charged, since the Carbon is yours to hand');
+
+  // A route with nothing spare to run on is asked for and does nothing, rather
+  // than dragging in a supply for itself.
+  const idle = solvePlan(graph, { ...spec, alsoUse: ['rx:Blending Charcoal'] });
+  check(rzero(idle.runsOf('rx:Blending Charcoal')) && !idle.frontier.length,
+        'a route with nothing spare to run on stays out of the plan');
 }
 
 console.log('\n--- determinism ---');
