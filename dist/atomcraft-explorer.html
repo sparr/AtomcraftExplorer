@@ -4632,34 +4632,13 @@ function elementsOf(graph, names) {
 return { composition, madeOfAny, contains, elementsOf };
 })();
 
-const __mod_plan_solve = (() => {
+const __mod_rational = (() => {
 /**
- * Turning a wish into a plan.
+ * Exact rationals over BigInt, and nothing else.
  *
- * The reader states what they want, what they already have, and any choices
- * they have made by hand. This works out the rest: which process makes each
- * material, what that leaves them still needing, what it produces that nobody
- * asked for, and how much of everything.
- *
- * Three passes, in order:
- *
- *   1. `costs`   -- a fixpoint over the whole hypergraph giving, for every
- *                   material, the cheapest way to have one. Knuth's shortest
- *                   hyperpath: the same relaxation as Dijkstra, generalised to
- *                   edges with several tails.
- *   2. `extract` -- follow the winning choice back from each target into a DAG,
- *                   memoised, so a material two branches both need is one node.
- *   3. `amounts` -- walk that DAG from the targets backwards, in exact
- *                   fractions, working out how many times each process runs.
- *
- * Nothing here draws anything. The plan it returns is plain data, so the graph
- * view and the table view are two readings of one object.
+ * Pulled out of the planner so the simplex can have them without importing the
+ * thing it is solving for. No behaviour moved with them.
  */
-const {KIND, DEFAULT_KINDS, operatingWindow} = __mod_plan_graph;
-const {composition, elementsOf, madeOfAny} = __mod_composition;
-const {heatingNeed, coolingNeed} = __mod_units;
-
-/* ------------------------------------------------------------- fractions */
 
 /**
  * Exact rationals over BigInt.
@@ -4697,7 +4676,49 @@ function rstr(a) {
   return a.d === 1n ? String(a.n) : `${a.n}/${a.d}`;
 }
 
+/** Least common multiple, for clearing a batch of its denominators. */
 const lcm = (a, b) => (a / gcd(a, b)) * b;
+
+return { rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rmin, rnum, rzero, rstr, lcm };
+})();
+
+const __mod_plan_solve = (() => {
+/**
+ * Turning a wish into a plan.
+ *
+ * The reader states what they want, what they already have, and any choices
+ * they have made by hand. This works out the rest: which process makes each
+ * material, what that leaves them still needing, what it produces that nobody
+ * asked for, and how much of everything.
+ *
+ * Three passes, in order:
+ *
+ *   1. `costs`   -- a fixpoint over the whole hypergraph giving, for every
+ *                   material, the cheapest way to have one. Knuth's shortest
+ *                   hyperpath: the same relaxation as Dijkstra, generalised to
+ *                   edges with several tails.
+ *   2. `extract` -- follow the winning choice back from each target into a DAG,
+ *                   memoised, so a material two branches both need is one node.
+ *   3. `amounts` -- walk that DAG from the targets backwards, in exact
+ *                   fractions, working out how many times each process runs.
+ *
+ * Nothing here draws anything. The plan it returns is plain data, so the graph
+ * view and the table view are two readings of one object.
+ */
+const {KIND, DEFAULT_KINDS, operatingWindow} = __mod_plan_graph;
+const {composition, elementsOf, madeOfAny} = __mod_composition;
+const {heatingNeed, coolingNeed} = __mod_units;
+
+/* ------------------------------------------------------------- fractions */
+
+/**
+ * Exact rationals live in their own module now, so the simplex can use them
+ * without importing the planner. Re-exported here because half the app and all
+ * the tests have always got them from this one.
+ */
+const {rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rmin, rnum, rzero, rstr, lcm} = __mod_rational;
+
+{ rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rmin, rnum, rzero, rstr };
 
 /* --------------------------------------------------------------- weights */
 
@@ -6759,7 +6780,7 @@ function reachableFrom(graph, rawSpec) {
   return out;
 }
 
-return { rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rmin, rnum, rzero, rstr, DEFAULT_WEIGHTS, processCost, shareRatio, competitionOf, normalizeSpec, solveCosts, extract, topoOrder, amounts, batchScale, solvePlan, balanceTargets, routesFor, usesFor, reachableFrom };
+return { DEFAULT_WEIGHTS, processCost, shareRatio, competitionOf, normalizeSpec, solveCosts, extract, topoOrder, amounts, batchScale, solvePlan, balanceTargets, routesFor, usesFor, reachableFrom };
 })();
 
 const __mod_plan_view = (() => {
