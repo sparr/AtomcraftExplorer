@@ -200,6 +200,9 @@ const NEVER = 1e-6;
  */
 const STOCK_ROUTES = 4;
 
+/** And how many ways of making a shopping-list item out of the leavings. */
+const SPARE_ROUTES = 6;
+
 /**
  * The set of reactions sharing this one's chamber and feed, as whole-number
  * shares -- or null where it has the feed to itself.
@@ -933,6 +936,103 @@ export function solvePlan(graph, rawSpec) {
     }
 
     if (best) { spec = { ...spec, pins: bestPins }; plan = best; }
+  }
+
+  /**
+   * Make the last of the shopping list out of what the plan is throwing away.
+   *
+   * The Carbon plan asked for two Water while venting two Hydrogen Gas and two
+   * Oxygen Gas -- which is the water it was buying, in pieces. Hydrogen
+   * Combustion puts them back together as Steam and Steam condenses, so the
+   * whole list closes and the factory runs on carbon dioxide and a charge.
+   *
+   * Nothing in the search was ever going to find that. Water falls from the
+   * sky, so `acquire` prices it at 0.5 and no way of making it out of your own
+   * exhaust can beat that on cost -- `made` came to 3.0 and `producerFor` duly
+   * ruled that having one beats making one. The price is not wrong, either:
+   * water really is free, and a plan that manufactures it from scratch when it
+   * is raining would be a worse plan. What is wrong is that the price cannot
+   * see the shopping list, and the last item on a list is worth more than its
+   * price -- it is the difference between a factory that runs and an errand.
+   *
+   * `score` already knows this. It counts the shopping list first and settles
+   * ties on length, and it ranks the closed plan above the open one without
+   * being asked. So this pass only has to make the candidate exist: for each
+   * thing left to fetch, the ways of making it that the leavings would cover,
+   * pinned so the price does not overrule them, with whatever converts the
+   * leavings into their feed run on the leavings alone.
+   *
+   * Two steps out and no further. `alsoUse` is exactly the right shape for the
+   * second one -- run this on the spare, and no more of it than the spare will
+   * stretch to -- and it keeps the search from wandering off building a
+   * chemistry set to use up an awkward byproduct.
+   */
+  for (let round = 0; round < 2 && plan.frontier.length; round++) {
+    const spare = new Set(plan.byproducts.map((b) => b.name));
+    if (!spare.size) break;
+
+    const usable = (p) => spec.kinds.has(p.kind) && !spec.excludeProcesses.has(p.id) &&
+      !p.conditions.places &&
+      !p.consumes.some((i) => spec.excludeMaterials.has(i.name)) &&
+      !p.produces.some((o) => spec.excludeMaterials.has(o.name)) &&
+      !p.requires.some((r) => spec.excludeMaterials.has(r.name));
+
+    /** Held or going spare: either way it is there for the taking. */
+    const toHand = (name) => spare.has(name) || spec.have.has(name);
+
+    // What one more step on the leavings alone would get you.
+    const makes = new Map();
+    for (const p of graph.processes) {
+      if (!usable(p) || !p.consumes.length) continue;
+      if (!p.consumes.every((i) => toHand(i.name))) continue;
+      for (const { name } of p.produces) {
+        if (!makes.has(name)) makes.set(name, []);
+        makes.get(name).push(p.id);
+      }
+    }
+
+    const tries = [];
+    for (const f of plan.frontier) {
+      if (spec.pins.has(f.name)) continue;
+      for (const p of graph.producers(f.name)) {
+        if (!usable(p) || !p.consumes.length) continue;
+        // Every input has to be to hand already, or one step off something
+        // that is. More than one input needing fetching of its own is not the
+        // leavings covering the list, it is a plan for something else.
+        const need = p.consumes.filter((i) => !toHand(i.name));
+        if (need.some((i) => !makes.has(i.name))) continue;
+        if (need.length > 1) continue;
+        const options = need.length ? makes.get(need[0].name) : [null];
+        for (const via of options) {
+          tries.push({ name: f.name, id: p.id, via,
+                       cost: processCost(p, spec.weights, spec.avoidSideEffects) });
+        }
+      }
+    }
+    // The plain ones first: a route needing nothing converted is a shorter
+    // plan than one that does, and solves are what this costs.
+    tries.sort((a, b) => (a.via ? 1 : 0) - (b.via ? 1 : 0) || a.cost - b.cost ||
+                         a.id.localeCompare(b.id));
+
+    let best = null;
+    let bestScore = score(plan);
+    let bestSpec = null;
+    for (const t of tries.slice(0, SPARE_ROUTES)) {
+      const trial = { ...spec,
+        pins: new Map(spec.pins).set(t.name, t.id),
+        alsoUse: t.via ? new Set([...spec.alsoUse, t.via]) : spec.alsoUse };
+      const got = solve(trial);
+      // The converter has to actually run on the spare. Where it does not,
+      // this is not the leavings covering the list at all -- it is the ordinary
+      // search with a pin on it, and the pin was never the reader's.
+      if (t.via && rzero(got.runsOf(t.via))) continue;
+      if (rzero(got.runsOf(t.id))) continue;
+      if (!better(score(got), bestScore)) continue;
+      best = got; bestScore = score(got); bestSpec = trial;
+    }
+    if (!best) break;
+    spec = bestSpec;
+    plan = best;
   }
 
   const sharedPins = new Map();

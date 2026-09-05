@@ -465,6 +465,35 @@ Carbon while asking you for the other five —
 in the plan at all. The have row is net of whatever the plan makes for itself,
 which is the only reading of it that is a number you can go and act on.
 
+**The last thing on the list is worth more than its price.** The Carbon plan
+asked for two Water while venting two Hydrogen Gas and two Oxygen Gas — which
+is the water it was buying, in pieces. Nothing in the search was going to spot
+that: water falls from the sky, so having one costs 0.5 and making one out of
+your own exhaust came to 3.0, and the rule that making has to beat having did
+the rest. The price is not even wrong. Water *is* free, and a plan that
+manufactures it from scratch while it is raining outside would be a worse plan.
+
+What the price cannot see is the shopping list. An item that is the *only* one
+left is the difference between a factory that runs and an errand you have to
+keep running, and that is not a quantity any per-material cost knows about —
+but it is exactly what plans are already ranked by. So for anything still to be
+fetched, the ways of making it that the leavings would cover are tried, pinned
+so the price cannot overrule them, with whatever turns the leavings into their
+feed run on the leavings alone. Then the usual comparison picks:
+
+    2×  Carbon Dioxide + Hydrogen Gas → Carbon Monoxide + Water
+        on the spare Hydrogen Gas
+
+— and the shopping list is empty. The whole plan is then three carbon dioxide
+and a charge of two Hydrogen Gas and two Potassium Oxide laid in once, giving a
+Carbon, two Carbon Monoxide and two Oxygen Gas. Burning the hydrogen and oxygen
+back together as Steam and condensing it closes the list just as well and is one
+step longer, so it loses on the same scale — press **Use the spare** on Hydrogen
+Combustion and pin Water to the condensation if you would rather have it.
+
+Two steps out from the leavings and no further, which is what keeps this from
+becoming a search for something to do with an awkward byproduct.
+
 ### One reaction at a time
 
 A chamber holds a reaction's inputs, its outputs and its catalyst together, and

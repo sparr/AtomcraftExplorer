@@ -1239,9 +1239,7 @@ console.log('\n--- a plan that uses what you said you had ---');
   // plans are always judged here, by the shopping list they leave.
   check(plan.steps.some((s) => s.process.id === 'rx:Molten Potassium + Carbon Dioxide'),
         'and it is the Potassium reduction, whose own oxide comes back round');
-  check(plan.frontier.map((f) => f.name).join(',') === 'Water',
-        'so the whole shopping list is Water');
-  check(plan.priming.map((x) => x.name).join(',') === 'Potassium Oxide',
+  check(plan.priming.some((x) => x.name === 'Potassium Oxide'),
         'and the Potassium is a charge laid in once, not a step run for ever');
 
   // The other half of `have`. Ticking "I have it" on a line of the shopping
@@ -1267,6 +1265,41 @@ console.log('\n--- a plan that uses what you said you had ---');
   // button: a list you can only search if you already know the answer.
   check(routesFor(plan, 'Carbon').slice(0, 3).every((r) => r.draws),
         'and the ways through the stock head the route list');
+}
+
+console.log('\n--- the last of the list, out of the leavings ---');
+{
+  const spec = { targets: ['Carbon'], have: ['Carbon Dioxide'] };
+  const plan = solvePlan(graph, spec);
+  const runs = (p, id) => p.steps.find((s) => s.process.id === id);
+
+  // The plan asked for two Water while venting two Hydrogen Gas and two Oxygen
+  // Gas -- the water it was buying, in pieces. Water falls from the sky, so no
+  // way of making it out of your own exhaust can beat 0.5 on price, and the
+  // search was never going to find this on cost.
+  check(plan.frontier.length === 0, 'nothing is left to fetch at all');
+  check(!plan.byproducts.some((b) => b.name === 'Hydrogen Gas'),
+        'and the Hydrogen Gas is no longer vented while Water is bought');
+
+  // `score` already ranked the closed plan over the open one -- it counts the
+  // shopping list before anything else. All this pass had to do was make the
+  // candidate exist.
+  check(runs(plan, 'rx:Electrolysis of Carbon Dioxide'),
+        'the spare Hydrogen goes back into the carbon dioxide for the Water');
+  check(plan.priming.map((x) => x.name).sort().join(',') === 'Hydrogen Gas,Potassium Oxide',
+        'and what is left is a charge laid in once, not an errand');
+
+  // The pieces are still offered the other way round, which is the plan Sparr
+  // reached by hand: recombine the hydrogen and oxygen as Steam and condense it.
+  const burnt = solvePlan(graph, { ...spec, alsoUse: ['rx:Hydrogen Combustion'],
+                                   pins: { Water: 'cond:Steam' } });
+  check(burnt.frontier.length === 0 && runs(burnt, 'rx:Hydrogen Combustion'),
+        'and burning the hydrogen back to Steam closes it too, if asked');
+
+  // Nothing spare is nothing to work with, and the plan stands as it was.
+  const bare = solvePlan(graph, { targets: ['Carbon'] });
+  check(bare.steps.length === 1 && bare.frontier.length === 1,
+        'a plan that throws nothing away is left alone');
 }
 
 console.log('\n--- determinism ---');
