@@ -4556,6 +4556,35 @@ function composition(graph) {
   return out;
 }
 
+/** Cache for `madeOfAny`, which the amounts pass asks on every solve. */
+const relatedCache = new WeakMap();
+
+/**
+ * Every material made of any of these elements.
+ *
+ * The question the amounts pass needs answered is "has this got anything to do
+ * with what was asked for", and it needs it for one material at a time inside a
+ * loop over every process. Worked out once per graph and set of elements, since
+ * the targets do not move while a plan is being solved.
+ */
+function madeOfAny(graph, elements) {
+  if (!elements.size) return new Set();
+  let per = relatedCache.get(graph);
+  if (!per) relatedCache.set(graph, per = new Map());
+  const key = [...elements].sort().join(' ');
+  const hit = per.get(key);
+  if (hit) return hit;
+
+  const found = new Set();
+  for (const [name, info] of composition(graph)) {
+    for (const el of info.elements) {
+      if (elements.has(el)) { found.add(name); break; }
+    }
+  }
+  per.set(key, found);
+  return found;
+}
+
 /** Does this material contain that element, as far as anything can tell? */
 function contains(graph, name, element) {
   return composition(graph).get(name)?.elements.has(element) ?? false;
@@ -4575,7 +4604,7 @@ function elementsOf(graph, names) {
   return all;
 }
 
-return { composition, contains, elementsOf };
+return { composition, madeOfAny, contains, elementsOf };
 })();
 
 const __mod_plan_solve = (() => {
@@ -4602,7 +4631,7 @@ const __mod_plan_solve = (() => {
  * view and the table view are two readings of one object.
  */
 const {KIND, DEFAULT_KINDS, operatingWindow} = __mod_plan_graph;
-const {composition, elementsOf} = __mod_composition;
+const {composition, elementsOf, madeOfAny} = __mod_composition;
 const {heatingNeed, coolingNeed} = __mod_units;
 
 /* ------------------------------------------------------------- fractions */
@@ -4775,6 +4804,9 @@ const NEVER = 1e-6;
 
 /** Shared, because nearly every leftover holds nothing that was asked for. */
 const EMPTY = Object.freeze([]);
+
+/** How many leftovers made of the right stuff are worth a re-solve each. */
+const SOLO_CREDITS = 4;
 
 /**
  * Mark the leftovers that still have some of what was asked for in them.
@@ -5253,7 +5285,7 @@ function topoOrder(dag) {
  * and stops when the run counts settle. `converged: false` says they did not,
  * which is a real answer -- some loops have no fixed batch size.
  */
-function amounts(dag, spec, order) {
+function amounts(dag, spec, order, related = null) {
   const extra = [...dag.extra].map((id) => dag.processes.get(id)).filter(Boolean);
   // A surplus route hands its output back to the plan, which is a credit like
   // any other -- so the same fixpoint settles both.
@@ -5298,9 +5330,46 @@ function amounts(dag, spec, order) {
       // until everything else has said what it takes. It is booked below.
       if (dag.extra.has(id)) continue;
 
-      // What this process still has to cover, after any credited surplus.
+      /**
+       * What this process still has to cover, after any credited surplus.
+       *
+       * Not everything that comes out of it. A process is here because
+       * something picked it to make a particular thing, and the rest comes out
+       * anyway -- so sizing it to cover the rest is how a plan ends up running
+       * a reaction for its own exhaust. Hydrofluoric Acid Dissolves Columbite
+       * yields three Water beside the acid, the Tantalum plan wanted forty-
+       * eight Water, and reading that as a demand on this reaction ran it
+       * sixteen times instead of three: sixteen Columbite dissolved and ninety
+       * Hydrofluoric Acid bought to make water that was already on the shopping
+       * list, with ten Heptafluorotantalic Acid and ten Heptafluoroniobic Acid
+       * thrown out for it.
+       *
+       * Two things earn an output the right to size the process, and it took
+       * three wrong rules to find the second.
+       *
+       * The chamber was picked to make it. Not this reaction -- the chamber:
+       * rivals sharing a feed are never sized from demand, they are booked
+       * below in proportion to the one that was, so the leader stands in for
+       * all of them.
+       *
+       * Or it is made of what was asked for. Chosen-producer alone was tried
+       * and it breaks Lepidolite, because Molten Silica comes back off the
+       * plan's own loop and so is credited, with no chosen producer at all --
+       * and without it three Lepidolite stop coming to 2 Potassium, 2 Lithium,
+       * 2 Aluminum and 3 Silicon. Reading it off the dag's `reason` instead was
+       * tried too, and the feedback rounds move that under you: Water starts
+       * out acquired and becomes credited, and the exclusion quietly stops
+       * applying. What something is *made of* does not move. Molten Silica has
+       * silicon in it and silicon was asked for; the dissolution's Water has
+       * nothing to do with tantalum.
+       */
+      const chamber = dag.groups.get(p.id);
+      const ours = new Set([p.id, ...(chamber || []).map((m) => m.id)]);
+      const drives = (name) =>
+        ours.has(dag.materials.get(name)?.producer) || !related || related.has(name);
       let need = R0;
       for (const { name, count } of p.produces) {
+        if (!drives(name)) continue;
         const want = rsub(demand.get(name) || R0, credit.get(name) || R0);
         if (rcmp(want, R0) <= 0) continue;
         need = rmax(need, rdiv(want, rat(count)));
@@ -5468,7 +5537,7 @@ const scoreWaste = (p) => [p.frontier.filter((f) => f.alternatives > 0).length,
  * dropped, so a route can never rest on a supply that talked itself out of
  * existence.
  */
-function solvePlan(graph, rawSpec) {
+function solvePlan(graph, rawSpec, depth = 0) {
   let spec = normalizeSpec(rawSpec);
   const solve = (s) => {
     if (s.feedBackAll) return solveFedBack(graph, s);
@@ -5676,7 +5745,73 @@ function solvePlan(graph, rawSpec) {
     plan = best;
   }
 
-  const sharedPins = new Map();
+  /**
+   * Leftovers with some of what was asked for still in them, plumbed back one
+   * at a time.
+   *
+   * Feeding everything back at once is the cheaper question and usually the
+   * right one, but it is a single vote. Tantalum and Niobium out of Columbite
+   * throw off a dozen spare materials; taken together they send the plan
+   * chasing supplies that are not there, and rejected together the one that
+   * mattered goes with them -- the Heptafluorotantalic Acid, which is the whole
+   * tantalum half of the ore. Credited on its own it takes Molten Tantalum off
+   * the shopping list.
+   *
+   * Which one to try was the hard part, and neither price nor the cost model
+   * finds it. It is the one *made of what was asked for*, which is a question
+   * only `composition` can answer here: the game gives that acid no formula, so
+   * the tantalum in it has to be read off the reactions.
+   *
+   * A whole re-solve each, because on a single pass crediting the acid scores
+   * worse. It only pays once the feedback rounds run again on top of it and
+   * pick up what the tantalum chain then hands back in its turn.
+   */
+  /** What a trial worked out about the reader's pins, if one is adopted. */
+  let inherited = null;
+  if (depth === 0 && spec.feedBackAll && plan.byproducts.length) {
+    // The marking is normally done on the way out; this pass needs it now.
+    markHoldings(graph, plan);
+    /**
+     * Only where the plan is going shopping for the very stuff it is binning.
+     *
+     * That is the whole complaint -- fetch Molten Tantalum, throw away the
+     * Heptafluorotantalic Acid -- and it is worth a whole re-solve to answer.
+     * Anything else is not: a leftover with some tantalum in it, on a plan that
+     * is not out looking for tantalum, has nowhere better to be. Without the
+     * gate this fires on most plans and costs five solves for nothing, which
+     * put the Lepidolite balance outside the time anybody will sit through.
+     */
+    const buying = elementsOf(graph, plan.frontier.map((f) => f.name));
+    const spare = plan.byproducts
+      .filter((b) => b.holds.length && !spec.credit.has(b.name) && !spec.noFeedBack.has(b.name))
+      .filter((b) => b.holds.some((el) => buying.has(el)))
+      .slice(0, SOLO_CREDITS);
+
+    for (const item of spare) {
+      /**
+       * A whole plan, not a solve.
+       *
+       * Crediting the acid on its own comes out worse by the feedback rounds
+       * alone -- [2,4,16,1] against [1,4,15,0]. It is the passes after them
+       * that make it pay, once the tantalum chain is in and they can work on
+       * what it hands back. So the trial has to be the same question asked
+       * again from the top, and `depth` stops that going round for ever.
+       */
+      const credit = [...spec.credit, item.name];
+      const trial = solvePlan(graph, { ...rawSpec, credit }, depth + 1);
+      // It has to deliver what routing through it assumes, or this is the same
+      // overdrawn supply the rounds inside `solveFedBack` already refuse.
+      if (rcmp(trial.madeOf(item.name), trial.amountOf(item.name)) < 0) continue;
+      if (!better(score(trial), score(plan))) continue;
+      spec = trial.spec;
+      plan = trial;
+      // The trial is a whole solve and has already read the pins; taking its
+      // plan without its bookkeeping loses which of them it ran on the spare.
+      inherited = trial.sharedPins;
+    }
+  }
+
+  const sharedPins = new Map(inherited || []);
 
   /**
    * A pin that reads two ways.
@@ -5844,7 +5979,10 @@ function solveOnce(graph, spec) {
   const solved = solveCosts(graph, spec);
   const dag = extract(graph, spec, solved);
   const { order, stuck } = topoOrder(dag);
-  const scaled = amounts(dag, spec, order);
+  // What has anything to do with what was asked for. Materials rather than
+  // elements, because the amounts pass asks it once per output per process.
+  const related = madeOfAny(graph, elementsOf(graph, spec.targets.map((t) => t.name)));
+  const scaled = amounts(dag, spec, order, related.size ? related : null);
   const scale = batchScale(scaled.runs);
 
   const at = (map, name) => rmul(map.get(name) || R0, scale);

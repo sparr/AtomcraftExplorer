@@ -211,6 +211,35 @@ export function composition(graph) {
   return out;
 }
 
+/** Cache for `madeOfAny`, which the amounts pass asks on every solve. */
+const relatedCache = new WeakMap();
+
+/**
+ * Every material made of any of these elements.
+ *
+ * The question the amounts pass needs answered is "has this got anything to do
+ * with what was asked for", and it needs it for one material at a time inside a
+ * loop over every process. Worked out once per graph and set of elements, since
+ * the targets do not move while a plan is being solved.
+ */
+export function madeOfAny(graph, elements) {
+  if (!elements.size) return new Set();
+  let per = relatedCache.get(graph);
+  if (!per) relatedCache.set(graph, per = new Map());
+  const key = [...elements].sort().join(' ');
+  const hit = per.get(key);
+  if (hit) return hit;
+
+  const found = new Set();
+  for (const [name, info] of composition(graph)) {
+    for (const el of info.elements) {
+      if (elements.has(el)) { found.add(name); break; }
+    }
+  }
+  per.set(key, found);
+  return found;
+}
+
 /** Does this material contain that element, as far as anything can tell? */
 export function contains(graph, name, element) {
   return composition(graph).get(name)?.elements.has(element) ?? false;

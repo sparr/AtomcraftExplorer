@@ -374,6 +374,42 @@ the page saying what narrowed it. Everything you have kept out is listed under
 to let it back in. The same undo sits on the route itself, which is kept in the
 list past the cut for exactly that reason.
 
+**A reaction is never run for what falls out of it anyway.** Hydrofluoric Acid
+Dissolves Columbite yields three Water beside the acid, and a plan for Tantalum
+and Niobium wanted forty-eight Water — so it ran sixteen times instead of three.
+Sixteen Columbite dissolved and ninety Hydrofluoric Acid bought, to make water
+that was already on the shopping list, with ten Heptafluorotantalic Acid and ten
+Heptafluoroniobic Acid thrown out for it: the ore's whole tantalum half, in the
+bin, to fetch something that falls from the sky.
+
+Two things earn an output the right to size the process, and it took three
+wrong rules to find the second. The **chamber** was picked to make it — the
+chamber, not the reaction, because rivals sharing a feed are booked in
+proportion to the one that was sized. Or it is **made of what was asked for**.
+Reading only the chosen producer breaks Lepidolite, whose Molten Silica comes
+back off the plan's own loop and so has no chosen producer at all; reading the
+plan's intent off the dag instead moves under you, because the feedback rounds
+turn Water from acquired into credited and the exclusion quietly stops applying.
+What a thing is *made of* does not move. Molten Silica has silicon in it and
+silicon was asked for; the dissolution's water has nothing to do with tantalum.
+
+That takes the plan from sixteen Columbite to three, and three is the whole of
+it: one ore is one tantalum and one niobium, the game's chain doubles both on
+the way to the metal, and six of each is what three ore come to. Nothing with
+either metal in it is left over, and the ninety Hydrofluoric Acid and half the
+Lepidolite go with the waste.
+
+**And what is left over that still has some of it in it gets fed back.** The
+last of it is one leftover at a time: everything at once is the cheaper question
+and usually right, but it is a single vote, and the dozen spare materials here
+are rejected together — taking the Heptafluorotantalic Acid, the entire tantalum
+half, with them. Tried on its own it takes Molten Tantalum off the shopping list.
+Which one to try is the one *made of what was asked for*, which nothing could
+answer until the composition work above, the game having given that acid no
+formula. Only where the plan is shopping for the very stuff it is binning, and
+only as a whole re-solve, because on a single pass it scores worse and only pays
+once the feedback rounds run again on top of it.
+
 ### Amounts that use the feed up
 
 Ask for one each of Potassium, Lithium, Aluminum and Silicon out of Lepidolite

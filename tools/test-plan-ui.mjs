@@ -554,7 +554,9 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   nodes(panel, 'small')[0].click();
   check(app.getPlan().excludeProcesses.length === 1,
         '"Allow it" takes one rejection back and leaves the others');
-  check(/^17 steps/.test(text('#plan-steps')),
+  // 16 rather than the 17 it was: the sizing rule stopped the Columbite being
+  // dissolved for outputs the plan was already going out for.
+  check(/^16 steps/.test(text('#plan-steps')),
         `and the plan that was 2 steps of giving up is a plan again: ${text('#plan-steps').slice(0, 9)}`);
 
   app.setPlan({ ...emptyPlan(), targets: ['Vinegar'] });

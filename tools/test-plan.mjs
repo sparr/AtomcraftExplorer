@@ -1168,9 +1168,13 @@ console.log('\n--- amounts that use the feed up ---');
   check(amts({ targets: at([9, 1, 1, 1]), have: ['Lepidolite'] }) === want,
         'whichever thing it was');
 
+  // One Columbite is one tantalum and one niobium -- `Fe(Ta,Nb)2O6`, two slots
+  // that are each one or the other -- and the game's chain doubles both on the
+  // way to the metal, so one ore is two of each. It used to say six and six,
+  // which was the same ratio reached by dissolving sixteen ore for it.
   check(amts({ targets: [{ name: 'Tantalum', amount: 7 }, { name: 'Niobium', amount: 3 }],
-               have: ['Columbite', 'Carbon'] }) === '6 Tantalum, 6 Niobium',
-        'Columbite gives Tantalum and Niobium one for one, so 7 and 3 is 6 and 6');
+               have: ['Columbite', 'Carbon'] }) === '2 Tantalum, 2 Niobium',
+        'Columbite gives Tantalum and Niobium one for one, so 7 and 3 is 2 and 2');
 
   // One product has no ratio to be in, and a feed nothing draws on is not a
   // constraint -- Molten Aluminum out of Water would climb until it ran out of
@@ -1339,26 +1343,32 @@ console.log('\n--- a charge you could actually turn up with ---');
   const fetched = plan.frontier.map((f) => f.name);
   check(primed.every((n) => fetched.includes(n)),
         'and what is laid in is something the plan was already sending you for');
-  check(primed.join(',') === 'Hydrofluoric Acid',
-        `which here is the Hydrofluoric Acid (${primed.join(', ')})`);
+  // Which is now nothing at all: the plan stopped dissolving five times more
+  // ore than it needed, and the loop it could not start went with it.
+  check(primed.length === 0,
+        `and on this plan there is nothing to lay in (${primed.join(', ') || 'none'})`);
 }
 
 console.log('\n--- a leftover with the thing you asked for still in it ---');
 {
-  // Ten Heptafluorotantalic Acid in the bin on a plan for tantalum is worth
-  // saying out loud. Nothing could say it before: the game gives that acid no
-  // formula, so what it holds has to be read off the reactions it takes part
-  // in. It does not change the plan -- it says what the plan is doing.
-  const plan = solvePlan(graph, {
-    targets: [{ name: 'Tantalum', amount: 6 }, { name: 'Niobium', amount: 6 }],
-    have: ['Columbite'],
-  });
-  const held = plan.byproducts.filter((b) => b.holds.length);
+  // This plan used to bin ten Heptafluorotantalic Acid and ten
+  // Heptafluoroniobic Acid, which between them are the whole ore. Now there is
+  // nothing of either metal left lying about, which is what the note is for
+  // saying and what the sizing rule is for preventing.
+  const spec = { targets: [{ name: 'Tantalum', amount: 6 }, { name: 'Niobium', amount: 6 }],
+                 have: ['Columbite'] };
+  const plan = solvePlan(graph, spec);
+  check(!plan.byproducts.some((b) => b.holds.length),
+        'nothing the plan throws away has any tantalum or niobium in it');
+
+  // Rule the reduction out and the acid has nowhere to go, which is exactly
+  // when the reader wants telling what is in it.
+  const stuck = solvePlan(graph, { ...spec,
+                                   excludeProcesses: ['rx:Tantalum Pentoxide Reduction'] });
+  const held = stuck.byproducts.filter((b) => b.holds.length);
   check(held.some((b) => b.name === 'Heptafluorotantalic Acid' && b.holds.includes('Ta')),
-        'the spare tantalum acid is marked as still holding tantalum');
-  check(held.some((b) => b.name === 'Heptafluoroniobic Acid' && b.holds.includes('Nb')),
-        'and the niobium one niobium');
-  check(!plan.byproducts.some((b) => b.name === 'Steam' && b.holds.length),
+        'and where one is left over it is marked as still holding tantalum');
+  check(!stuck.byproducts.some((b) => b.name === 'Steam' && b.holds.length),
         'while the steam is nobody\'s tantalum');
 
   // Nothing asked for, nothing to hold: the note is about the question.
