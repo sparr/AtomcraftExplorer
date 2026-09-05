@@ -931,6 +931,23 @@ function renderSide() {
       const line = el('div', 'plan-item-main');
       line.append(el('span', 'amount', amount(b.amount)), ' ', matLink(b.name));
       li.append(line);
+      /**
+       * A leftover that has some of the thing you asked for still in it.
+       *
+       * Ten Heptafluorotantalic Acid in the bin on a plan for tantalum is
+       * worth saying out loud, and nothing could say it before: the game gives
+       * that acid no formula, so what it is made of has to be read off the
+       * reactions. Said quietly, because it is an inference and because it is
+       * sometimes the right answer -- some of it really is out of balance.
+       */
+      if (b.holds?.length) {
+        const el2 = b.holds.map((sym) => ctx.db.elementBySymbol.get(sym)?.name ?? sym);
+        const note = el('div', 'plan-item-note',
+                        `still has ${listed(el2.map((n) => n.toLowerCase()))} in it`);
+        note.title = 'Worked out from the reactions it takes part in, not from a ' +
+                     'formula the game gave it';
+        li.append(note);
+      }
       const acts = el('div', 'plan-item-acts');
       acts.append(button('ghost small' + (b.kept ? ' on' : ''),
                          b.kept ? 'Kept' : 'Keep it',

@@ -21,6 +21,7 @@
  * view and the table view are two readings of one object.
  */
 import { KIND, DEFAULT_KINDS, operatingWindow } from './plan-graph.js';
+import { composition, elementsOf } from './composition.js';
 import { heatingNeed, coolingNeed } from './units.js';
 
 /* ------------------------------------------------------------- fractions */
@@ -190,6 +191,31 @@ export function shareRatio(chances) {
 
 /** Reactions that can never fire: an ungated rival ahead of them takes everything. */
 const NEVER = 1e-6;
+
+/** Shared, because nearly every leftover holds nothing that was asked for. */
+const EMPTY = Object.freeze([]);
+
+/**
+ * Mark the leftovers that still have some of what was asked for in them.
+ *
+ * Done once, on the plan being handed back, rather than in `solveOnce` -- it is
+ * something to say about a plan and nothing chooses by it, and a solve for the
+ * Carbon plan runs dozens of trials whose leavings nobody will ever read. Doing
+ * it in the hot path cost half as much again as the whole solve.
+ */
+function markHoldings(graph, plan) {
+  const asked = elementsOf(graph, plan.spec.targets.map((t) => t.name));
+  if (!asked.size) return plan;
+  const table = composition(graph);
+  for (const b of plan.byproducts) {
+    const has = table.get(b.name)?.elements;
+    if (!has) continue;
+    let found = null;
+    for (const el of has) if (asked.has(el)) (found ??= []).push(el);
+    if (found) b.holds = found;
+  }
+  return plan;
+}
 
 /**
  * How many ways of getting through the reader's stock are worth solving for.
@@ -1106,7 +1132,7 @@ export function solvePlan(graph, rawSpec) {
     sharedPins.set(name, id);
   }
 
-  if (!spec.feedBackAll) { plan.sharedPins = sharedPins; return plan; }
+  if (!spec.feedBackAll) { plan.sharedPins = sharedPins; return markHoldings(graph, plan); }
 
   /**
    * A step is preferred to a charge.
@@ -1146,7 +1172,7 @@ export function solvePlan(graph, rawSpec) {
    */
   plan.brokenLoops = [...off].filter((n) => rcmp(plan.otherSupplyOf(n), R0) > 0);
   plan.sharedPins = sharedPins;
-  return plan;
+  return markHoldings(graph, plan);
 }
 
 /** Solve, feeding back everything spare, going round until the set settles. */
@@ -1245,6 +1271,13 @@ function solveOnce(graph, spec) {
 
   const frontier = [];
   const byproducts = [];
+  /**
+   * What the reader asked for, as elements, so the leavings can be checked
+   * against it. Asking for Tantalum and Niobium out of Columbite leaves ten
+   * Heptafluorotantalic Acid in the bin, and the tantalum in it is the whole
+   * point of the plan -- but the game gives that acid no formula, so saying so
+   * takes `composition`, which works it out of the reactions.
+   */
   for (const node of dag.materials.values()) {
     const need = at(scaled.demand, node.name);
     const made = at(scaled.supply, node.name);
@@ -1277,7 +1310,9 @@ function solveOnce(graph, spec) {
                         from: node.producer ? [node.producer, ...node.byproductOf]
                                             : node.byproductOf,
                         credited: spec.credit.has(node.name),
-                        kept: spec.kept.has(node.name) });
+                        kept: spec.kept.has(node.name),
+                        /** Filled in once, on the plan that is actually handed back. */
+                        holds: EMPTY });
     }
   }
   frontier.sort((a, b) => a.name.localeCompare(b.name));

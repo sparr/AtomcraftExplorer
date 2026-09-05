@@ -1343,6 +1343,30 @@ console.log('\n--- a charge you could actually turn up with ---');
         `which here is the Hydrofluoric Acid (${primed.join(', ')})`);
 }
 
+console.log('\n--- a leftover with the thing you asked for still in it ---');
+{
+  // Ten Heptafluorotantalic Acid in the bin on a plan for tantalum is worth
+  // saying out loud. Nothing could say it before: the game gives that acid no
+  // formula, so what it holds has to be read off the reactions it takes part
+  // in. It does not change the plan -- it says what the plan is doing.
+  const plan = solvePlan(graph, {
+    targets: [{ name: 'Tantalum', amount: 6 }, { name: 'Niobium', amount: 6 }],
+    have: ['Columbite'],
+  });
+  const held = plan.byproducts.filter((b) => b.holds.length);
+  check(held.some((b) => b.name === 'Heptafluorotantalic Acid' && b.holds.includes('Ta')),
+        'the spare tantalum acid is marked as still holding tantalum');
+  check(held.some((b) => b.name === 'Heptafluoroniobic Acid' && b.holds.includes('Nb')),
+        'and the niobium one niobium');
+  check(!plan.byproducts.some((b) => b.name === 'Steam' && b.holds.length),
+        'while the steam is nobody\'s tantalum');
+
+  // Nothing asked for, nothing to hold: the note is about the question.
+  const idle = solvePlan(graph, { targets: ['Carbon'] });
+  check(idle.byproducts.every((b) => Array.isArray(b.holds)),
+        'every leftover carries the field, even when it is empty');
+}
+
 console.log('\n--- determinism ---');
 {
   const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };

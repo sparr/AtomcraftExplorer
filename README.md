@@ -518,6 +518,39 @@ ranking is left alone.
 Two steps out from the leavings and no further, which is what keeps this from
 becoming a search for something to do with an awkward byproduct.
 
+**A leftover can be told to have the thing you asked for still in it.** Ask for
+Tantalum and Niobium out of Columbite and ten Heptafluorotantalic Acid go in the
+bin, which is the tantalum half of the ore. Saying so was impossible until
+recently: 1038 of the 1871 materials carry a formula and the gaps fall exactly
+on the compounds a plan passes through — every step from Columbite to the metal
+is one of them.
+
+It can be worked out, because the reactions are a set of statements about where
+the atoms went. Three sources, strongest first, because they are not equally
+trustworthy. The **formula**, where there is one. A **phase change**, which is
+the same substance in another state — Silica melts into Molten Silica, so both
+are SiO₂, and that alone settles 215 more. Then the **reactions**, which are
+only mostly conservation, so they are counted rather than trusted and a majority
+carries it; that reaches another 94, the fluoro-acids among them. 524 materials
+are left with nothing to go on, mostly biological, and the honest answer there
+is silence.
+
+Presence only, never counts. Counts would need the reactions to balance and they
+do not — one Aqueous Potassium Heptafluorotantalate(V) really does come back as
+one Tantalum Pentoxide, which is two tantalum atoms out for one in.
+
+Reactions sharing a chamber are read together rather than one at a time, which
+matters more than it sounds. Lepidolite's three decompositions divide one feed
+one way in three, and the branch that makes the lithium never mentions the
+potassium — so read alone it says the potassium turned into silica, and Molten
+Silica came out as "K Si Al". Merged at one run each, the way the rest of the
+planner reads them, the potassium is accounted for by the branch that carries
+it. Nine chambers out of 687 reactions, and they were the ones doing the damage.
+
+None of this is chemistry the game shipped, so it is kept well away from the
+formula it is standing in for, said quietly on the row, and never rendered as
+though somebody had written it down.
+
 ### One reaction at a time
 
 A chamber holds a reaction's inputs, its outputs and its catalyst together, and

@@ -765,6 +765,8 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .plan-item + .plan-item { border-top: 1px solid var(--line-soft); }
 .plan-item-main { display: flex; align-items: baseline; gap: 4px; }
 .plan-item-acts { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+/* An inference, so it is said quietly and never looks like a stated formula. */
+.plan-item-note { margin-top: 2px; font-size: 0.85em; color: var(--fg-dim); font-style: italic; }
 .plan-how { font-size: 12px; color: var(--fg-faint); }
 /* The demanding bits: a term, what it is, and which step wants it. */
 .plan-kit { margin: 0; }
