@@ -221,6 +221,38 @@ console.log('\n--- reactions that share a chamber ---');
         'and they are no longer a footnote on the step that displaced them');
 }
 
+/* ------------------------------------------------------------ spare output */
+
+console.log('\n--- claiming what is left over ---');
+{
+  // Wanting the spare water should account for the water that is already
+  // spare, not set a fresh batch going for it. As a target it would do the
+  // latter -- and count it wrong on the way, since a target's amount is stated
+  // before the batch scaling and a leftover is shown after it.
+  app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Potassium'), 'Lithium'), 'Lepidolite'));
+  app.setMode('plan');
+  const before = { steps: nodes($('#plan-steps'), 'plan-step').length,
+                   fetch: nodes($('#plan-side'), 'plan-item')
+                     .filter((n) => n.textContent.includes('mine') || false).length };
+  const water = nodes($('#plan-side'), 'plan-item').find((n) => n.dataset.material === 'Water');
+  check(!!water, 'the spare water is listed as left over');
+  const keep = nodes(water, 'small').find((b) => b.textContent === 'Keep it');
+  check(!!keep, 'and offers to be kept rather than wanted');
+
+  keep.click();
+  check(nodes($('#plan-steps'), 'plan-step').length === before.steps,
+        `which changes nothing about the plan (${before.steps} steps either way)`);
+  check(!text('#plan-side').includes('Falling Snow') && !text('#plan-side').includes('Vanadinite'),
+        'and sends it after nothing');
+  check(text('#plan-side').includes('You also get'), 'the water moves to what you also get');
+  const still = nodes($('#plan-side'), 'plan-item')
+    .filter((n) => n.dataset.material === 'Water');
+  check(still.length === 1 && still[0].textContent.includes('Kept'),
+        'listed once, as kept');
+  check(!app.getPlan().targets.some((t) => t.name === 'Water'),
+        'without becoming something the plan has to make');
+}
+
 /* ------------------------------------------------------- a step or a charge */
 
 console.log('\n--- trading a step for a charge ---');

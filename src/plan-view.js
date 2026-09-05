@@ -12,14 +12,14 @@
  * else is drawn beside it later.
  */
 import { search } from './search.js';
-import { solvePlan, routesFor, usesFor, rat, rmul, rstr, rcmp, R0 } from './plan-solve.js';
+import { solvePlan, routesFor, usesFor, rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
 import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
          removeHave, pin, toggle, toggleKind, setOption,
          selectMaterial, includeProcess, isFedBack, toggleFedBack,
-         primeInstead, makeInstead } from './plan-state.js';
+         primeInstead, makeInstead, keepOutput, isKept } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -527,8 +527,20 @@ function renderInspector(box) {
 
   const acts = el('div', 'plan-item-acts');
   if (!plan.targets.some((t) => t.name === name)) {
-    acts.append(button('ghost small', 'I want it', 'Count it as something the plan is for',
-                       () => edit(addTarget, name)));
+    // Something the plan already has going spare is claimed, not demanded.
+    // Asking for it as a target would set a fresh batch going for what is
+    // sitting there -- and the two are counted differently, since a target is
+    // stated before the batch scaling and a surplus is shown after it.
+    const spare = rcmp(rsub(made, need), R0) > 0;
+    if (spare) {
+      acts.append(button('ghost small' + (isKept(plan, name) ? ' on' : ''),
+                         isKept(plan, name) ? 'Kept' : 'Keep it',
+                         'Count the spare as something you wanted, without making more',
+                         () => edit(keepOutput, name)));
+    } else {
+      acts.append(button('ghost small', 'I want it', 'Plan a way to make some',
+                         () => edit(addTarget, name)));
+    }
   }
   const banned = plan.excludeMaterials.includes(name);
   acts.append(button('ghost small' + (banned ? ' on' : ''), 'Never use it',
@@ -685,20 +697,33 @@ function renderSide() {
     box.append(prime);
   }
 
-  // --- what it leaves lying around ---------------------------------------
-  if (solved.byproducts.length) {
-    const by = el('section', 'plan-panel');
-    by.append(el('h2', null, `${solved.byproducts.length} left over`));
+  // --- what it makes besides what was asked for --------------------------
+  //
+  // Kept output and waste are the same surplus read two ways, so they are two
+  // panels over one list. Keeping something asks for nothing to be made: it
+  // says the spare water is a product. Asking for it as a *target* would
+  // demand a fresh batch -- and since a target's amount is stated before the
+  // batch scaling and a leftover is shown after it, wanting the 1 spare Water
+  // came out as a demand for 2, which sent the planner off after Vanadinite.
+  for (const [wanted, heading] of [[true, 'You also get'], [false, 'left over']]) {
+    const group = solved.byproducts.filter((b) => b.kept === wanted);
+    if (!group.length) continue;
+    const by = el('section', 'plan-panel' + (wanted ? ' kept' : ''));
+    by.append(el('h2', null, wanted ? heading : `${group.length} ${heading}`));
     const ul = el('ul', 'plan-list');
-    for (const b of solved.byproducts) {
+    for (const b of group) {
       const li = el('li', 'plan-item');
       li.dataset.material = b.name;
       const line = el('div', 'plan-item-main');
       line.append(el('span', 'amount', amount(b.amount)), ' ', matLink(b.name));
       li.append(line);
       const acts = el('div', 'plan-item-acts');
-      acts.append(button('ghost small', 'I want it', 'Count it as something the plan is for',
-                         () => edit(addTarget, b.name)));
+      acts.append(button('ghost small' + (b.kept ? ' on' : ''),
+                         b.kept ? 'Kept' : 'Keep it',
+                         b.kept ? 'Count it as waste again'
+                                : 'Count this spare output as something you wanted, ' +
+                                  'without making any more',
+                         () => edit(keepOutput, b.name)));
       const fed = isFedBack(plan, b.name);
       const feed = button('ghost small' + (fed ? ' on' : ''),
                           fed ? 'Fed back' : 'Feed it back',
@@ -711,7 +736,7 @@ function renderSide() {
       ul.append(li);
     }
     by.append(ul);
-    if (!solved.converged) {
+    if (!wanted && !solved.converged) {
       by.append(el('p', 'muted',
         'Feeding these back does not settle on a batch size, so the amounts are approximate.'));
     }
@@ -813,6 +838,7 @@ export function render() {
     excludeProcesses: plan.excludeProcesses,
     excludeMaterials: plan.excludeMaterials,
     credit: plan.credit,
+    kept: plan.kept,
     feedBackAll: plan.feedBackAll,
     noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,

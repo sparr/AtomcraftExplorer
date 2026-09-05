@@ -38,6 +38,15 @@ export function emptyPlan() {
     runs: {},                     // process id -> batch size set by hand
     excludeProcesses: [],
     excludeMaterials: [],
+    /**
+     * Spare output the reader wants counted as a product rather than waste.
+     *
+     * Not a target: it asks for nothing to be made. Asking for a leftover as a
+     * target instead demands a fresh batch of it -- and, because target amounts
+     * are stated before the batch scaling and leftovers are shown after it, a
+     * request for the 1 spare Water came out as a demand for 2.
+     */
+    kept: [],
     credit: [],                   // byproducts agreed to be plumbed back, one by one
     /** Or agree to all of them, and name the exceptions instead. */
     feedBackAll: true,
@@ -77,6 +86,7 @@ export function readPlan(params) {
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
   plan.credit = list(params.get('cr'));
+  plan.kept = list(params.get('kp'));
   plan.noFeedBack = list(params.get('nf'));
   if (params.get('fb') === '0') plan.feedBackAll = false;
 
@@ -114,6 +124,7 @@ export function writePlan(plan, params) {
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
   put('cr', plan.credit.join(SEP));
+  put('kp', plan.kept.join(SEP));
   put('nf', plan.noFeedBack.join(SEP));
   if (!plan.feedBackAll) params.set('fb', '0');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
@@ -146,6 +157,7 @@ const clone = (p) => ({
   excludeProcesses: [...p.excludeProcesses],
   excludeMaterials: [...p.excludeMaterials],
   credit: [...p.credit],
+  kept: [...p.kept],
   noFeedBack: [...p.noFeedBack],
   kinds: [...p.kinds],
 });
@@ -169,6 +181,10 @@ export function setTargetAmount(plan, name, amount) {
   if (found) found.amount = Math.max(1, Math.round(amount) || 1);
   return next;
 }
+
+/** Count this spare output as something the plan is for, without making more. */
+export const keepOutput = (plan, name) => toggle(plan, 'kept', name);
+export const isKept = (plan, name) => plan.kept.includes(name);
 
 /** Is this byproduct being plumbed back into the plan? */
 export const isFedBack = (plan, name) =>

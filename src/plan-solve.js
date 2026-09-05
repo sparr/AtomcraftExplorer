@@ -206,6 +206,9 @@ export function normalizeSpec(spec = {}) {
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
+    /** Spare output counted as a product rather than waste. Changes nothing
+     *  about what is made -- it is a reading of the same surplus. */
+    kept: new Set(spec.kept || []),
     /** byproducts the reader has agreed to plumb back in, one by one. */
     credit: new Set(spec.credit || []),
     /**
@@ -808,7 +811,8 @@ function solveOnce(graph, spec) {
       byproducts.push({ name: node.name, amount: spare,
                         from: node.producer ? [node.producer, ...node.byproductOf]
                                             : node.byproductOf,
-                        credited: spec.credit.has(node.name) });
+                        credited: spec.credit.has(node.name),
+                        kept: spec.kept.has(node.name) });
     }
   }
   frontier.sort((a, b) => a.name.localeCompare(b.name));

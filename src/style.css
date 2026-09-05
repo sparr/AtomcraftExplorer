@@ -902,3 +902,6 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 
 /* A step that is only here because the alternative was a priming charge. */
 .step-loop { font-size: 12px; color: var(--ok); margin-top: 2px; }
+
+/* Spare output the reader has claimed as a product rather than waste. */
+.plan-panel.kept { border-color: var(--ok); }

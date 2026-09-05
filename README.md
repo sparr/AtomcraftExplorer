@@ -152,8 +152,11 @@ What comes out is a list of steps with exact amounts, a **shopping list** of
 everything the plan still needs somebody to go and fetch, whatever it leaves
 **left over**, and a summary of the **apparatus** it all takes. Each of those is
 a place to make a decision: mark something as already in hand, pick a different
-route to it, ban a step you would rather not run, or claim a byproduct as
-something you wanted after all.
+route to it, ban a step you would rather not run, or **keep** a byproduct —
+counting spare output as a product rather than waste, which asks for nothing to
+be made. That is not the same as adding it to what you want: a target sets a
+fresh batch going, and its amount is stated *before* the batch scaling while a
+leftover is shown after it, so wanting the 1 spare Water would have demanded 2.
 
 **Spare output is fed back into the plan** — every bit of it, by default. A
 furnace throwing off steam is a reason to condense the steam rather than fetch
