@@ -479,6 +479,57 @@ function without(ranges, [a, b]) {
 }
 
 /**
+ * Which reactions this one is sharing its feedstock with, and how often each
+ * of them gets it.
+ *
+ * A tile runs the first reaction in its own list that is valid this tick and
+ * then stops -- `foreach (r in Reactions) if (IsReactionValid(...)) { DoReaction
+ * (...); return true; }`. The list belongs to the material, so the rivals are
+ * the reactions sharing a PrimaryInput, tried in the order they were loaded.
+ *
+ * Which would mean the first one always wins, except that most of them carry a
+ * Probability: a 1-in-P gate rolled per tick. Lepidolite's three decompositions
+ * are gated at 51, 52 and 50, so each takes about a third of the ore and the
+ * plan has to say so -- two thirds of what you feed in comes out as the other
+ * two reactions' products.
+ *
+ * Where an earlier rival has no gate at all it fires every time and everything
+ * after it in the list never runs, which is worth knowing too.
+ */
+function competitionFor(graph, p, window) {
+  if (p.kind !== 'reaction') return null;
+  const primary = p.source?.raw?.PrimaryInput;
+  if (!primary) return null;
+
+  // Competing for the feed means running on what is *put in*, not on what
+  // comes out. A reaction needing this one's products is a later event in the
+  // same chamber, not a rival for the same tick -- counting it as one had
+  // "Antimony Pentafluoride + Water" reported as never running, starved by a
+  // reaction that cannot happen until it has.
+  const fed = new Set(p.inputs.map((i) => i.name));
+  for (const c of p.conditions.catalysts || []) fed.add(c.name);
+
+  const rivals = window.unavoidable
+    .map((u) => graph.byId.get(u.id))
+    .filter((q) => q?.kind === 'reaction' && q.source?.raw?.PrimaryInput === primary &&
+                   [...q.consumes, ...q.requires].every((i) => fed.has(i.name)));
+  if (!rivals.length) return null;
+
+  // Tried in the order the game loaded them, which is the order they are baked.
+  const all = [p, ...rivals].sort((a, b) => a.source.index - b.source.index);
+  let left = 1;
+  const members = all.map((q) => {
+    const gate = q.source.raw.Probability || 1;    // no gate means every tick
+    const fires = left / gate;
+    left -= fires;
+    return { id: q.id, label: q.label, probability: q.source.raw.Probability || null, fires };
+  });
+  const total = members.reduce((a, m) => a + m.fires, 0) || 1;
+  for (const m of members) m.chance = m.fires / total;
+  return members;
+}
+
+/**
  * The temperatures at which a process runs *and nothing else does*.
  *
  * A reaction happens in a chamber holding its inputs, its outputs and whatever
@@ -553,6 +604,7 @@ function temperatureWindow(graph, p) {
   for (const a of window.avoided) {
     a.binding = a.range[0] === window.hi + 1 || a.range[1] === window.lo - 1;
   }
+  window.competition = competitionFor(graph, p, window);
   return window;
 }
 

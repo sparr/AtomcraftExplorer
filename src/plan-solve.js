@@ -152,6 +152,45 @@ export function processCost(p, w = DEFAULT_WEIGHTS, avoid = true) {
   return c;
 }
 
+/**
+ * A set of chances, as small whole numbers that still sum to one.
+ *
+ * Lepidolite's three decompositions take 33.99%, 32.68% and 33.33% of the ore.
+ * Carried around exactly those denominators multiply through the whole plan and
+ * come out as "scaled x132600 to make it whole", which tells nobody anything.
+ * One in three each is what is meant, is within a percentage point, and is a
+ * number a person can hold -- and the split is a per-tick sampling anyway, so
+ * these were always averages.
+ */
+export function shareRatio(chances) {
+  for (let d = chances.length; d <= 24; d++) {
+    const k = chances.map((c) => Math.round(c * d));
+    if (k.some((x) => x < 1)) continue;
+    if (k.reduce((a, b) => a + b, 0) !== d) continue;
+    if (k.every((x, i) => Math.abs(x / d - chances[i]) <= 0.03)) return { k, d, rounded: false };
+  }
+  const k = chances.map((c) => Math.max(1, Math.round(c * 100)));
+  const sum = k.reduce((a, b) => a + b, 0);
+  k[k.indexOf(Math.max(...k))] += 100 - sum;
+  return { k, d: 100, rounded: true };
+}
+
+/** Reactions that can never fire: an ungated rival ahead of them takes everything. */
+const NEVER = 1e-6;
+
+/**
+ * The set of reactions sharing this one's chamber and feed, as whole-number
+ * shares -- or null where it has the feed to itself.
+ */
+export function competitionOf(p, avoid = true) {
+  const members = operatingWindow(p, avoid).competition;
+  if (!members || members.length < 2) return null;
+  const live = members.filter((m) => m.chance > NEVER);
+  if (live.length < 2) return null;
+  const { k, d, rounded } = shareRatio(live.map((m) => m.chance));
+  return live.map((m, i) => ({ ...m, k: k[i], of: d, rounded }));
+}
+
 /* ------------------------------------------------------------------ spec */
 
 /** Fill in a partial plan specification. Everything downstream reads this. */
@@ -230,8 +269,17 @@ export function solveCosts(graph, spec) {
     ? building || p.produces.some((o) => wanted.has(o.name))
     : kinds.has(p.kind));
 
+  /**
+   * A reaction an ungated rival always beats to the feed never runs at all --
+   * 18 of them -- so it is not a route to anything, whatever it says it makes.
+   */
+  const fires = (p) => {
+    const members = operatingWindow(p, spec.avoidSideEffects).competition;
+    return !members || (members.find((m) => m.id === p.id)?.chance ?? 1) > NEVER;
+  };
+
   const allowed = graph.processes.filter((p) =>
-    usable(p) &&
+    usable(p) && fires(p) &&
     !excludeProcesses.has(p.id) &&
     !p.consumes.some((i) => excludeMaterials.has(i.name)) &&
     !p.produces.some((o) => excludeMaterials.has(o.name)) &&
@@ -338,6 +386,10 @@ export function extract(graph, spec, solved) {
   for (let attempt = 0; ; attempt++) {
     const materials = new Map();
     const processes = new Map();
+    /** Rival process id -> the chosen process whose chamber it shares. */
+    const forced = new Map();
+    /** Chosen process id -> every reaction sharing its feed, with shares. */
+    const groups = new Map();
     let looped = false;
 
     const producerFor = (name) => {
@@ -368,9 +420,10 @@ export function extract(graph, spec, solved) {
       visitProcess(p, new Set(stack).add(name));
     };
 
-    const visitProcess = (p, stack) => {
+    const visitProcess = (p, stack, leader = null) => {
       if (processes.has(p.id)) return;
       processes.set(p.id, p);
+      if (leader) forced.set(p.id, leader);
       for (const { name } of p.consumes) visitMaterial(name, stack);
       for (const { name } of p.requires) visitMaterial(name, stack);
       for (const { name } of p.produces) {
@@ -379,6 +432,18 @@ export function extract(graph, spec, solved) {
           materials.set(name, { name, producer: null, reason: 'byproduct',
                                 consumers: [], byproductOf: [] });
         }
+      }
+      // Whatever else is running on the same feed comes too. It is not a
+      // choice: the tile tries them in turn and one of them wins each tick,
+      // so two thirds of the Lepidolite fed in leaves as the other two
+      // decompositions' products whether the plan mentions them or not.
+      if (leader) return;
+      const rivals = competitionOf(p, spec.avoidSideEffects);
+      if (!rivals) return;
+      groups.set(p.id, rivals);
+      for (const m of rivals) {
+        const q = graph.byId.get(m.id);
+        if (q && q !== p) visitProcess(q, stack, p.id);
       }
     };
 
@@ -399,7 +464,7 @@ export function extract(graph, spec, solved) {
       }
     }
 
-    return { materials, processes, cycles };
+    return { materials, processes, cycles, forced, groups };
   }
 }
 
@@ -427,6 +492,11 @@ export function topoOrder(dag) {
   }
   for (const m of dag.materials.values()) {
     if (m.producer && dag.processes.has(m.producer)) edge(m.producer, `m:${m.name}`);
+  }
+  // A rival runs as often as the reaction it shares a chamber with, so it has
+  // to be settled at the same moment -- which means after it, in this order.
+  for (const [rival, leader] of dag.forced) {
+    if (dag.processes.has(leader)) edge(leader, rival);
   }
 
   const queue = nodes.filter((id) => !indeg.get(id));
@@ -478,10 +548,29 @@ export function amounts(dag, spec, order) {
       demand.set(t.name, radd(demand.get(t.name) || R0, rat(t.amount)));
     }
 
+    /** Book one process's consumption and production at `n` runs. */
+    const book = (p, n) => {
+      runs.set(p.id, n);
+      if (rzero(n)) return;
+      for (const { name, count } of p.consumes) {
+        demand.set(name, radd(demand.get(name) || R0, rmul(n, rat(count))));
+      }
+      // Apparatus is needed once, however long the process runs.
+      for (const { name, count } of p.requires) {
+        demand.set(name, rmax(demand.get(name) || R0, rat(count)));
+      }
+      for (const { name, count } of p.produces) {
+        supply.set(name, radd(supply.get(name) || R0, rmul(n, rat(count))));
+      }
+    };
+
     for (const id of [...order].reverse()) {
       if (id.startsWith('m:')) continue;
       const p = dag.processes.get(id);
       if (!p) continue;
+      // A rival's run count comes from the reaction it shares a chamber with,
+      // never from demand: nobody asked for it, it just happens.
+      if (dag.forced.has(id)) continue;
 
       // What this process still has to cover, after any credited surplus.
       let need = R0;
@@ -492,18 +581,17 @@ export function amounts(dag, spec, order) {
       }
       const floor = spec.include.has(p.id) ? rat(spec.runs.get(p.id) ?? 1) : R0;
       const n = rmax(need, floor);
-      runs.set(p.id, n);
-      if (rzero(n)) continue;
+      book(p, n);
 
-      for (const { name, count } of p.consumes) {
-        demand.set(name, radd(demand.get(name) || R0, rmul(n, rat(count))));
-      }
-      // Apparatus is needed once, however long the process runs.
-      for (const { name, count } of p.requires) {
-        demand.set(name, rmax(demand.get(name) || R0, rat(count)));
-      }
-      for (const { name, count } of p.produces) {
-        supply.set(name, radd(supply.get(name) || R0, rmul(n, rat(count))));
+      // Then everything sharing its feed, in proportion: one in three of the
+      // ore going in comes out of each of Lepidolite's three decompositions.
+      const group = dag.groups.get(p.id);
+      if (!group) continue;
+      const mine = group.find((m) => m.id === p.id);
+      for (const m of group) {
+        if (m.id === p.id) continue;
+        const rival = dag.processes.get(m.id);
+        if (rival) book(rival, rmul(n, rat(m.k, BigInt(mine.k))));
       }
     }
 
@@ -595,8 +683,19 @@ export function solvePlan(graph, rawSpec) {
 
   const steps = [...dag.processes.values()]
     .filter((p) => !rzero(scaled.runs.get(p.id) || R0))
-    .map((p) => ({ process: p, runs: rmul(scaled.runs.get(p.id), scale),
-                   window: operatingWindow(p, spec.avoidSideEffects) }));
+    .map((p) => {
+      // What share of its chamber's feed this one takes, when it is sharing.
+      const leader = dag.forced.get(p.id) ?? p.id;
+      const share = (dag.groups.get(leader) || []).find((m) => m.id === p.id) || null;
+      return {
+        process: p,
+        runs: rmul(scaled.runs.get(p.id), scale),
+        window: operatingWindow(p, spec.avoidSideEffects),
+        /** Set when other reactions are running on the same feed. */
+        share,
+        sharesWith: dag.forced.has(p.id) ? dag.processes.get(leader) : null,
+      };
+    });
   // Presentation order is the order you would actually do them in.
   const rank = new Map(order.map((id, i) => [id, i]));
   steps.sort((a, b) => (rank.get(a.process.id) ?? 0) - (rank.get(b.process.id) ?? 0));

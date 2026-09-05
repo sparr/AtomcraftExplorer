@@ -723,6 +723,7 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .runs { font-family: var(--mono); color: var(--accent); }
 .step-kind { width: 1%; text-align: center; opacity: 0.8; }
 .step-acts { width: 1%; white-space: nowrap; text-align: right; }
+.step-acts button + button { margin-left: 4px; }
 .step-what { min-width: 0; }
 .step-name { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
 
@@ -889,3 +890,10 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .goal-chips { display: contents; }
 .goal-add { flex: 1; min-width: 220px; max-width: 420px; }
 .picker-hit.on { background: var(--bg-sunken); }
+
+/* A reaction that runs alongside another on the same feed. Not chosen, not
+   avoidable, and it takes its share of what you put in. */
+.step-shared > td { opacity: 0.75; }
+.step-shared .step-what { border-left: 2px solid var(--line); padding-left: 8px; }
+.step-share { font-size: 12px; color: var(--warm); margin-top: 2px; }
+.step-share-with { color: var(--fg-dim); }

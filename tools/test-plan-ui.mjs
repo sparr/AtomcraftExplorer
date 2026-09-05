@@ -111,7 +111,8 @@ check(goals().includes('Death Moss Spore'), 'into the goal bar');
 
 // Excluding a step has to change the answer, not just grey something out.
 const stepCount = nodes($('#plan-steps'), 'plan-step').length;
-const notThis = nodes($('#plan-steps'), 'step-acts')[0].children[0];
+const notThis = nodes($('#plan-steps'), 'step-acts')
+  .flatMap((a) => a.children).find((b) => b.textContent === 'Not this');
 notThis.click();
 check(app.getPlan().excludeProcesses.length === 1, '"Not this" bans a process');
 check(nodes($('#plan-steps'), 'plan-step').length !== stepCount ||
@@ -174,7 +175,38 @@ console.log('\n--- what you can do with what you have ---');
 
   nodes(uses[0], 'route-pick')[0].click();
   check(app.getPlan().include.length === 1, 'picking one puts it in the plan');
-  check(nodes($('#plan-steps'), 'plan-step').length === 1, 'as a step');
+  const rows = nodes($('#plan-steps'), 'plan-step');
+  check(rows.length >= 1, 'as a step');
+  // Lepidolite's decompositions share a chamber, so choosing one brings the
+  // other two with it -- they are not a choice.
+  check(rows.filter((r) => r.classList.contains('step-shared')).length === rows.length - 1,
+        'along with whatever else runs on the same feed');
+}
+
+/* -------------------------------------------------------- sharing a feed */
+
+console.log('\n--- reactions that share a chamber ---');
+{
+  // A tile runs the first reaction in its list that is valid this tick and
+  // stops. Lepidolite's three decompositions are gated at 51, 52 and 50, so
+  // each takes about a third of the ore -- and two thirds of what you feed in
+  // leaves as the other two reactions' products, mentioned or not.
+  app.setPlan(addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite'));
+  const shared = nodes($('#plan-steps'), 'plan-step')
+    .filter((r) => r.classList.contains('step-shared'));
+  check(shared.length === 2, `the other two decompositions are in the plan (${shared.length})`);
+  check(text('#plan-steps').includes('1 in 3 of the Lepidolite goes this way'),
+        'each saying what share of the feed it takes');
+  check(shared[0].textContent.includes('sharing the chamber with'),
+        'and which reaction it is sharing with');
+  check(!nodes(shared[0], 'step-acts').some((a) => a.children.length),
+        'with nothing to press, since it is not a choice');
+
+  const left = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
+  check(left.includes('Molten Lithium Oxide') && left.includes('Molten Alumina'),
+        `so their products are accounted for: ${left.join(', ')}`);
+  check(!text('#plan-steps').includes('this also runs Lepidolite Decomposition'),
+        'and they are no longer a footnote on the step that displaced them');
 }
 
 /* ------------------------------------------------------------- redirecting */

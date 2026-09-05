@@ -269,7 +269,12 @@ function conditions(step) {
     out.append(line);
   }
   // Not kept out: no temperature in the range avoids these, so they happen.
+  // Anything sharing the feed is left out here: it is a step of its own now,
+  // with its share of the throughput, which says far more than a note would.
+  const sharing = new Set((step.share ? solved.dag.groups.get(
+    solved.dag.forced.get(step.process.id) ?? step.process.id) || [] : []).map((m) => m.id));
   for (const u of w.unavoidable) {
+    if (sharing.has(u.id)) continue;
     const wanted = solved.dag.processes.has(u.id);
     const line = el('span', 'rx-also');
     line.append(`this also runs ${u.label} (${firesAt(u.range)})`);
@@ -317,7 +322,7 @@ function renderSteps() {
   const table = el('table', 'plan-table');
   const tbody = el('tbody');
   for (const step of solved.steps) {
-    const tr = el('tr', 'plan-step');
+    const tr = el('tr', 'plan-step' + (step.sharesWith ? ' step-shared' : ''));
     const kind = KIND.get(step.process.kind);
 
     const runs = el('td', 'step-runs');
@@ -333,10 +338,42 @@ function renderSteps() {
     eq.append(side(step.process.inputs), el('span', 'arrow', '→'), side(step.process.outputs));
     what.append(eq);
     what.append(el('div', 'step-name', step.process.label));
+    // Reactions on the same feed are tried in turn and one wins each tick, so
+    // the feed is divided between them whether you wanted it or not.
+    if (step.share) {
+      const note = el('div', 'step-share');
+      note.append(`${step.share.k} in ${step.share.of} of the ${
+        step.process.consumes[0]?.name ?? 'feed'} goes this way`);
+      if (step.sharesWith) {
+        note.append(', sharing the chamber with ');
+        note.append(el('span', 'step-share-with', step.sharesWith.label));
+      } else {
+        note.append(' — the rest runs the other reactions below');
+      }
+      if (step.share.rounded) note.append(' (roughly)');
+      what.append(note);
+    }
     what.append(conditions(step));
     tr.append(what);
 
     const acts = el('td', 'step-acts');
+    // The constructive action first. Banning a step one at a time until the
+    // solver lands on something you like is not choosing, and the inspector
+    // was no use to anyone who did not think to click the output.
+    const made = step.process.produces
+      .map((o) => o.name)
+      .find((n) => solved.dag.materials.get(n)?.producer === step.process.id);
+    if (step.sharesWith) {
+      // Not a choice, so not offered as one.
+      tr.append(el('td', 'step-acts'));
+      tbody.append(tr);
+      continue;
+    }
+    if (made) {
+      acts.append(button('ghost small', 'Other ways',
+                         `Every way of getting ${made}, to choose from`,
+                         () => edit(selectMaterial, made)));
+    }
     acts.append(button('ghost small', 'Not this', 'Keep this process out of the plan',
                        () => edit(toggle, 'excludeProcesses', step.process.id)));
     tr.append(acts);

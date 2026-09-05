@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS,
          operatingWindow } from '../src/plan-graph.js';
-import { solvePlan, reachableFrom, routesFor,
+import { solvePlan, reachableFrom, routesFor, competitionOf, shareRatio,
          rat, radd, rsub, rmul, rdiv, rcmp, rstr, R0 } from '../src/plan-solve.js';
 import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
          formatTemperatureRange, heatingNeed, coolingNeed } from '../src/units.js';
@@ -556,6 +556,53 @@ console.log('\n--- side reactions ---');
   const wine = on.sideEffects.find((e) => e.id === 'rx:Wine into Vinegar');
   check(wine && wine.inPlan, 'a side reaction the plan wants elsewhere is marked as such');
   check(on.sideEffects.some((e) => !e.inPlan), 'while the genuinely unwanted ones are not');
+}
+
+/* --------------------------------------------------------- sharing a feed */
+
+console.log('\n--- reactions competing for the same feed ---');
+{
+  // A tile runs the first reaction in its own list that is valid this tick and
+  // then stops. The list belongs to the material, so the rivals are the ones
+  // sharing a PrimaryInput -- and most carry a 1-in-P gate, which is what lets
+  // the later ones get a look in at all.
+  const potassium = graph.byId.get('rx:Lepidolite Decomposition - Potassium');
+  const split = competitionOf(potassium);
+  check(split?.length === 3, 'Lepidolite has three decompositions on one feed');
+  check(split.every((m) => m.k === 1 && m.of === 3),
+        `gated at 51, 52 and 50, so one in three each (${split.map((m) =>
+          (m.chance * 100).toFixed(1) + '%').join(', ')})`);
+
+  // A rival needing this one's *products* is a later event in the same
+  // chamber, not a competitor for the same tick.
+  const antimony = graph.byId.get('rx:Antimony Pentafluoride + Water');
+  const rivalsOf = (p) => (competitionOf(p) || []).map((m) => m.id);
+  check(!rivalsOf(antimony).includes('rx:Antimony Pentafluoride + Hydrofluoric Acid'),
+        'a reaction that runs on what this one makes is not competing for the feed');
+
+  // An ungated rival ahead of it takes everything, so it never runs at all.
+  const dead = graph.byId.get('rx:Zinc Chloride Hydrolysis');
+  check(competitionOf(dead) === null, 'a reaction nothing ever leaves a turn for is not a route');
+  const cannot = solvePlan(graph, { targets: ['Hydrochloric Acid'] });
+  check(!cannot.steps.some((s) => s.process.id === dead.id),
+        'and no plan routes through it');
+}
+{
+  // The whole point: the feed is divided, so you need more of it and you get
+  // the other reactions' products whether you asked for them or not.
+  const plan = solvePlan(graph, { targets: ['Potassium'], have: ['Lepidolite'] });
+  const ids = plan.steps.map((s) => s.process.id);
+  check(ids.includes('rx:Lepidolite Decomposition - Lithium') &&
+        ids.includes('rx:Lepidolite Decomposition'),
+        'the two reactions sharing the chamber are steps of the plan');
+  check(plan.steps.filter((s) => s.sharesWith).length === 2,
+        'marked as sharing rather than chosen');
+  check(rstr(plan.amountOf('Lepidolite')) === '3',
+        `three ore in for one reaction's worth out (${rstr(plan.amountOf('Lepidolite'))})`);
+  const spare = plan.byproducts.map((b) => b.name);
+  check(spare.includes('Molten Lithium Oxide') && spare.includes('Molten Alumina'),
+        'and the lithium and the alumina are left over, as they would be');
+  audit('Potassium from Lepidolite', plan);
 }
 
 /* ------------------------------------------------------- what can be moved */

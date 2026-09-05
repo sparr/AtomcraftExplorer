@@ -201,6 +201,23 @@ solidifies into Ice*, held below the tighter of the two thresholds. Stopping at
 the middle is still there in the alternatives, since asking for Water is what
 that means.
 
+### What else is in the chamber
+
+A tile runs the first reaction in its own list that is valid this tick and then
+stops. The list belongs to the material, so the rivals are the reactions sharing
+a `PrimaryInput` — and most carry a 1-in-P gate, which is what lets the later
+ones get a turn at all.
+
+Lepidolite's three decompositions are gated at 51, 52 and 50, so each takes
+about a third of the ore. A plan for Potassium therefore asks for **three**
+Lepidolite per reaction's worth of output, and lists the lithium and the alumina
+among what it leaves over — they are coming out of your furnace whether the plan
+mentions them or not. The other two reactions appear as steps of their own,
+marked as sharing the chamber, with no controls: they are not a choice.
+
+Where an earlier rival has no gate at all it fires every time and the ones after
+it never run. 18 reactions are dead that way, and no plan routes through them.
+
 ### Choosing the route
 
 178 materials have more than one producing reaction — Steam has 108 — so the
