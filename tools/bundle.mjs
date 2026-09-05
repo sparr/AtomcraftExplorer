@@ -20,6 +20,23 @@ const read = (...p) => readFileSync(join(ROOT, ...p), 'utf8');
 
 const IMPORT_RE = /^import\s*\{([^}]*)\}\s*from\s*'([^']+)';?[ \t]*$/gm;
 const EXPORT_RE = /^export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z_$][\w$]*)/gm;
+/**
+ * `export { a, b as c };` -- a whole list at once, with nothing declared.
+ *
+ * Missed for a release. `plan-solve` re-exported the rationals this way after
+ * they moved to their own module, the names never reached its export object,
+ * and `plan-view` destructured twelve undefined things off it. Both existing
+ * guards passed: stripping the `export` leaves `{ a, b };`, which is a block
+ * statement and compiles perfectly, so nothing looked like leftover syntax and
+ * `new Function` was happy. The page opened and said "rcmp is not a function".
+ */
+const EXPORT_LIST_RE = /^export\s*\{([^}]*)\}\s*;/gm;
+
+/** `a, b as c` -> `[[a, a], [b, c]]`: what it is called inside, and outside. */
+const listed = (names) => names.split(',').map((n) => {
+  const alias = n.trim().match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
+  return alias ? [alias[1], alias[2]] : [n.trim(), n.trim()];
+}).filter(([a]) => a);
 
 const modName = (path) => basename(path, '.js').replace(/[^\w]/g, '_');
 
@@ -48,13 +65,21 @@ const destructure = (names) => names.split(',').map((n) => {
 /** Wrap one module as an IIFE returning its exports, so names cannot collide. */
 function wrap(file) {
   const src = read('src', file);
-  const exports = [...src.matchAll(EXPORT_RE)].map((m) => m[1]);
   const body = src
     .replace(IMPORT_RE, (_, names, from) =>
       `const {${destructure(names)}} = __mod_${modName(from)};`)
     .replace(/^export\s+/gm, '');
   return `const __mod_${modName(file)} = (() => {\n${body}\n` +
-         `return { ${exports.join(', ')} };\n})();`;
+         `return { ${exportsOf(file).map(([local, out]) =>
+            (local === out ? local : `${out}: ${local}`)).join(', ')} };\n})();`;
+}
+
+/** Everything a module exports: declarations, and whole lists. */
+function exportsOf(file) {
+  const src = read('src', file);
+  const out = [...src.matchAll(EXPORT_RE)].map((m) => [m[1], m[1]]);
+  for (const m of src.matchAll(EXPORT_LIST_RE)) out.push(...listed(m[1]));
+  return out;
 }
 
 const args = process.argv.slice(2);
@@ -67,6 +92,31 @@ const given = args.includes('--out')
 const outPath = isAbsolute(given) ? given : join(ROOT, given);
 
 const modules = order('main.js');
+
+/**
+ * Every name imported has to be a name exported.
+ *
+ * The transform is a text rewrite and will happily destructure something that
+ * was never put in the object, which is not an error anywhere: the name is
+ * `undefined` and the page dies on first use, wherever that happens to be. So
+ * the two halves are compared before anything is written.
+ */
+{
+  const has = new Map(modules.map((f) => [f, new Set(exportsOf(f).map(([, out]) => out))]));
+  const missing = [];
+  for (const file of modules) {
+    for (const m of read('src', file).matchAll(IMPORT_RE)) {
+      const from = basename(m[2]);
+      for (const [name] of listed(m[1])) {
+        if (!has.get(from)?.has(name)) missing.push(`${file} imports ${name} from ${from}`);
+      }
+    }
+  }
+  if (missing.length) {
+    throw new Error(`these imports name something the module does not export, and ` +
+      `would be undefined on the page:\n  ${missing.join('\n  ')}`);
+  }
+}
 const data = read('data', 'atomcraft.json');
 const css = read('src', 'style.css');
 
@@ -81,6 +131,14 @@ if (/<\/script/i.test(code)) throw new Error('module source contains </script');
 // untouched, and a bare `import` inside a classic <script> is a syntax error
 // that stops the whole page before a line of it runs. Silently. So the output
 // is checked for anything the rewrite left behind.
+// `export { a } from './b.js'` is a form the rewrite does not handle at all:
+// the strip leaves `{ a } from './b.js';` behind, which is a syntax error.
+const reexport = modules.find((f) => /^export\s*\{[^}]*\}\s*from\s/m.test(read('src', f)));
+if (reexport) {
+  throw new Error(`${reexport} re-exports straight from another module, which this ` +
+    `bundler cannot rewrite. Import the names and export them on their own line.`);
+}
+
 const leftover = code.match(/^\s*(?:import|export)\b.*/m);
 if (leftover) {
   throw new Error(`bundler does not understand this import form, and would emit ` +
