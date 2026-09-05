@@ -609,6 +609,33 @@ console.log('\n--- reactions competing for the same feed ---');
   audit('Potassium from Lepidolite', plan);
 }
 
+/* ------------------------------------------------- what it cannot supply */
+
+console.log('\n--- a shortfall is a shortfall ---');
+{
+  // A material can be seen coming out of a step before anything is known to
+  // want it, and it used to keep that "byproduct" label even once something
+  // did -- so a plan four Steam short reported nothing to fetch at all, and
+  // anything comparing plans by their shopping lists was comparing a lie.
+  const plan = solvePlan(graph, { targets: ['Potassium', 'Lithium', 'Water'],
+                                  have: ['Lepidolite'] });
+  for (const node of plan.dag.materials.values()) {
+    const gap = rsub(plan.amountOf(node.name), plan.madeOf(node.name));
+    if (rcmp(gap, R0) <= 0) continue;
+    if (plan.spec.have.has(node.name)) continue;
+    const listed = plan.frontier.find((f) => f.name === node.name);
+    if (!listed) { bad(`${node.name} is ${rstr(gap)} short and not on the shopping list`); break; }
+  }
+  ok('everything the plan is short of reaches the shopping list');
+
+  // And with that true, wanting the water condenses the steam going spare
+  // rather than fetching snow for it.
+  check(plan.dag.materials.get('Water')?.producer === 'cond:Steam',
+        'the water comes from the steam the furnace is throwing off');
+  check(!plan.frontier.some((f) => f.name === 'Falling Snow'),
+        'not from snow fetched for the purpose');
+}
+
 /* ------------------------------------------------------------ closed loops */
 
 console.log('\n--- a material that comes back ---');

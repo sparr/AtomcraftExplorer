@@ -4887,11 +4887,38 @@ function solveFedBack(graph, spec) {
    * offered again. What the reader credited by hand stands regardless: the
    * shortfall is then their business, and it is reported.
    */
-  const overdrawn = new Set();
-  let plan = solveOnce(graph, { ...spec, credit: new Set(spec.credit) });
-  let last = null;
+  /**
+   * Which of two plans is the better one to be handed.
+   *
+   * Fetching is what costs the player, so the shopping list comes first, then
+   * the length of the plan, then how much has to be laid in to start it.
+   */
+  const score = (p) => [p.frontier.length, p.steps.length, p.priming.length];
+  const better = (a, b) => {
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+    return false;
+  };
 
-  for (let round = 0; round < 8; round++) {
+  /** Solves are cheap but not free. */
+  let budget = 16;
+  const solve = (credit) => (budget-- > 0 ? solveOnce(graph, { ...spec, credit }) : null);
+  const overdraws = (trial, credit) => [...credit].filter((n) => !spec.credit.has(n) &&
+    rcmp(trial.madeOf(n), trial.amountOf(n)) < 0);
+
+  let plan = solveOnce(graph, { ...spec, credit: new Set(spec.credit) });
+  let best = plan;
+  let bestScore = score(plan);
+  const seen = new Set();
+  /**
+   * Materials that asked for more than they had. Not a verdict -- the plan
+   * that over-committed them may still be the best one -- but a direction to
+   * look in: without them the search reaches smaller credit sets it would
+   * otherwise never try, and one of those may be better than anything on the
+   * generous side of the fork.
+   */
+  const overdrawn = new Set();
+
+  for (let round = 0; round < 8 && budget > 0; round++) {
     const credit = new Set(spec.credit);
     for (const node of plan.dag.materials.values()) {
       if (wanted.has(node.name) || spec.noFeedBack.has(node.name)) continue;
@@ -4907,15 +4934,35 @@ function solveFedBack(graph, spec) {
       if (!own && !(node.reason === 'produced' && covered)) continue;
       if (rcmp(plan.madeOf(node.name), R0) > 0) credit.add(node.name);
     }
-    if (key(credit) === last) break;
-    last = key(credit);
+    if (seen.has(key(credit))) break;
+    seen.add(key(credit));
 
-    const trial = solveOnce(graph, { ...spec, credit });
-    const short = [...credit].filter((n) => !spec.credit.has(n) &&
-      rcmp(trial.madeOf(n), trial.amountOf(n)) < 0);
-    if (short.length) { for (const n of short) overdrawn.add(n); continue; }
+    const trial = solve(credit);
+    if (!trial) break;
+    if (better(score(trial), bestScore)) { best = trial; bestScore = score(trial); }
+
+    /**
+     * A free supply is an unlimited one as far as the cost model is concerned
+     * -- it knows what a material costs, not how much of it there is -- so a
+     * plan offered every spare output at once will route more through one of
+     * them than exists. Three spare Steam, and it planned around seven.
+     *
+     * Which is not on its own a reason to refuse: the shortfall is reported,
+     * and a plan that asks for four more Steam may still be a better one than
+     * a plan that goes off after Falling Snow and Vanadinite instead. So the
+     * version without them is worked out too, and the two are compared rather
+     * than one being ruled out in advance.
+     */
+    const short = overdraws(trial, credit);
+    if (short.length) {
+      const trimmed = new Set([...credit].filter((n) => !short.includes(n)));
+      const t = solve(trimmed);
+      if (t && better(score(t), bestScore)) { best = t; bestScore = score(t); }
+      for (const n of short) overdrawn.add(n);
+    }
     plan = trial;
   }
+  return best;
   return plan;
 }
 
@@ -4937,7 +4984,12 @@ function solveOnce(graph, spec) {
     // What the plan cannot cover itself. For most leaves that is all of it;
     // for one being fed back it is only what its own byproduct falls short by.
     const shortfall = rsub(need, made);
-    if (['acquire', 'raw', 'credited'].includes(node.reason)) {
+    // 'byproduct' is in this list because a material can be seen coming out of
+    // a step before anything is known to want it, and it keeps that label even
+    // once something does. If more is wanted than comes out, that difference
+    // has to be fetched like any other -- and until it was reported, a plan
+    // four Steam short looked like a plan with nothing to fetch.
+    if (['acquire', 'raw', 'credited', 'byproduct'].includes(node.reason)) {
       if (rcmp(shortfall, R0) > 0) {
         frontier.push({
           name: node.name,

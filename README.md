@@ -577,6 +577,12 @@ Everything is JavaScript — source, build and tests all run on Node.
   The compass directions are the weakest of these: `1/3/5/7` are pinned by
   materials named `(Right)`, `(Down)`, `(Left)` and `(Up)`, but the diagonals
   `2/4/6/8` are a pattern completed from those, not something the data confirms.
+- **The route search does not carry quantities.** It knows what a material
+  costs, not how much of it there is, so a byproduct offered back is free *and
+  unlimited* to it. Plans are compared afterwards on what they leave you to
+  fetch, which catches most of the damage, but a plan that over-commits a
+  surplus and then asks you to make up the difference can still be the best one
+  found. Closing that properly means putting amounts into the search itself.
 - **The grouping rules describe this data set, not documented game semantics.**
   Each guard in [`src/grouping.js`](src/grouping.js) exists because an audit
   caught a specific wrong merge — machines melting into their metal, deposits
