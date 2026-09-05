@@ -20,7 +20,7 @@ import { AMBIENT, formatTemperature, formatTemperatureRange,
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
          removeHave, pin, toggle, toggleKind, setOption,
          selectMaterial, includeProcess, isFedBack, toggleFedBack,
-         primeInstead, makeInstead, keepOutput, isKept,
+         primeInstead, makeInstead, keepOutput, isKept, useUp, isUsedUp,
          useSpare, isUsingSpare, setOption as setPlanOption,
          hasPlenty, togglePlenty } from './plan-state.js';
 
@@ -998,6 +998,21 @@ function renderSide() {
                           () => edit(toggleFedBack, b.name));
       feed.setAttribute('aria-pressed', String(!!b.credited));
       acts.append(feed);
+      /**
+       * The third thing you can say about a leftover.
+       *
+       * Keeping it says it was wanted after all. Feeding it back offers it to
+       * the plan as it stands, and does nothing where nothing wants it -- which
+       * is most of the time, and is why a Carbon Dioxide with a carbon still in
+       * it just sits there. This one goes looking: find a route that eats it,
+       * and build whatever that route needs.
+       */
+      const rid = isUsedUp(plan, b.name);
+      acts.append(button('ghost small' + (rid ? ' on' : ''),
+        rid ? 'Getting rid of it' : 'Get rid of it',
+        rid ? 'Stop planning a use for this'
+            : `Add whatever it takes to use the ${b.name} up, rather than leaving it`,
+        () => edit(useUp, b.name)));
       li.append(acts);
       ul.append(li);
     }
@@ -1134,6 +1149,7 @@ export function render() {
     excludeMaterials: plan.excludeMaterials,
     credit: plan.credit,
     kept: plan.kept,
+    consume: plan.consume,
     feedBackAll: plan.feedBackAll,
     noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,

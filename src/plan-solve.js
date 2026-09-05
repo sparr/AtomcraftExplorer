@@ -198,6 +198,9 @@ const EMPTY = Object.freeze([]);
 /** How many leftovers made of the right stuff are worth a re-solve each. */
 const SOLO_CREDITS = 4;
 
+/** How many ways of getting rid of one leftover are worth trying. */
+const CONSUME_ROUTES = 3;
+
 /**
  * Mark the leftovers that still have some of what was asked for in them.
  *
@@ -336,6 +339,8 @@ export function normalizeSpec(spec = {}) {
     /** Spare output counted as a product rather than waste. Changes nothing
      *  about what is made -- it is a reading of the same surplus. */
     kept: new Set(spec.kept || []),
+    /** Leftovers the reader has asked the plan to go and find a use for. */
+    consume: new Set(spec.consume || []),
     /** byproducts the reader has agreed to plumb back in, one by one. */
     credit: new Set(spec.credit || []),
     /**
@@ -1252,6 +1257,75 @@ export function solvePlan(graph, rawSpec, depth = 0) {
     }
   }
 
+  /**
+   * Leftovers the reader has told the plan to deal with.
+   *
+   * The third thing you can say about something left over. Keeping it says it
+   * was wanted after all; feeding it back offers it to the plan as it stands,
+   * and does nothing at all where nothing wants it. This one goes looking:
+   * find a route that eats it, and build whatever that route needs.
+   *
+   * Carbon out of Carbon Monoxide is the case it was asked for. Two Carbon
+   * Monoxide come back as a Carbon and a Carbon Dioxide, and that dioxide
+   * still has a carbon in it -- but nothing in the plan wants carbon dioxide,
+   * so feeding it back finds no taker and the planner will not reach for a
+   * potassium reduction on its own. Told to get rid of it, it will.
+   *
+   * Sized to the surplus and no further, and added as a step the reader put
+   * there, so the ordinary comparison never has to like it. They asked.
+   */
+  for (const name of spec.consume) {
+    if (depth > 0) break;
+    const left = plan.byproducts.find((b) => b.name === name);
+    if (!left) continue;
+
+    const eaters = graph.processes.filter((p) =>
+      spec.kinds.has(p.kind) && !spec.excludeProcesses.has(p.id) &&
+      !spec.include.has(p.id) && p.consumes.some((i) => i.name === name) &&
+      !p.consumes.some((i) => spec.excludeMaterials.has(i.name)) &&
+      !p.produces.some((o) => spec.excludeMaterials.has(o.name)));
+    if (!eaters.length) continue;
+
+    // What it makes matters more than what it costs: getting rid of a leftover
+    // that still has some of the target in it should hand the target back.
+    const asked = elementsOf(graph, spec.targets.map((t) => t.name));
+    const table = composition(graph);
+    const worth = (p) => {
+      if (p.produces.some((o) => spec.targets.some((t) => t.name === o.name))) return 0;
+      const holds = p.produces.some((o) => {
+        const els = table.get(o.name)?.elements;
+        if (!els) return false;
+        for (const el of els) if (asked.has(el)) return true;
+        return false;
+      });
+      return holds ? 1 : 2;
+    };
+    const ranked = [...eaters].sort((a, b) =>
+      worth(a) - worth(b) ||
+      processCost(a, spec.weights, spec.avoidSideEffects) -
+      processCost(b, spec.weights, spec.avoidSideEffects) ||
+      a.id.localeCompare(b.id));
+
+    for (const p of ranked.slice(0, CONSUME_ROUTES)) {
+      const per = p.consumes.find((i) => i.name === name).count;
+      const runs = Math.floor(rnum(left.amount) / per);
+      if (runs < 1) continue;
+      const trial = solvePlan(graph, {
+        ...rawSpec,
+        include: [...spec.include, p.id],
+        runs: { ...(rawSpec.runs || {}), [p.id]: runs },
+      }, depth + 1);
+      // It has to actually run and actually take the stuff.
+      if (rzero(trial.runsOf(p.id))) continue;
+      const still = trial.byproducts.find((b) => b.name === name);
+      if (still && rcmp(still.amount, left.amount) >= 0) continue;
+      spec = trial.spec;
+      plan = trial;
+      inherited = trial.sharedPins;
+      break;
+    }
+  }
+
   const sharedPins = new Map(inherited || []);
 
   /**
@@ -1466,8 +1540,19 @@ function solveOnce(graph, spec) {
         });
       }
     }
+    /**
+     * More than was asked for is still left lying around.
+     *
+     * Targets used to be left out of this, on the reasoning that a target is
+     * not a leftover -- but `need` already counts what was asked for, so what
+     * this measures is the *excess*, and excess Carbon is Carbon nobody wanted.
+     * Leaving it out made a plan that turned four Carbon Monoxide into four
+     * Carbon report one, and the missing three looked like atoms going astray:
+     * four carbons in, one carbon out and two oxygen, which cannot happen.
+     * They were there the whole time and nothing said so.
+     */
     const spare = rsub(made, need);
-    if (rcmp(spare, R0) > 0 && !targets.has(node.name)) {
+    if (rcmp(spare, R0) > 0) {
       byproducts.push({ name: node.name, amount: spare,
                         from: node.producer ? [node.producer, ...node.byproductOf]
                                             : node.byproductOf,

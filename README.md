@@ -615,6 +615,35 @@ None of this is chemistry the game shipped, so it is kept well away from the
 formula it is standing in for, said quietly on the row, and never rendered as
 though somebody had written it down.
 
+**Get rid of it** is the third thing you can say about something left over,
+beside keeping it and feeding it back. The difference matters. Feeding back
+offers a leftover to the plan as it stands and does nothing at all where nothing
+wants it; this one goes looking — find a route that eats it, and build whatever
+that route needs.
+
+Carbon out of Carbon Monoxide is the case it was built for. Two Carbon Monoxide
+come back as a Carbon and a Carbon Dioxide, and the dioxide still has a carbon
+in it — the row says so. But nothing in the plan wants carbon dioxide, so
+feeding it back finds no taker, and the planner will not reach for a potassium
+reduction of its own accord: it costs seven steps and a charge to recover one
+carbon, and by every measure the planner has, that is a worse plan. Told to get
+rid of it, it does, and what is left over is Oxygen Gas with no carbon in it at
+all.
+
+**More than you asked for is still left lying around**, and is listed with the
+rest of it. Targets used to be left out of that list on the reasoning that a
+target is not a leftover — but the list already subtracts what was asked for, so
+what it measures is the *excess*, and excess Carbon is Carbon nobody wanted.
+Leaving it out made this plan report one Carbon out of four Carbon Monoxide,
+which reads as three carbons going astray: four in, one out and two Oxygen Gas
+is not a thing that can happen. They were there the whole time and nothing said
+so. It recovers every carbon in the feed, which is the answer you would want,
+and now it says which of them you asked for and which are simply over.
+
+It is sized to the surplus and no further, and it goes in as a step the reader
+put there, so the ordinary comparison never has to like it. That is the point:
+some of what a plan should do is not something a plan can be argued into.
+
 ### One reaction at a time
 
 A chamber holds a reaction's inputs, its outputs and its catalyst together, and

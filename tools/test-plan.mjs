@@ -1402,6 +1402,42 @@ console.log('\n--- why a thing is on the shopping list ---');
         `and water, which has no chain of its own, names what takes it: ${feeds('Water')}`);
 }
 
+console.log('\n--- getting rid of a leftover ---');
+{
+  // Two Carbon Monoxide come back as a Carbon and a Carbon Dioxide, and that
+  // dioxide still has a carbon in it. Nothing in the plan wants carbon
+  // dioxide, so feeding it back finds no taker, and the planner will not reach
+  // for a potassium reduction on its own. Told to get rid of it, it will.
+  const base = { targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Monoxide'] };
+  const left = solvePlan(graph, base);
+  check(left.byproducts.some((b) => b.name === 'Carbon Dioxide' && b.holds.includes('C')),
+        'the plan leaves a Carbon Dioxide with a carbon still in it');
+  check(solvePlan(graph, { ...base, credit: ['Carbon Dioxide'] })
+          .byproducts.some((b) => b.name === 'Carbon Dioxide'),
+        'and feeding it back changes nothing, because nothing wants it');
+
+  const rid = solvePlan(graph, { ...base, consume: ['Carbon Dioxide'] });
+  check(!rid.byproducts.some((b) => b.name === 'Carbon Dioxide'),
+        'told to get rid of it, the Carbon Dioxide is gone');
+  // What is left holding carbon is Carbon, which is not waste -- it is the
+  // thing that was asked for, more of it than was asked. Four Carbon Monoxide
+  // come back as four Carbon and two Oxygen Gas, and every atom is accounted
+  // for; before the excess was reported this read as one Carbon and looked
+  // like three of them going astray.
+  check(!rid.byproducts.some((b) => b.holds.length && b.name !== 'Carbon'),
+        `and nothing left over but Carbon has carbon in it: ${rid.byproducts.map((b) => b.name).join(', ')}`);
+  check(rid.byproducts.some((b) => b.name === 'Carbon'),
+        'the carbon it recovers beyond what was asked for being said out loud');
+  check(rid.steps.length > left.steps.length,
+        `which took building something that eats it (${left.steps.length} steps to ${rid.steps.length})`);
+
+  // Asking about something the plan does not leave over is not an error, it is
+  // just nothing to do.
+  const idle = solvePlan(graph, { ...base, consume: ['Vinegar'] });
+  check(idle.steps.length === left.steps.length,
+        'and naming something it does not leave over does nothing at all');
+}
+
 console.log('\n--- determinism ---');
 {
   const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };

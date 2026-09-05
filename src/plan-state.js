@@ -67,6 +67,18 @@ export function emptyPlan() {
      * request for the 1 spare Water came out as a demand for 2.
      */
     kept: [],
+    /**
+     * Leftovers the reader has asked the plan to deal with.
+     *
+     * Not the same as feeding one back, which offers it to the plan as it
+     * stands and does nothing if nothing wants it. This says: go and find
+     * something that eats this, and build whatever that needs. The Carbon
+     * plan leaves a Carbon Dioxide with another carbon still in it, and
+     * nothing in the plan wants carbon dioxide -- the way to get at it is to
+     * add the reduction that does, which is a step the plan would never reach
+     * for on its own.
+     */
+    consume: [],
     credit: [],                   // byproducts agreed to be plumbed back, one by one
     /** Or agree to all of them, and name the exceptions instead. */
     feedBackAll: true,
@@ -119,6 +131,7 @@ export function readPlan(params) {
   plan.excludeMaterials = list(params.get('xm'));
   plan.credit = list(params.get('cr'));
   plan.kept = list(params.get('kp'));
+  plan.consume = list(params.get('cu'));
   plan.noFeedBack = list(params.get('nf'));
   if (params.get('fb') === '0') plan.feedBackAll = false;
 
@@ -160,6 +173,7 @@ export function writePlan(plan, params) {
   put('xm', plan.excludeMaterials.join(SEP));
   put('cr', plan.credit.join(SEP));
   put('kp', plan.kept.join(SEP));
+  put('cu', plan.consume.join(SEP));
   put('nf', plan.noFeedBack.join(SEP));
   if (!plan.feedBackAll) params.set('fb', '0');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
@@ -196,6 +210,7 @@ const clone = (p) => ({
   excludeMaterials: [...p.excludeMaterials],
   credit: [...p.credit],
   kept: [...p.kept],
+  consume: [...p.consume],
   noFeedBack: [...p.noFeedBack],
   kinds: [...p.kinds],
 });
@@ -226,6 +241,16 @@ export function setTargetAmount(plan, name, amount) {
 /** Count this spare output as something the plan is for, without making more. */
 export const keepOutput = (plan, name) => toggle(plan, 'kept', name);
 export const isKept = (plan, name) => plan.kept.includes(name);
+
+/**
+ * Go and find something that eats this, and build whatever that needs.
+ *
+ * The third thing you can say about a leftover, after keeping it and feeding
+ * it back. Feeding back offers it to the plan as it stands and does nothing
+ * where nothing wants it; this goes looking.
+ */
+export const useUp = (plan, name) => toggle(plan, 'consume', name);
+export const isUsedUp = (plan, name) => plan.consume.includes(name);
 
 /** Is this byproduct being plumbed back into the plan? */
 export const isFedBack = (plan, name) =>

@@ -309,6 +309,27 @@ console.log('\n--- the trade is offered wherever the loop is ---');
   // is the next section's business, and it uses this same plan to say so.
 }
 
+console.log('\n--- getting rid of a leftover ---');
+{
+  // b=0: the reader has said how much Carbon they want, so the amounts are
+  // theirs and the leftover is the one they are actually looking at.
+  app.setPlan({ ...addHave(addTarget(emptyPlan(), 'Carbon'), 'Carbon Monoxide'), balance: false });
+  app.setMode('plan');
+  const row = () => nodes($('#plan-side'), 'plan-item')
+    .find((n) => n.dataset.material === 'Carbon Dioxide');
+  check(!!row(), 'the spare Carbon Dioxide is listed');
+  check(/still has carbon in it/.test(row().textContent),
+        'and says it still has carbon in it');
+  const rid = nodes(row(), 'plan-item-acts')
+    .flatMap((a) => [...a.children]).find((b) => b.textContent === 'Get rid of it');
+  check(!!rid, 'with a third thing to say about it, beside keeping and feeding back');
+  rid.click();
+  check(app.getPlan().consume.includes('Carbon Dioxide'),
+        'pressing it asks the plan to find a use');
+  check(!nodes($('#plan-side'), 'plan-item').some((n) => n.dataset.material === 'Carbon Dioxide'),
+        'and the leftover goes');
+}
+
 console.log('\n--- trading a step for a charge ---');
 {
   // The steam is made rather than taken back off its own loop: a step you run
