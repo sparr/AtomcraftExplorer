@@ -772,6 +772,23 @@ function renderSide() {
       const line = el('div', 'plan-item-main');
       line.append(el('span', 'amount', amount(f.amount)), ' ', matLink(f.name));
       li.append(line);
+      /**
+       * What it is being fetched *for*, as links you can go and press on.
+       *
+       * "Six Lepidolite" tells you nothing you can act on. The plan wants it
+       * for the potassium oxide and the hydrogen fluoride it decomposes into,
+       * and those are where "Other ways" and "I have it" would actually bite --
+       * so they are named here, and each one goes straight to its own inspector.
+       */
+      if (f.feeds.length) {
+        const why = el('div', 'plan-how');
+        why.append('for ');
+        f.feeds.forEach((name, i) => {
+          if (i) why.append(i === f.feeds.length - 1 ? ' and ' : ', ');
+          why.append(matLink(name));
+        });
+        li.append(why);
+      }
       // How the world hands this over, for the kinds this plan will not use.
       if (f.routes.length) {
         const how = el('div', 'plan-how');

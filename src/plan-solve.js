@@ -206,6 +206,57 @@ const SOLO_CREDITS = 4;
  * Carbon plan runs dozens of trials whose leavings nobody will ever read. Doing
  * it in the hot path cost half as much again as the whole solve.
  */
+/**
+ * What each thing on the shopping list is being fetched *for*.
+ *
+ * "Six Lepidolite" is not an answer to anything on its own. The reader wants to
+ * push back on it -- rule a route out, say they have the thing it was going to
+ * be turned into -- and cannot, because the row does not say where it is going.
+ * The step rows know: each carries the material it was picked to make. The
+ * shopping list is the one place the question is actually being asked and the
+ * one place nothing said.
+ *
+ * Followed forward while the chain is this material's own, and stopped where it
+ * meets the rest of the plan. Six Lepidolite decompose to potassium oxide and
+ * hydrogen fluoride and nothing else joins in on the way, so those are what it
+ * is for; the potassium oxide then meets water, which came from somewhere else,
+ * and that is the end of the chain. Where a material is eaten straight away
+ * beside something else there is no chain at all, and then what the steps
+ * taking it were picked to make is the useful answer.
+ */
+function markFeeds(plan) {
+  const running = plan.steps.map((s) => s.process);
+  for (const f of plan.frontier) {
+    const reached = new Set([f.name]);
+    for (let round = 0; round < 40; round++) {
+      let changed = false;
+      for (const p of running) {
+        if (!p.consumes.length || !p.consumes.every((i) => reached.has(i.name))) continue;
+        for (const { name } of p.produces) {
+          if (!reached.has(name)) { reached.add(name); changed = true; }
+        }
+      }
+      if (!changed) break;
+    }
+
+    const ends = new Set();
+    for (const p of running) {
+      if (p.consumes.every((i) => reached.has(i.name))) continue;
+      for (const { name } of p.consumes) if (reached.has(name) && name !== f.name) ends.add(name);
+    }
+    if (!ends.size) {
+      for (const p of running) {
+        if (!p.consumes.some((i) => i.name === f.name)) continue;
+        for (const { name } of p.produces) {
+          if (plan.dag.materials.get(name)?.producer === p.id) ends.add(name);
+        }
+      }
+    }
+    if (ends.size) f.feeds = [...ends].sort();
+  }
+  return plan;
+}
+
 function markHoldings(graph, plan) {
   const asked = elementsOf(graph, plan.spec.targets.map((t) => t.name));
   if (!asked.size) return plan;
@@ -1238,7 +1289,7 @@ export function solvePlan(graph, rawSpec, depth = 0) {
     sharedPins.set(name, id);
   }
 
-  if (!spec.feedBackAll) { plan.sharedPins = sharedPins; return markHoldings(graph, plan); }
+  if (!spec.feedBackAll) { plan.sharedPins = sharedPins; return markFeeds(markHoldings(graph, plan)); }
 
   /**
    * A step is preferred to a charge.
@@ -1278,7 +1329,7 @@ export function solvePlan(graph, rawSpec, depth = 0) {
    */
   plan.brokenLoops = [...off].filter((n) => rcmp(plan.otherSupplyOf(n), R0) > 0);
   plan.sharedPins = sharedPins;
-  return markHoldings(graph, plan);
+  return markFeeds(markHoldings(graph, plan));
 }
 
 /** Solve, feeding back everything spare, going round until the set settles. */
@@ -1410,6 +1461,8 @@ function solveOnce(graph, spec) {
             .filter((p) => !spec.kinds.has(p.kind))
             .map((p) => ({ id: p.id, kind: p.kind, label: p.label })),
           alternatives: graph.producers(node.name).filter((p) => spec.kinds.has(p.kind)).length,
+          /** Filled in once, on the plan that is actually handed back. */
+          feeds: EMPTY,
         });
       }
     }

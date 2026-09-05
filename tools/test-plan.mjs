@@ -1377,6 +1377,31 @@ console.log('\n--- a leftover with the thing you asked for still in it ---');
         'every leftover carries the field, even when it is empty');
 }
 
+console.log('\n--- why a thing is on the shopping list ---');
+{
+  // "Six Lepidolite" is not an answer to anything. The reader wants to push
+  // back on it and cannot, because the row never says where it is going --
+  // while every step row already carries the material it was picked to make.
+  const ask = { targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+                have: ['Columbite'] };
+  const plan = solvePlan(graph, { ...ask, targets: balanceTargets(graph, ask) });
+  const feeds = (name) => plan.frontier.find((f) => f.name === name)?.feeds.join(', ');
+
+  // Followed forward while the chain is its own: the ore decomposes to these
+  // two and nothing joins in on the way. Then the potassium oxide meets water
+  // from somewhere else, and that is where the chain ends.
+  check(feeds('Lepidolite') === 'Hydrofluoric Acid, Potassium Oxide',
+        `the Lepidolite is there for the acid and the oxide: ${feeds('Lepidolite')}`);
+  check(feeds('Bitter Oyster Spore') === 'Carbon',
+        `and the mushrooms are there for the Carbon: ${feeds('Bitter Oyster Spore')}`);
+
+  // Water is eaten straight away beside something else, so there is no chain
+  // of its own to follow -- and then what took it was picked to make is the
+  // useful answer instead.
+  check((feeds('Water') || '').includes('Potassium Hydroxide'),
+        `and water, which has no chain of its own, names what takes it: ${feeds('Water')}`);
+}
+
 console.log('\n--- determinism ---');
 {
   const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };

@@ -273,6 +273,23 @@ three ways to Carbon that eat carbon dioxide sat at 115, 116 and 117 of 153,
 behind six shown and a **Show all** button — a list you could only search if you
 already knew the answer.
 
+**The shopping list says what each thing is for.** "6 Lepidolite" is not an
+answer to anything: the reader wants to push back on it — rule a route out, say
+they already have what it was going to become — and cannot, because the row
+never says where it is going. Every step row already carries the material it was
+picked to make; the shopping list was the one place the question is actually
+being asked and the one place nothing said it.
+
+The chain is followed forward while it is that material's own, and stopped where
+it meets the rest of the plan. Six Lepidolite decompose to potassium oxide and
+hydrogen fluoride with nothing joining in on the way, so the row reads **for
+Hydrofluoric Acid and Potassium Oxide** — and each is a link, because those are
+where **Other ways** and **I have it** would actually bite. The potassium oxide
+then meets water that came from somewhere else, and that is the end of the
+chain. Where something is eaten straight away beside something else there is no
+chain to follow, and then what the steps taking it were picked to make is the
+answer instead.
+
 Deposits are not offered that way. A deposit is in the ground somewhere and you
 are going to go and find it, so it is stated rather than asked about.
 

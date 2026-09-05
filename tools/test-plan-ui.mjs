@@ -267,6 +267,21 @@ console.log('\n--- claiming what is left over ---');
 
 /* ------------------------------------------------------- a step or a charge */
 
+console.log('\n--- the shopping list says what it is for ---');
+{
+  app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Tantalum'), 'Niobium'), 'Columbite'));
+  app.setMode('plan');
+  const row = nodes($('#plan-side'), 'plan-item')
+    .find((n) => n.dataset.material === 'Lepidolite');
+  check(!!row, 'the Lepidolite is on the shopping list');
+  check(/for .*Potassium Oxide/.test(row.textContent),
+        `and the row says what it is for: ${row.textContent.replace(/\s+/g, ' ').trim().slice(0, 70)}`);
+  // Links, so the next press is the one the reader wanted.
+  const links = nodes(row, 'matlink').map((a) => a.textContent);
+  check(links.includes('Potassium Oxide') && links.includes('Hydrofluoric Acid'),
+        `each one being a link to press: ${links.join(', ')}`);
+}
+
 console.log('\n--- trading a step for a charge ---');
 {
   // The steam is made rather than taken back off its own loop: a step you run
