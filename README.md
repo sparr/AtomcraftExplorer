@@ -333,6 +333,14 @@ Corundum Deposit in the ground really does produce the melt, and it is nobody's
 production line — so the ore route wins wherever there is one, and what you are
 asked for is the Bauxite you would actually be carrying.
 
+**Ruling something out is not one-way.** "Not this" on a step and "Never use
+it" on a material are each one press, and each removes the thing the button was
+attached to — so a plan narrowed until it collapses used to leave nothing on
+the page saying what narrowed it. Everything you have kept out is listed under
+**N ruled out**, with what the plan gave up on as a result, and one press each
+to let it back in. The same undo sits on the route itself, which is kept in the
+list past the cut for exactly that reason.
+
 ### Running a route on the leavings
 
 Picking a route can mean two things, and a click cannot say which. Ask for

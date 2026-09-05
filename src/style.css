@@ -877,6 +877,10 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
    Sits under the row rather than in it, since the row is one big button. */
 .route-acts { display: flex; gap: 6px; align-items: center; padding: 0 10px 8px 10px; }
 
+/* Everything kept out of the plan by hand, and the way back. Marked, because
+   it is the reader's own doing rather than something the game imposed. */
+.ruled-out { border-left: 2px solid var(--warm); }
+
 /* ---------- what you could do with what you have ---------- */
 
 /* Naming a material you have is a question. This is the answer: the processes

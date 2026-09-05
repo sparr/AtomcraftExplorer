@@ -884,6 +884,10 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
    Sits under the row rather than in it, since the row is one big button. */
 .route-acts { display: flex; gap: 6px; align-items: center; padding: 0 10px 8px 10px; }
 
+/* Everything kept out of the plan by hand, and the way back. Marked, because
+   it is the reader's own doing rather than something the game imposed. */
+.ruled-out { border-left: 2px solid var(--warm); }
+
 /* ---------- what you could do with what you have ---------- */
 
 /* Naming a material you have is a question. This is the answer: the processes
@@ -6329,7 +6333,12 @@ function renderInspector(box) {
                        'Undo a choice made here', () => edit(pin, name, null)));
     list.append(auto);
 
-    const shown = allRoutes ? routes : routes.slice(0, ROUTES_SHOWN);
+    const head = allRoutes ? routes : routes.slice(0, ROUTES_SHOWN);
+    // A route you ruled out sorts last, so with 153 of them it falls off the
+    // end and takes the only way to take it back with it. It comes along
+    // whatever the cut.
+    const shown = allRoutes ? head
+      : [...head, ...routes.filter((r) => r.banned && !head.includes(r))];
     const shared = routes.some((r) => r.spare);
     for (const r of shown) {
       const li = el('li', 'route-opt' + (r.chosen || r.spare ? ' on' : '') +
@@ -6370,8 +6379,14 @@ function renderInspector(box) {
       // use for what the plan is already throwing away. Offered wherever the
       // plan has some of what it eats, since that is when it can do anything.
       const on = isUsingSpare(plan, r.process.id);
-      if (!r.chosen && (on || r.runnable)) {
-        const acts = el('div', 'route-acts');
+      const acts = el('div', 'route-acts');
+      // A rejected route sorts to the bottom and is otherwise inert, so this
+      // is where it can be taken back. Picking it would only pin a process the
+      // planner is not allowed to use.
+      if (r.banned) {
+        acts.append(button('ghost small on', 'Ruled out', 'Let the planner use this again',
+                           () => edit(toggle, 'excludeProcesses', r.process.id)));
+      } else if (!r.chosen && (on || r.runnable)) {
         acts.append(button('ghost small' + (on ? ' on' : ''),
           on ? 'On the spare' : 'Use the spare',
           `Run ${r.process.label} on whatever the plan leaves over, and no further`,
@@ -6379,8 +6394,8 @@ function renderInspector(box) {
         if (on && !r.spare) {
           acts.append(el('span', 'faint', 'nothing spare to run it on'));
         }
-        li.append(acts);
       }
+      if (acts.children.length) li.append(acts);
       list.append(li);
     }
   }
@@ -6447,6 +6462,65 @@ function renderSide() {
     front.append(ul);
   }
   box.append(front);
+
+  // --- what has been ruled out -------------------------------------------
+  //
+  // "Not this" and "Never use it" are one press each and, until this panel,
+  // could not be taken back: the step goes, and the button goes with it. A
+  // reader who narrows a plan into a dead end is then stuck with no way out
+  // and nothing on the page saying what narrowed it.
+  const ruledProcesses = plan.excludeProcesses;
+  const ruledMaterials = plan.excludeMaterials;
+  const ruled = ruledProcesses.length + ruledMaterials.length;
+  if (ruled) {
+    const out = el('section', 'plan-panel ruled-out');
+    const title = el('h2', null, `${ruled} ruled out`);
+    title.title = 'Everything you have kept out of the plan by hand, and the way back.';
+    out.append(title);
+    // A plan that could have made something and is asking you to fetch it has
+    // given up on it, and a rejection is the likeliest reason.
+    const gaveUp = solved.frontier.filter((f) => f.alternatives > 0);
+    if (gaveUp.length) {
+      out.append(el('p', 'muted', `The plan gave up on ${
+        listed(gaveUp.map((f) => ctx.db.byName.get(f.name)?.display ?? f.name))
+      } and asks you to fetch ${gaveUp.length === 1 ? 'it' : 'them'} instead. ` +
+        'One of these may be why.'));
+    }
+    const ul = el('ul', 'plan-list');
+    for (const id of ruledProcesses) {
+      const p = ctx.graph.byId.get(id);
+      const li = el('li', 'plan-item');
+      const line = el('div', 'plan-item-main');
+      line.append(el('span', 'kind-glyph', KIND.get(p?.kind)?.glyph || ''));
+      // A link that no longer resolves is still worth showing: it is a saved
+      // choice about a reaction this build of the data no longer has, and the
+      // reader needs to be able to clear it.
+      line.append(p ? p.label : id);
+      li.append(line);
+      if (p) li.append(el('div', 'plan-how', 'this step, kept out of the plan'));
+      else li.append(el('div', 'plan-how', 'no longer in the game data'));
+      const acts = el('div', 'plan-item-acts');
+      acts.append(button('ghost small', 'Allow it', 'Let the planner use this again',
+                         () => edit(toggle, 'excludeProcesses', id)));
+      li.append(acts);
+      ul.append(li);
+    }
+    for (const name of ruledMaterials) {
+      const li = el('li', 'plan-item');
+      li.dataset.material = name;
+      const line = el('div', 'plan-item-main');
+      line.append(matLink(name));
+      li.append(line);
+      li.append(el('div', 'plan-how', 'this material, kept out of the plan entirely'));
+      const acts = el('div', 'plan-item-acts');
+      acts.append(button('ghost small', 'Allow it', 'Let the planner use this again',
+                         () => edit(toggle, 'excludeMaterials', name)));
+      li.append(acts);
+      ul.append(li);
+    }
+    out.append(ul);
+    box.append(out);
+  }
 
   // --- what has to be in there before it starts ---------------------------
   //

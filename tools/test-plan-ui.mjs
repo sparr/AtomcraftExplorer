@@ -520,5 +520,51 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(!readPlan(new URLSearchParams()).alsoUse.length, 'and an old link without one still reads');
 }
 
+/* ------------------------------------------------ taking a rejection back */
+
+// "Not this" and "Never use it" are one press each, and the step they remove
+// takes the button with it. A plan narrowed into a dead end has to say what
+// narrowed it, and offer the way out.
+{
+  app.setMode('plan');
+  app.setPlan({
+    ...emptyPlan(),
+    targets: [{ name: 'Tantalum', amount: 6 }, { name: 'Niobium', amount: 6 }],
+    have: ['Columbite', 'Carbon'],
+    excludeProcesses: ['rx:Lepidolite Decomposition - Potassium', 'ignite:Pneumatocyst'],
+    excludeMaterials: ['Wood'],
+  });
+  const side = () => text('#plan-side');
+  check(/3 ruled out/.test(side()), 'everything ruled out by hand is listed and counted');
+  check(/Lepidolite Decomposition - Potassium/.test(side()) && /Wood/.test(side()),
+        'processes and materials alike');
+  check(/gave up on Molten Niobium and Molten Tantalum/.test(side()),
+        'and it says what the plan gave up on, since that is why you are reading it');
+
+  const panel = nodes($('#plan-side'), 'ruled-out')[0];
+  nodes(panel, 'small')[0].click();
+  check(app.getPlan().excludeProcesses.length === 1,
+        '"Allow it" takes one rejection back and leaves the others');
+  check(/^17 steps/.test(text('#plan-steps')),
+        `and the plan that was 2 steps of giving up is a plan again: ${text('#plan-steps').slice(0, 9)}`);
+
+  app.setPlan({ ...emptyPlan(), targets: ['Vinegar'] });
+  check(!/ruled out/.test(text('#plan-side')), 'with nothing ruled out the panel is not there');
+}
+
+// The same undo where you would first look for it: on the route itself. It
+// sorts last of 153, so it also has to survive the cut.
+{
+  const ACID = 'rx:Acetic Acid + Water = Vinegar';
+  app.setPlan({ ...emptyPlan(), targets: ['Vinegar'],
+                excludeProcesses: [ACID], selected: 'Vinegar' });
+  const banned = nodes($('#plan-side'), 'route-opt').find((li) => li.classList.contains('banned'));
+  check(!!banned, 'a rejected route is still shown in the list it was rejected from');
+  const undo = banned && nodes(banned, 'small').find((b) => b.textContent === 'Ruled out');
+  check(!!undo, 'marked as such, and offering to be let back in');
+  undo.click();
+  check(!app.getPlan().excludeProcesses.length, 'which is the same undo, in the other place');
+}
+
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
 process.exit(fail ? 1 : 0);
