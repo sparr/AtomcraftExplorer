@@ -374,6 +374,109 @@ function materialProcesses(db) {
 }
 
 /**
+ * Kinds that fire on temperature, and so can go off by accident.
+ *
+ * Decay ignores temperature entirely, and mining, growth and handling are
+ * things you do rather than things that happen to you, so none of them can be
+ * triggered by running a chamber too hot.
+ */
+const TEMPERATURE_DRIVEN = new Set(['reaction', 'phase', 'fire']);
+
+/** When does this process fire, in kelvin? `[0, Infinity]` means always. */
+function firingRange(p) {
+  return [p.conditions.temperature ?? 0, p.conditions.maxTemperature ?? Infinity];
+}
+
+/** Remove `[a, b]` from a set of disjoint ascending ranges. */
+function without(ranges, [a, b]) {
+  const out = [];
+  for (const [s, e] of ranges) {
+    if (b < s || a > e) { out.push([s, e]); continue; }
+    if (a > s) out.push([s, Math.min(e, a - 1)]);
+    if (b < e) out.push([Math.max(s, b + 1), e]);
+  }
+  return out;
+}
+
+/**
+ * The temperatures at which a process runs *and nothing else does*.
+ *
+ * A reaction happens in a chamber holding its inputs, its outputs and whatever
+ * catalyst it needs, and those same materials are the ingredients of other
+ * reactions. Run the chamber into one of their ranges and you get that too --
+ * so a reaction stated as "≥ 0 °C" whose contents would also react at 100 °C is
+ * really a reaction for 0-99 °C, and saying so is the difference between a plan
+ * that works and one that quietly turns into something else.
+ *
+ * Each interfering range is cut out of the stated one. What is left may be
+ * several intervals; the one holding the stated minimum is the operating range,
+ * since that is the temperature the game is pointing at. A cut that would leave
+ * nothing at all is not applied -- the side reaction is then unavoidable, which
+ * is worth reporting rather than pretending the process cannot run.
+ */
+function temperatureWindow(graph, p) {
+  const base = firingRange(p);
+  const window = { lo: base[0], hi: base[1], base, avoided: [], unavoidable: [] };
+  if (!TEMPERATURE_DRIVEN.has(p.kind)) return window;
+
+  // Everything standing in the chamber while this runs.
+  const present = new Set();
+  for (const { name } of [...p.inputs, ...p.outputs, ...p.requires]) present.add(name);
+  const catalysts = new Set((p.conditions.catalysts || []).map((c) => c.name));
+  for (const name of catalysts) present.add(name);
+
+  // Anything that could fire on what is standing there -- but only what would
+  // fire *by itself*. Three things gate a process on something other than its
+  // ingredients, and none of them is present unless this reaction brought it:
+  // a catalyst, a current, and a spark. Without these, every reaction touching
+  // water reads as if Electrolysis of Water were going off in it.
+  const seen = new Set([p.id]);
+  const candidates = [];
+  for (const name of present) {
+    for (const q of graph.consumers(name)) {
+      if (seen.has(q.id) || !TEMPERATURE_DRIVEN.has(q.kind)) continue;
+      seen.add(q.id);
+      if (![...q.consumes, ...q.requires].every((i) => present.has(i.name))) continue;
+      if (!(q.conditions.catalysts || []).every((c) => catalysts.has(c.name))) continue;
+      if (q.conditions.electrolysis && !p.conditions.electrolysis) continue;
+      if (q.conditions.requiresSpark && !p.conditions.requiresSpark) continue;
+      candidates.push(q);
+    }
+  }
+  // Deterministic order, so the operating range does not depend on Map order.
+  candidates.sort((a, b) => a.id.localeCompare(b.id));
+
+  let ranges = [base];
+  for (const q of candidates) {
+    const range = firingRange(q);
+    const next = without(ranges, range);
+    if (!next.length) { window.unavoidable.push({ id: q.id, label: q.label, range }); continue; }
+    const key = (rs) => rs.map(([s, e]) => `${s}:${e}`).join(',');
+    if (key(next) !== key(ranges)) window.avoided.push({ id: q.id, label: q.label, range });
+    ranges = next;
+  }
+
+  const operating = ranges.find(([s, e]) => base[0] >= s && base[0] <= e) || ranges[0];
+  window.lo = operating[0];
+  window.hi = operating[1];
+  window.narrowed = window.lo !== base[0] || window.hi !== base[1];
+  window.alternatives = ranges.filter((r) => r !== operating);
+  return window;
+}
+
+/**
+ * The temperature range a step is actually run at.
+ *
+ * With `avoid` off this is simply what the game states, side reactions and all.
+ */
+export function operatingWindow(p, avoid = true) {
+  if (avoid && p.window) return p.window;
+  const base = firingRange(p);
+  return { lo: base[0], hi: base[1], base, avoided: [], unavoidable: [],
+           narrowed: false, alternatives: [] };
+}
+
+/**
  * Index every process once. Nothing here consults the reader's chosen kinds --
  * the solver filters, so that a disabled route is still visible as one.
  */
@@ -413,7 +516,7 @@ export function buildProcessGraph(db) {
     for (const { name } of p.requires) push(requiredBy, name, p);
   }
 
-  return {
+  const graph = {
     db,
     processes,
     byId,
@@ -429,4 +532,11 @@ export function buildProcessGraph(db) {
     consumers: (name) => consumersOf.get(name) || [],
     kindsThatProduce: (name) => new Set((producersOf.get(name) || []).map((p) => p.kind)),
   };
+
+  // Depends on the finished index, so it runs last. Plan-independent: what a
+  // chamber's contents would also do is a fact about the game, not about what
+  // the reader asked for, so it is worked out once here rather than per solve.
+  for (const p of processes) p.window = temperatureWindow(graph, p);
+
+  return graph;
 }

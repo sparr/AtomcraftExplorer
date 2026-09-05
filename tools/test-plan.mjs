@@ -9,7 +9,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
-import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS } from '../src/plan-graph.js';
+import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS,
+         operatingWindow } from '../src/plan-graph.js';
 import { solvePlan, reachableFrom,
          rat, radd, rsub, rmul, rdiv, rcmp, rstr, R0 } from '../src/plan-solve.js';
 import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
@@ -334,8 +335,140 @@ console.log('\n--- placing things ---');
   const freeze = graph.byId.get('cond:Water');
   check(!freeze.conditions.temperature && freeze.conditions.maxTemperature === 272,
         'condensation records a ceiling, so nothing fires a furnace to freeze something');
-  check(ice.apparatus.cooling === 'always' && ice.apparatus.ceiling === 272,
+  check(ice.apparatus.cooling === 'always' && ice.apparatus.lowestCeiling === 272,
         'and the plan asks for cooling below -1 °C');
+}
+
+/* ------------------------------------------------- keeping to one reaction */
+
+console.log('\n--- side reactions ---');
+{
+  // The chamber holds the inputs, the outputs and the catalyst at once, and
+  // those are the ingredients of other reactions. Vinegar is the worked
+  // example: stated at 0 °C and up, but the water boils at 125 °C.
+  const p = graph.byId.get('rx:Acetic Acid + Water = Vinegar');
+  check(p.conditions.temperature === 273 && p.conditions.maxTemperature === undefined,
+        'the game states this one as 0 °C and up, with no ceiling');
+  check(graph.db.byName.get('Water').raw.Evaporation.Temperature === 398,
+        'water in this game boils at 125 °C, not 100');
+  check(p.window.lo === 273 && p.window.hi === 397,
+        `so the range you can really run it at is 0–124 °C (got ${p.window.lo}–${p.window.hi} K)`);
+  check(p.window.avoided.some((a) => a.id === 'evap:Water'),
+        'and what closes it off is the water boiling away');
+  check(p.window.narrowed, 'and the window says it was narrowed');
+
+  const off = operatingWindow(p, false);
+  check(off.lo === 273 && off.hi === Infinity && !off.narrowed,
+        'with the constraint off, the stated range comes back');
+}
+{
+  // Evaporating and condensing happen at *different* temperatures: the game
+  // separates them to stand in for latent heat and to stop a material
+  // flickering between phases. 129 of the 130 reciprocal pairs differ, by up to
+  // 1100 K, so neither direction may ever be read off the other.
+  const water = graph.db.byName.get('Water').raw;
+  const steam = graph.db.byName.get('Steam').raw;
+  check(water.Evaporation.Temperature === 398 && steam.Condensation.Temperature === 298,
+        'water boils at 125 °C but steam condenses back at 25 °C, 100 K apart');
+  check(graph.byId.get('evap:Water').conditions.temperature === 398 &&
+        graph.byId.get('cond:Steam').conditions.maxTemperature === 298,
+        'and each process carries its own end of that, as a floor and a ceiling');
+
+  let borrowed = null;
+  for (const m of graph.db.materials) {
+    const ev = m.raw.Evaporation;
+    const up = ev?.TargetMaterialName && graph.db.byName.get(ev.TargetMaterialName);
+    if (up?.raw.Condensation?.TargetMaterialName !== m.name) continue;
+    const rise = graph.byId.get(`evap:${m.name}`)?.conditions.temperature;
+    const fall = graph.byId.get(`cond:${up.name}`)?.conditions.maxTemperature;
+    if (rise !== (ev.Temperature ?? 0) || fall !== (up.raw.Condensation.Temperature ?? 0)) {
+      borrowed = m.name;
+    }
+  }
+  check(!borrowed, `no pair takes its temperature from the other direction${borrowed ? ': ' + borrowed : ''}`);
+
+  // Which is what makes this reaction's real floor 26 °C rather than the 10 °C
+  // it states: below that the steam it needs has turned back into water. Read
+  // off water's boiling point instead and it would come out at 125 °C.
+  const acid = graph.byId.get('rx:Sulfur Trioxide Gas + Steam');
+  check(acid.conditions.temperature === 283 && acid.window.lo === 299,
+        `steam-bearing reactions get a floor from steam condensing (${acid.window.lo} K)`);
+  check(acid.window.avoided.some((a) => a.id === 'cond:Steam'), 'and say so');
+
+  // Bismuth is the one inverted pair -- it evaporates at 540 K and condenses at
+  // 543 K, so between those it would flip back and forth. Each direction dodges
+  // the overlap rather than sitting in it.
+  check(graph.byId.get('evap:Bismuth').window.lo === 544 &&
+        graph.byId.get('cond:Molten Bismuth').window.hi === 539,
+        'the one overlapping pair steps around its own 3 K flicker zone');
+}
+{
+  // Never wider than what the game states, whatever the analysis concludes.
+  let bad_ = null;
+  for (const p of graph.processes) {
+    const w = p.window;
+    if (w.lo < w.base[0] || w.hi > w.base[1]) bad_ = p.id;
+    if (w.lo > w.hi) bad_ = `${p.id} (empty)`;
+  }
+  check(!bad_, `no window escapes its stated range or closes entirely${bad_ ? ': ' + bad_ : ''}`);
+
+  const narrowed = graph.processes.filter((p) => p.window.narrowed);
+  const stuck2 = graph.processes.filter((p) => p.window.unavoidable.length);
+  console.log(`      ${narrowed.length} processes narrowed, ${stuck2.length} with a side ` +
+              'reaction no temperature dodges');
+}
+{
+  // A process gated on something the chamber has not got cannot go off in it.
+  // Without this, every reaction touching water reads as if Electrolysis of
+  // Water were running in it.
+  const p = graph.byId.get('rx:Acetic Acid + Water = Vinegar');
+  const named = (w) => [...w.avoided, ...w.unavoidable].map((e) => e.id);
+  check(!named(p.window).includes('rx:Electrolysis of Water'),
+        'electrolysis does not happen unless a current is applied');
+  const electro = graph.byId.get('rx:Electrolysis of Water');
+  check(electro.conditions.electrolysis, 'though the reaction is there in the graph');
+  // Same for a catalyst: Blending needs a Blender standing in the chamber.
+  const blend = graph.byId.get('rx:Blending Apatite Gravel');
+  const water = graph.processes.find((q) => q.kind === 'reaction' &&
+    q.consumes.some((c) => c.name === 'Water') && !(q.conditions.catalysts || []).length &&
+    !q.conditions.electrolysis);
+  check(!named(water.window).some((id) => (graph.byId.get(id)?.conditions.catalysts || []).length),
+        'and a catalysed reaction needs its catalyst present');
+  check(blend.conditions.catalysts.length === 1, 'which Blending Apatite Gravel has');
+}
+{
+  // A cut that would leave nowhere to run is not applied: the side reaction is
+  // unavoidable, which is worth saying rather than declaring the step
+  // impossible. Alumina Reduction runs at 2027 °C, well past alumina's melting
+  // point, so of course the alumina melts.
+  const p = graph.byId.get('rx:Alumina Reduction');
+  check(p.window.unavoidable.length > 0,
+        `Alumina Reduction cannot dodge ${p.window.unavoidable.map((u) => u.label).join(', ')}`);
+  check(p.window.lo === p.conditions.temperature,
+        'and its stated range is left alone rather than emptied');
+}
+{
+  const on = solvePlan(graph, { targets: ['Vinegar'] });
+  check(on.spec.avoidSideEffects, 'a plan avoids side reactions by default');
+  const step = on.steps.find((s) => s.process.id === 'rx:Acetic Acid + Water = Vinegar');
+  check(step.window.hi === 397, 'so the step carries the narrowed ceiling');
+  // The tightest ceiling in this plan is not that step's: blending the spores
+  // has to stay under 101 °C or they turn to carbon instead of yeast.
+  check(on.apparatus.lowestCeiling === 374 && on.apparatus.narrowedBySideEffects,
+        'and the plan reports the tightest ceiling of any of its steps');
+  check(on.apparatus.hottestFloor === 273,
+        'alongside the hottest floor, which is a different step and a different chamber');
+
+  const off = solvePlan(graph, { targets: ['Vinegar'], avoidSideEffects: false });
+  const same = off.steps.find((s) => s.process.id === 'rx:Acetic Acid + Water = Vinegar');
+  check(same.window.hi === Infinity, 'switching it off restores the stated range');
+  check(!off.sideEffects.length, 'and stops reporting side reactions at all');
+
+  // Wine turning into Vinegar is the point of the next step along, so it is
+  // reported as something the plan wants rather than as a hazard.
+  const wine = on.sideEffects.find((e) => e.id === 'rx:Wine into Vinegar');
+  check(wine && wine.inPlan, 'a side reaction the plan wants elsewhere is marked as such');
+  check(on.sideEffects.some((e) => !e.inPlan), 'while the genuinely unwanted ones are not');
 }
 
 /* ------------------------------------------------------------------ kinds */

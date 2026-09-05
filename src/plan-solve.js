@@ -20,7 +20,7 @@
  * Nothing here draws anything. The plan it returns is plain data, so the graph
  * view and the table view are two readings of one object.
  */
-import { KIND, DEFAULT_KINDS } from './plan-graph.js';
+import { KIND, DEFAULT_KINDS, operatingWindow } from './plan-graph.js';
 import { heatingNeed, coolingNeed } from './units.js';
 
 /* ------------------------------------------------------------- fractions */
@@ -95,6 +95,8 @@ export const DEFAULT_WEIGHTS = {
    * take either.
    */
   byHand: 10,
+  /** Per side reaction no temperature can dodge: a mild nudge toward clean routes. */
+  sideEffect: 0.5,
   perKelvin: 1 / 1200,     // a 2400 K furnace costs 2 more than a warm one
   slowness: 0.5,           // per decade of the probability divisor
   spark: 0.25,
@@ -127,10 +129,14 @@ const placed = (graph, name) =>
  * carry 4 to 10000, phase changes 2e6 to 6.4e7 -- so bigger means rarer. Its
  * decade count is a decent stand-in for how long you will be waiting.
  */
-export function processCost(p, w = DEFAULT_WEIGHTS) {
+export function processCost(p, w = DEFAULT_WEIGHTS, avoid = true) {
   let c = KIND.get(p.kind)?.weight ?? 1;
   const cond = p.conditions || {};
-  if (cond.temperature) c += Math.max(0, cond.temperature - 300) * w.perKelvin;
+  // Priced on the range it can actually be run at: dodging a side reaction can
+  // mean running hotter than the game's stated minimum, and that is real work.
+  const { lo, unavoidable } = operatingWindow(p, avoid);
+  if (lo) c += Math.max(0, lo - 300) * w.perKelvin;
+  c += w.sideEffect * unavoidable.length;
   if (cond.electrolysis) c += w.electrolysis;
   if (cond.requiresSpark) c += w.spark;
   if (cond.probability > 1) c += w.slowness * Math.log10(cond.probability);
@@ -158,6 +164,15 @@ export function normalizeSpec(spec = {}) {
     credit: new Set(spec.credit || []),
     /** minimum run counts for processes added by hand. */
     runs: new Map(Object.entries(spec.runs || {})),
+    /**
+     * Narrow each step's temperature range to one that sets nothing else off.
+     *
+     * A chamber holds a reaction's inputs, outputs and catalyst together, and
+     * those are the ingredients of other reactions. "Acetic Acid + Water =
+     * Vinegar" is stated as ≥ 0 °C, but at 125 °C the water boils away, so the
+     * range you can actually run it at is 0-124 °C.
+     */
+    avoidSideEffects: spec.avoidSideEffects !== false,
     /**
      * Nothing may be acquired: the only materials to start from are the ones
      * the reader says they have. This is the "what can I make with this"
@@ -249,7 +264,7 @@ export function solveCosts(graph, spec) {
   // before the relaxation rather than checked during it.
   for (const [name, target] of pins) if (target === 'have') cost.set(name, 0);
 
-  const base = new Map(allowed.map((p) => [p.id, processCost(p, weights)]));
+  const base = new Map(allowed.map((p) => [p.id, processCost(p, weights, spec.avoidSideEffects)]));
 
   for (let round = 0; round < 200; round++) {
     let changed = false;
@@ -562,11 +577,18 @@ export function solvePlan(graph, rawSpec) {
   frontier.sort((a, b) => a.name.localeCompare(b.name));
   byproducts.sort((a, b) => a.name.localeCompare(b.name));
 
-  const apparatus = { /** The highest floor and the lowest ceiling any step states. */
-                      peakTemperature: 0, ceiling: null,
+  const apparatus = { /**
+                       * The most demanding step in each direction -- and they
+                       * are rarely the same step. A plan that smelts iron and
+                       * ferments beer needs a furnace *and* a cold room, not
+                       * one chamber somehow at both temperatures.
+                       */
+                      hottestFloor: 0, lowestCeiling: null,
                       /** 'always' | 'sometimes' | 'none' -- how much kit that implies. */
                       heating: 'none', cooling: 'none',
                       electrolysis: false, spark: false, byHand: false,
+                      /** A range was cut down to dodge something, or could not be. */
+                      narrowedBySideEffects: false, sideEffects: false,
                       catalysts: new Map(), kinds: new Set(), slowest: null,
                       /** Some step's yield is an average over a random draw. */
                       stochastic: false };
@@ -574,10 +596,13 @@ export function solvePlan(graph, rawSpec) {
     if (rzero(scaled.runs.get(p.id) || R0) && !spec.include.has(p.id)) continue;
     apparatus.kinds.add(p.kind);
     const c = p.conditions || {};
-    if (c.temperature) apparatus.peakTemperature = Math.max(apparatus.peakTemperature, c.temperature);
-    if (c.maxTemperature) {
-      apparatus.ceiling = Math.min(apparatus.ceiling ?? Infinity, c.maxTemperature);
+    const w = operatingWindow(p, spec.avoidSideEffects);
+    if (w.lo) apparatus.hottestFloor = Math.max(apparatus.hottestFloor, w.lo);
+    if (Number.isFinite(w.hi)) {
+      apparatus.lowestCeiling = Math.min(apparatus.lowestCeiling ?? Infinity, w.hi);
     }
+    if (w.narrowed) apparatus.narrowedBySideEffects = true;
+    if (w.unavoidable.length) apparatus.sideEffects = true;
     if (c.electrolysis) apparatus.electrolysis = true;
     if (c.requiresSpark) apparatus.spark = true;
     if (c.places) apparatus.byHand = true;
@@ -587,12 +612,13 @@ export function solvePlan(graph, rawSpec) {
     if (c.stochastic) apparatus.stochastic = true;
     if (c.probability > (apparatus.slowest?.conditions?.probability ?? 0)) apparatus.slowest = p;
   }
-  apparatus.heating = heatingNeed(apparatus.peakTemperature || null);
-  apparatus.cooling = coolingNeed(apparatus.ceiling);
+  apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
+  apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
 
   const steps = [...dag.processes.values()]
     .filter((p) => !rzero(scaled.runs.get(p.id) || R0))
-    .map((p) => ({ process: p, runs: rmul(scaled.runs.get(p.id), scale) }));
+    .map((p) => ({ process: p, runs: rmul(scaled.runs.get(p.id), scale),
+                   window: operatingWindow(p, spec.avoidSideEffects) }));
   // Presentation order is the order you would actually do them in.
   const rank = new Map(order.map((id, i) => [id, i]));
   steps.sort((a, b) => (rank.get(a.process.id) ?? 0) - (rank.get(b.process.id) ?? 0));
@@ -608,6 +634,19 @@ export function solvePlan(graph, rawSpec) {
     converged: scaled.converged,
     cycles: dag.cycles,
     steps,
+    /**
+     * Every side reaction the plan dodges, and every one it cannot.
+     *
+     * `inPlan` marks the ones the reader actually wants -- somewhere else.
+     * Making Wine at 0 °C cannot help also turning it into Vinegar, which is
+     * a problem in this chamber and the whole point in the next one.
+     */
+    sideEffects: steps.flatMap(({ process, window }) => [
+      ...window.avoided.map((e) => ({ ...e, step: process.id, avoided: true,
+                                      inPlan: dag.processes.has(e.id) })),
+      ...window.unavoidable.map((e) => ({ ...e, step: process.id, avoided: false,
+                                          inPlan: dag.processes.has(e.id) })),
+    ]),
     frontier,
     byproducts,
     apparatus,
