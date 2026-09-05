@@ -708,6 +708,53 @@ function beamSection(m) {
   return kv(rows);
 }
 
+/**
+ * What a Water Filter or a Block Water does with this material, both ways.
+ *
+ * Neither block appears in the reaction list: the rule is in their `OnImpact`,
+ * which splits a Composition of exactly two parts, one of them the `+H2O`
+ * marker, into the other part and water. So it is a relationship the detail
+ * pane has no field to read -- it comes from the process graph, which works it
+ * out the same way the planner does.
+ */
+function filterSection(m) {
+  const out = [];
+  const split = graph.byId.get(`filter:${m.name}`);
+  if (split) {
+    const line = el('span');
+    split.produces.forEach((o, i) => {
+      if (i) line.append(' + ');
+      line.append(matLink(o.name));
+    });
+    line.append(el('span', 'faint', '  through a '), matLink('Water Filter'),
+                el('span', 'faint', ' or '), matLink('Block Water'));
+    out.push(kv([['Filters into', line]]));
+  }
+
+  // A heading with the list under it, rather than a key with the list beside
+  // it: water comes out of 69 materials, and in a key-value row all 69 start
+  // in the second column.
+  const from = graph.producers(m.name).filter((p) => p.kind === 'filter');
+  if (from.length) {
+    const line = el('div', 'filtered-from');
+    from.map((p) => p.source)
+      .sort((a, b) => a.display.localeCompare(b.display))
+      .forEach((src, i) => {
+        if (i) line.append(', ');
+        line.append(matLink(src.name));
+      });
+    out.push(subsection(`Filtered out of (${from.length})`, line));
+  }
+  return out.length ? mounted(out) : null;
+}
+
+/** Wrap a few nodes so a section can take them as one. */
+function mounted(nodes) {
+  const box = el('div');
+  mount(box, ...nodes);
+  return box;
+}
+
 function renderDetail(m) {
   const pane = $('#detail');
   pane.textContent = '';
@@ -796,6 +843,7 @@ function renderDetail(m) {
   }
   mount(pane, section('Nuclear', kv(nuclear)));
   mount(pane, section('Particle accelerator', beamSection(m)));
+  mount(pane, section('Filtering', filterSection(m)));
 
   // --- thermal -----------------------------------------------------------
   const thermal = [];

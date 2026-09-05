@@ -916,3 +916,7 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
   margin-right: 6px;
 }
 .goal-used.none { color: var(--fg-faint); }
+
+/* The materials water is filtered out of: a plain wrapped list under its own
+   heading, since there are 69 of them. */
+.filtered-from { font-size: 13px; line-height: 1.7; }

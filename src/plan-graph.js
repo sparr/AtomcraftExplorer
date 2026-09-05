@@ -28,6 +28,7 @@ import { phaseChange } from './data.js';
  */
 export const PROCESS_KINDS = [
   { id: 'reaction', label: 'Reactions',      glyph: '⚗', automatic: true,  weight: 1 },
+  { id: 'filter',   label: 'Water filters',  glyph: '💧', automatic: true,  weight: 1 },
   { id: 'phase',    label: 'Phase changes',  glyph: '♨', automatic: true,  weight: 0.5 },
   { id: 'fire',     label: 'Fire',           glyph: '\u{1f525}', automatic: true, weight: 1 },
   { id: 'grow',     label: 'Growth',         glyph: '\u{1f331}', automatic: true, weight: 2 },
@@ -68,11 +69,61 @@ export const FALLS_FROM_SKY = new Set([
 ]);
 
 /**
+ * Pulling the water back out of something aqueous.
+ *
+ * A Water Filter or a Block Water splits a material into its dry half and
+ * water, and nothing in the reaction list says so -- the rule is in the two
+ * blocks' `OnImpact`, and it reads the Composition:
+ *
+ *     if (!composition.Elements.ContainsKey("+H2O")) return false;
+ *     if (composition.Elements.Count != 2) return false;
+ *     // the tile becomes the other element; Water goes out the far side
+ *
+ * So exactly two parts, one of them the `+H2O` marker. One tile in gives one
+ * tile of each out, whatever counts the composition states -- the code sets two
+ * tiles and never looks at the numbers. The two blocks differ only in which
+ * side each half comes out of, so either will do.
+ *
+ * 69 materials qualify. It is the only way to get some of them apart: Cream has
+ * no reaction that makes it, and comes out of Milk this way and no other.
+ *
+ * The seven aqueous materials whose composition runs to three or four parts --
+ * Aqueous Zinc Sulfate is `Zinc + Sulfate Ion + +H2O` -- fail the `Count != 2`
+ * test and pass through the filter unchanged. That is the game's rule, not a
+ * simplification here.
+ */
+const FILTERS = ['Water Filter', 'Block Water'];
+
+function filterProcesses(db) {
+  const out = [];
+  for (const m of db.materials) {
+    const els = m.raw.Composition?.Elements || [];
+    if (els.length !== 2 || !els.some((e) => e.Item1 === PSEUDO_WATER)) continue;
+    const dry = els.find((e) => e.Item1 !== PSEUDO_WATER);
+    if (!dry || !db.byName.has(dry.Item1)) continue;
+    out.push(makeProcess({
+      id: `filter:${m.name}`,
+      kind: 'filter',
+      label: `${m.label} filters into ${db.byName.get(dry.Item1).label} and Water`,
+      inputs: [{ name: m.name, count: 1 }],
+      outputs: [{ name: dry.Item1, count: 1 }, { name: 'Water', count: 1 }],
+      requires: [],
+      // Apparatus, like any other catalyst: it is placed and stays put. Either
+      // block does the job, so the second is named rather than demanded.
+      conditions: { catalysts: [{ name: FILTERS[0], count: 1 }], eitherFilter: FILTERS[1] },
+      source: m,
+    }));
+  }
+  return out;
+}
+
+/**
  * `+H2O` is the marker for water of hydration in a Composition, not a material
  * anyone can hold. It carries an Evaporation, so left in the graph it would
  * offer itself as a (never obtainable) source of Steam.
  */
-const PSEUDO = new Set(['+H2O']);
+const PSEUDO_WATER = '+H2O';
+const PSEUDO = new Set([PSEUDO_WATER]);
 
 /** Sum the counts of a `{name: count}` map into a list, dropping pseudo-materials. */
 function pairs(obj) {
@@ -650,7 +701,8 @@ export function operatingWindow(p, avoid = true) {
  * the solver filters, so that a disabled route is still visible as one.
  */
 export function buildProcessGraph(db) {
-  const processes = [...reactionProcesses(db), ...materialProcesses(db), ...phaseChains(db)];
+  const processes = [...reactionProcesses(db), ...materialProcesses(db),
+                     ...phaseChains(db), ...filterProcesses(db)];
 
   // The explorer's own categoriser, reused. The planner needs it because how a
   // material is *had* differs by kind of thing: an ore is dug up, a wall is

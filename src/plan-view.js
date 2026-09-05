@@ -262,6 +262,9 @@ function conditions(step) {
   for (const { name, count } of c.catalysts || []) {
     const span = el('span', 'rx-catalyst');
     span.append('needs ', count !== 1 ? `${count} ` : '', matLink(name));
+    // Either filter block does the job, so the other is offered rather than
+    // demanded alongside it.
+    if (c.eitherFilter) { span.append(' or ', matLink(c.eitherFilter)); }
     out.append(span);
   }
   if (bits.length) out.append(el('span', 'rx-bits', bits.join('  ·  ')));

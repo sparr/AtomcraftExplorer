@@ -115,6 +115,50 @@ console.log('\n--- phase chains ---');
         'though the water then has to come from somewhere: it is collected');
 }
 
+/* ------------------------------------------------- taking the water out */
+
+console.log('\n--- water filters ---');
+{
+  // Neither filter block appears in the reaction list. The rule is in their
+  // OnImpact: a Composition of exactly two parts, one of them the `+H2O`
+  // marker, comes apart into the other part and water.
+  const filters = graph.processes.filter((p) => p.kind === 'filter');
+  check(filters.length === 69, `${filters.length} materials can be split this way`);
+  check(filters.every((p) => p.consumes.length === 1 &&
+        p.produces.some((o) => o.name === 'Water')), 'each gives back water');
+  // One tile in, one of each out. The code sets two tiles and never reads the
+  // counts the composition states.
+  check(filters.every((p) => p.consumes[0].count === 1 &&
+        p.produces.every((o) => o.count === 1)),
+        'one tile in, one tile of each out, whatever the composition says');
+
+  const milk = graph.byId.get('filter:Milk');
+  check(milk?.produces.some((o) => o.name === 'Cream'), 'milk comes apart into cream and water');
+  check(graph.producers('Cream').length === 1,
+        'which is the only way to get cream: no reaction makes any');
+
+  // Exactly two parts. Seven aqueous materials have three or four and pass
+  // through untouched -- the game's rule, not a simplification here.
+  check(!graph.byId.get('filter:Aqueous Zinc Sulfate'),
+        'a composition of three parts is not something the filter takes apart');
+  const zinc = graph.db.byName.get('Aqueous Zinc Sulfate').raw.Composition.Elements;
+  check(zinc.length === 3 && zinc.some((e) => e.Item1 === '+H2O'),
+        `even though it is aqueous (${zinc.map((e) => e.Item1).join(' + ')})`);
+
+  // The block is apparatus, like any other catalyst, and either one will do.
+  check(milk.conditions.catalysts[0].name === 'Water Filter' &&
+        milk.conditions.eitherFilter === 'Block Water',
+        'it needs a filter block standing there, either kind');
+  check(!milk.consumes.some((i) => /Filter|Block Water/.test(i.name)),
+        'which is not consumed');
+
+  const butter = solvePlan(graph, { targets: ['Butter'] });
+  check(butter.steps.length === 2 &&
+        butter.steps.some((s) => s.process.kind === 'filter'),
+        `and butter becomes plannable through it: ${butter.steps.map((s) =>
+          s.process.label).join(' ; ')}`);
+}
+
 /* --------------------------------------------------- how slow is too slow */
 
 console.log('\n--- a per-tick gate is a rate, not an obstacle ---');
@@ -736,13 +780,13 @@ console.log('\n--- a material that comes back ---');
   check(noCl.frontier.length > plan.frontier.length,
         'refusing the chlorine costs a shopping list, which is why it was left alone');
 
-  // A step traded for a charge, on a plan where that still comes up: the
-  // hydrogen for Aluminum Carbide is made rather than taken off its own loop.
-  const traded = solvePlan(graph, { targets: ['Aluminum Carbide'] });
-  check(traded.brokenLoops.includes('Hydrogen Gas'),
+  // A step traded for a charge, on a plan where that still comes up: the steam
+  // for Boron Oxide is made rather than taken off its own loop.
+  const traded = solvePlan(graph, { targets: ['Boron Oxide'] });
+  check(traded.brokenLoops.includes('Steam'),
         `a loop broken with a step: ${traded.brokenLoops.join(', ')}`);
-  const held = solvePlan(graph, { targets: ['Aluminum Carbide'], credit: ['Hydrogen Gas'] });
-  check(held.priming.some((x) => x.name === 'Hydrogen Gas'),
+  const held = solvePlan(graph, { targets: ['Boron Oxide'], credit: ['Steam'] });
+  check(held.priming.some((x) => x.name === 'Steam'),
         'and left on its loop it wants laying in instead');
   check(held.steps.length < traded.steps.length,
         `which is the step it saves (${held.steps.length} against ${traded.steps.length})`);
@@ -894,14 +938,14 @@ console.log('\n--- byproducts ---');
   // Feeding a byproduct back has to make it *usable*, not merely cancel demand
   // for the same material. The furnace throwing off steam is a reason to
   // condense the steam, not to go and fetch snow.
-  const before = solvePlan(graph, { targets: ['Aluminum Chloride'], feedBackAll: false });
-  const fed = solvePlan(graph, { targets: ['Aluminum Chloride'] });
+  const before = solvePlan(graph, { targets: ['Ammonium Iodide'], feedBackAll: false });
+  const fed = solvePlan(graph, { targets: ['Ammonium Iodide'] });
   check(fed.frontier.length < before.frontier.length,
         `feeding back shortens the shopping list (${before.frontier.length} -> ` +
         `${fed.frontier.length})`);
   check(fed.spec.credit.size > 0,
         `by using what it already makes: ${[...fed.spec.credit].join(', ')}`);
-  audit('Aluminum Chloride with its own output fed back', fed);
+  audit('Ammonium Iodide with its own output fed back', fed);
 
   // On by default, and worked out rather than asked for: which materials are
   // spare cannot be known until the plan exists, and knowing changes the plan.

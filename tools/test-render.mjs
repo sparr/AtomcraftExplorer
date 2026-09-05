@@ -628,5 +628,30 @@ else console.log('ok    second click removes the filter');
 const emptyCells = [...grid.children].filter((c) => 'empty' in c.dataset);
 console.log(`ok    ${grid.children.length} element cells, ${emptyCells.length} inert`);
 
+// --- the filtering section --------------------------------------------------
+{
+  const has = (s) => detail.textContent.includes(s);
+
+  app.select(db.byName.get('Milk'));
+  if (!has('Filters into')) bad('Milk splits under a filter but the pane is silent');
+  else if (!has('Water Filter') || !has('Block Water')) bad('the filter line names neither block');
+  else console.log('ok    Milk filters into Cream + Water through either block');
+
+  app.select(db.byName.get('Cream'));
+  if (!has('Filtered out of (1)')) bad('Cream comes out of Milk but the pane does not say so');
+  else console.log('ok    Cream is filtered out of 1 material');
+
+  // Water comes out of every aqueous compound, so pin the count to the graph
+  // rather than to a literal that drifts with each game update.
+  const sources = app.graph.producers('Water').filter((p) => p.kind === 'filter').length;
+  app.select(db.byName.get('Water'));
+  if (!has(`Filtered out of (${sources})`)) bad(`Water should list ${sources} filter sources`);
+  else console.log(`ok    Water is filtered out of ${sources} materials`);
+
+  app.select(db.byName.get('Iron'));
+  if (has('Filtering')) bad('Iron holds no water but still shows the filtering section');
+  else console.log('ok    no filtering section on a material with no water in it');
+}
+
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
 process.exit(fail ? 1 : 0);
