@@ -5780,6 +5780,33 @@ function solveOnce(graph, spec) {
       // Nothing can run. Lay in whichever shortfall is cheapest to go and get:
       // being told to prime with water beats being told to prime with acid,
       // and the search already has an opinion about what things cost.
+      //
+      /**
+       * But first: a charge has to be something you could actually turn up
+       * with. A step still waiting its turn will make the thing when it runs,
+       * so charging it is not a charge at all -- it is the ordering giving up
+       * early, and it asks the reader for the one material this plan is the
+       * only way to get.
+       *
+       * Tantalum and Niobium out of Columbite came back "prime with six
+       * Heptafluorotantalic Acid and six Heptafluoroniobic Acid", which you
+       * can have only by dissolving Columbite, which is the plan. The
+       * dissolution was sitting in `left` the whole time, waiting on the
+       * Hydrofluoric Acid that had to be laid in regardless; charging that
+       * first lets it run and hand both acids over. So a shortfall something
+       * still to come produces is taken only when there is nothing else left
+       * to charge -- a genuine deadlock, where the loop really does need
+       * seeding and the reader really does have to find some.
+       */
+      const pending = new Set();
+      for (const step of left) {
+        for (const o of step.process.produces) pending.add(o.name);
+      }
+      // Except that being on the shopping list settles it. You are already
+      // going out for ninety Hydrofluoric Acid, so laying some of it in is not
+      // a second errand -- and the loop here is a real one, every material in
+      // it made by some step waiting on another, so something has to seed it.
+      const fetched = new Set(frontier.map((f) => f.name));
       let best = null;
       for (const step of left) {
         const short = missing(step);
@@ -5788,7 +5815,12 @@ function solveOnce(graph, spec) {
         // whole reason it is the one short of a charge.
         const price = short.reduce((a, [name, amount]) =>
           a + (solved.made.get(name) ?? solved.cost.get(name) ?? 100) * rnum(amount), 0);
-        if (!best || price < best.price) best = { step, short, price };
+        // Nothing still to come makes any of what this one is short of, so it
+        // is a charge the reader can go and buy.
+        const outside = short.every(([name]) => fetched.has(name) || !pending.has(name));
+        if (!best || (outside !== best.outside ? outside : price < best.price)) {
+          best = { step, short, price, outside };
+        }
       }
       for (const [name, amount] of best.short) {
         charge.set(name, radd(charge.get(name) || R0, amount));

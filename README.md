@@ -420,6 +420,15 @@ wherever something is being waved off rather than declared: pressing "I have
 it" on a line of the shopping list is not a statement about how much of it you
 have, and before this it quietly became one.
 
+**A charge has to be something you could turn up with.** Tantalum and Niobium
+out of Columbite came back "prime with six Heptafluorotantalic Acid and six
+Heptafluoroniobic Acid" — which you can only get by dissolving Columbite, which
+is the plan. On a first reactor for either metal there is nowhere to find any.
+The steps there really are mutually blocked, so something has to seed the loop;
+what settles which is the shopping list. You are already going out for ninety
+Hydrofluoric Acid, so laying some of that in is not a second errand, and the
+charge is Hydrofluoric Acid instead.
+
 It costs about a dozen solves, so the answer is kept until the question changes
 — which products, out of what, with which steps ruled out.
 

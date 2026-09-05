@@ -1318,6 +1318,31 @@ console.log('\n--- the last of the list, out of the leavings ---');
         'a plan that throws nothing away is left alone');
 }
 
+console.log('\n--- a charge you could actually turn up with ---');
+{
+  // Tantalum and Niobium out of Columbite came back "prime with six
+  // Heptafluorotantalic Acid and six Heptafluoroniobic Acid", which you can
+  // only have by dissolving Columbite -- which is this plan. If it is your
+  // first reactor for either metal there is nowhere on the map to get them.
+  const spec = { targets: [{ name: 'Tantalum', amount: 6 }, { name: 'Niobium', amount: 6 }],
+                 have: ['Columbite'] };
+  const plan = solvePlan(graph, spec);
+  const primed = plan.priming.map((x) => x.name);
+
+  check(!primed.some((n) => /Tantal|Niob/i.test(n)),
+        `no charge is a tantalum or niobium compound: ${primed.join(', ') || 'none'}`);
+
+  // Every step here waits on some other step's output -- the acid on the
+  // dissolution, the dissolution on the Hydrofluoric Acid, the acid back on
+  // the tantalate -- so a seed is genuinely needed. Being on the shopping list
+  // is what settles which: you are going out for ninety of it regardless.
+  const fetched = plan.frontier.map((f) => f.name);
+  check(primed.every((n) => fetched.includes(n)),
+        'and what is laid in is something the plan was already sending you for');
+  check(primed.join(',') === 'Hydrofluoric Acid',
+        `which here is the Hydrofluoric Acid (${primed.join(', ')})`);
+}
+
 console.log('\n--- determinism ---');
 {
   const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };
