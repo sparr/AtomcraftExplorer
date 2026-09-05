@@ -515,6 +515,17 @@ the Carbon has gone in — so it also wants four Carbon laid in to set it
 turning, which the panel offers to undo by dropping the route rather than by
 adding a step.
 
+The offer is made wherever the loop is, not wherever the solver happened to
+break one. It used to appear only on a step the charge-breaker had actually
+flipped, which tied the button to how good the planner was that week: three
+separate improvements to what plans waste each took away its last example, and
+there is exactly one way into the primed state, so each time the state became
+unreachable while the app went on modelling it and rendering it. Whether
+something else in the plan hands the material back does not move like that.
+The explanation — *here so the Steam does not have to be laid in* — is still
+only shown where the solver made that trade itself, because that is a claim
+about why the step is standing and anywhere else it would be untrue.
+
 **Use the spare** says it outright, on any route the plan could already feed
 from its leavings. It is not a claim about how the material is made, so it
 composes with the ones that are: press it on the Boudouard equilibrium, then

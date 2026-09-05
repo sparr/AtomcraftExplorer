@@ -282,6 +282,33 @@ console.log('\n--- the shopping list says what it is for ---');
         `each one being a link to press: ${links.join(', ')}`);
 }
 
+console.log('\n--- the trade is offered wherever the loop is ---');
+{
+  // It used to be offered only where the charge-breaker had actually flipped
+  // that material, which tied the button to how good the planner happened to
+  // be: three separate improvements to what plans waste each took away its
+  // last example, and `primeInstead` has one call site, so each time the
+  // primed state became unreachable altogether. Whether something else hands
+  // the material back does not move like that.
+  app.setPlan(addTarget(emptyPlan(), 'Yttrium'));
+  app.setMode('plan');
+  const offers = () => nodes($('#plan-steps'), 'step-acts')
+    .flatMap((a) => [...a.children]).filter((b) => b.textContent === 'Prime instead');
+  check(offers().length > 0,
+        `a loop the solver did not flip still offers the trade: ${offers().length} of them`);
+  // No explanation, because the solver did not make that trade here -- the
+  // note is a claim about why the step is standing, and it would be a lie.
+  check(!/does not have to be laid in/.test(text('#plan-steps')),
+        'without claiming the step is here to save a charge');
+  // ...and pressing it works, which is the whole point of keeping the door.
+  offers()[0].click();
+  check(app.getPlan().credit.length === 1,
+        `and pressing it lays the material in: ${app.getPlan().credit.join(', ')}`);
+
+  // That the explanation still appears where the solver *did* make the trade
+  // is the next section's business, and it uses this same plan to say so.
+}
+
 console.log('\n--- trading a step for a charge ---');
 {
   // The steam is made rather than taken back off its own loop: a step you run

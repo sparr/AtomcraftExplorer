@@ -7090,19 +7090,37 @@ function renderSteps() {
       continue;
     }
 
-    // Some steps are here only because the plan would otherwise have to be
-    // primed: the water is condensed out of spare steam rather than taken back
-    // off the acid, which costs a step and saves a charge. That is a trade the
-    // reader may want the other way round, so it is offered where the step it
-    // bought is standing.
-    // Only the step *chosen* to make it. Others may produce it in passing --
-    // the acid step hands back water too -- and they are not here for it.
-    const loop = made && solved.brokenLoops.includes(made) ? made : null;
+    /**
+     * A step making something the plan hands back from somewhere else too.
+     *
+     * Then it sits on a loop, and the loop can be started with a charge
+     * instead: drop the step, lay some in once. Which way round is better is
+     * the reader's -- a charge is laid in once where a step runs for the life
+     * of the factory, and only they know whether that is a bargain -- so it is
+     * offered wherever the choice exists.
+     *
+     * Offered on the loop, not on the solver's opinion of it. It used to
+     * appear only where the charge-breaker had actually flipped this material,
+     * which tied the button to how good the planner happened to be that week:
+     * three separate improvements to what plans waste each took away the last
+     * example, and `primeInstead` has exactly one call site, so each time the
+     * primed state became unreachable altogether. `otherSupplyOf` does not
+     * move like that -- either something else hands the material back or it
+     * does not.
+     *
+     * Only the step *chosen* to make it. Others may produce it in passing --
+     * the acid step hands back water too -- and they are not here for it.
+     */
+    const loop = made && rcmp(solved.otherSupplyOf(made), R0) > 0 ? made : null;
     if (loop) {
-      const why = el('div', 'step-loop');
-      why.append(`here so the ${ctx.db.byName.get(loop)?.display ?? loop} ` +
-                 'does not have to be laid in');
-      what.append(why);
+      // Said out loud only where the solver made the trade itself, since that
+      // is the case where the step is here *for* the charge it saves.
+      if (solved.brokenLoops.includes(loop)) {
+        const why = el('div', 'step-loop');
+        why.append(`here so the ${ctx.db.byName.get(loop)?.display ?? loop} ` +
+                   'does not have to be laid in');
+        what.append(why);
+      }
       acts.append(button('ghost small', 'Prime instead',
         `Drop this step and lay in the ${loop} to start the loop off`,
         () => edit(primeInstead, loop)));
