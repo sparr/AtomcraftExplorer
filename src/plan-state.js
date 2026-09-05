@@ -178,6 +178,31 @@ export const isFedBack = (plan, name) =>
 export const toggleFedBack = (plan, name) =>
   toggle(plan, plan.feedBackAll ? 'noFeedBack' : 'credit', name);
 
+/**
+ * Leave a material on its loop and lay some in, rather than making it.
+ *
+ * The other side of the default. A charge is put in once and never spent, so
+ * where the alternative is a step running for the life of the factory it may
+ * well be the better bargain -- and only the reader knows which.
+ */
+export function primeInstead(plan, name) {
+  const next = clone(plan);
+  next.noFeedBack = drop(next.noFeedBack, name);
+  if (!next.credit.includes(name)) next.credit.push(name);
+  return next;
+}
+
+/** And back: make it outright rather than taking it off the loop. */
+export function makeInstead(plan, name) {
+  const next = clone(plan);
+  next.credit = drop(next.credit, name);
+  if (!next.noFeedBack.includes(name)) next.noFeedBack.push(name);
+  return next;
+}
+
+/** Has the reader pinned this one to being primed? */
+export const isPrimedByChoice = (plan, name) => plan.credit.includes(name);
+
 /** Look at a material: what it is for, how it is being made, and what else could. */
 export function selectMaterial(plan, name) {
   return { ...clone(plan), selected: name || null };

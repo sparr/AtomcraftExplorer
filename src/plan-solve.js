@@ -673,8 +673,56 @@ export function batchScale(runs) {
  */
 export function solvePlan(graph, rawSpec) {
   const spec = normalizeSpec(rawSpec);
-  if (!spec.feedBackAll) return solveOnce(graph, spec);
+  if (!spec.feedBackAll) {
+    const only = solveOnce(graph, spec);
+    only.brokenLoops = [];
+    return only;
+  }
 
+  let plan = solveFedBack(graph, spec);
+
+  /**
+   * A step is preferred to a charge.
+   *
+   * Taking a material off the loop means making it outright, which is a step
+   * you run forever instead of a charge you lay in once -- and that is the way
+   * round the reader wants it. So each remaining charge is tried: refuse to
+   * feed that one material back, and see whether the loop it sits in goes
+   * away. The Lithium plan makes its water from the steam it is already
+   * throwing off, and needs only the chlorine laid in.
+   *
+   * Not every loop can be broken. Refusing the chlorine sends the planner back
+   * to fetching Vanadinite for it, which is worse in every way, so a trial that
+   * lengthens the shopping list is rejected and the charge stands. What the
+   * reader credited by hand is never overruled.
+   */
+  const off = new Set(spec.noFeedBack);
+  for (let round = 0; round < 3 && plan.priming.length; round++) {
+    let better = null;
+    for (const item of plan.priming) {
+      if (off.has(item.name) || spec.credit.has(item.name)) continue;
+      const trial = solveFedBack(graph, { ...spec, noFeedBack: new Set([...off, item.name]) });
+      if (trial.priming.length >= plan.priming.length) continue;
+      if (trial.frontier.length > plan.frontier.length) continue;
+      better = { trial, name: item.name };
+      break;
+    }
+    if (!better) break;
+    off.add(better.name);
+    plan = better.trial;
+  }
+
+  /**
+   * Materials being made outright that the plan could take off its own loop
+   * instead, at the price of a charge. The reverse of "Make it instead", and
+   * the reader may want it either way round.
+   */
+  plan.brokenLoops = [...off].filter((n) => rcmp(plan.otherSupplyOf(n), R0) > 0);
+  return plan;
+}
+
+/** Solve, feeding back everything spare, going round until the set settles. */
+function solveFedBack(graph, spec) {
   const key = (set) => [...set].sort().join('\u241f');
   const wanted = new Set(spec.targets.map((t) => t.name));
 
@@ -945,6 +993,8 @@ function solveOnce(graph, spec) {
 
   return {
     spec, graph, dag, order, stuck, priming,
+    /** Filled in by the caller when a loop was broken to avoid a charge. */
+    brokenLoops: [],
     cost: solved.cost,
     choice: solved.choice,
     scale,

@@ -626,6 +626,8 @@ console.log('\n--- a material that comes back ---');
   check(primed.includes('Chlorine Gas'), `the chlorine is a priming charge instead: ${primed}`);
   const cl = plan.priming.find((x) => x.name === 'Chlorine Gas');
   check(rstr(cl.amount) === '1', 'of exactly what the loop is short of');
+  check(primed.length === 1,
+        'and it is the only charge, every other loop having been broken with a step');
   check(rcmp(plan.madeOf('Chlorine Gas'), plan.amountOf('Chlorine Gas')) >= 0,
         'and the plan makes back everything it takes');
 
@@ -640,15 +642,24 @@ console.log('\n--- a material that comes back ---');
   check(!primed.includes('Hydrogen Gas'),
         'nor one that could simply be made earlier');
 
-  // And the reader can trade the charge for a step. Making the water outright
-  // from the spare steam breaks the loop it sits in.
-  const noLoop = solvePlan(graph, { targets: ['Potassium', 'Lithium'],
-                                    have: ['Lepidolite'], noFeedBack: ['Water'] });
-  check(!noLoop.priming.some((x) => x.name === 'Water'),
-        'refusing to take the water off the loop removes its charge');
-  check(noLoop.steps.length > plan.steps.length,
-        `at the price of a step (${plan.steps.length} -> ${noLoop.steps.length})`);
-  check(!noLoop.frontier.length, 'and still nothing to fetch');
+  // A step you run forever beats a charge you lay in once, so a loop that can
+  // be broken is broken: the water is condensed out of the spare steam rather
+  // than taken back off the acid, and only the chlorine has to be laid in.
+  check(plan.steps.some((s) => s.process.id === 'cond:Steam'),
+        'the water is made from the steam going spare');
+  const stuckWith = solvePlan(graph, { targets: ['Potassium', 'Lithium'],
+                                       have: ['Lepidolite'], credit: ['Water'] });
+  check(stuckWith.priming.some((x) => x.name === 'Water'),
+        'where the reader insists on feeding it back, the charge comes back with it');
+  check(stuckWith.steps.length < plan.steps.length,
+        `which is the step it saves (${stuckWith.steps.length} against ${plan.steps.length})`);
+
+  // Not every loop can be broken, and a trial that makes things worse is not
+  // taken: refusing the chlorine sends the planner back to fetching Vanadinite.
+  const noCl = solvePlan(graph, { targets: ['Potassium', 'Lithium'],
+                                  have: ['Lepidolite'], noFeedBack: ['Chlorine Gas'] });
+  check(noCl.frontier.length > plan.frontier.length,
+        'refusing the chlorine costs a shopping list, which is why it was left alone');
 
   const off = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'],
                                  feedBackAll: false });
