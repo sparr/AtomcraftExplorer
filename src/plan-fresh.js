@@ -195,9 +195,27 @@ const placed = (graph, name) =>
  * source categories cannot say, because "you are meant to make this" and "this
  * is the thing you asked me to make" are both `made`.
  */
+/**
+ * The elements a material is made of, with the game's spelling repaired.
+ *
+ * Eight formulas write fluorine as `Fl`, which is Flerovium: Magnesium
+ * Fluoride is `MgFl2`. Thirty-one others write `F`. Sparr has reported it; in
+ * the meantime both rules below read compositions, and without this they read
+ * those eight as containing an element nobody has ever seen and not the one
+ * they plainly do.
+ */
+const MISSPELT = new Map([['Fl', 'F']]);
+function elementsIn(graph, name) {
+  const raw = composition(graph).get(name)?.elements;
+  if (!raw) return null;
+  let fixed = null;
+  for (const el of raw) if (MISSPELT.has(el)) { fixed ??= new Set(raw); fixed.delete(el); fixed.add(MISSPELT.get(el)); }
+  return fixed || raw;
+}
+
 function holdsATarget(graph, name, targets) {
   if (!targets || !targets.length) return false;
-  const has = composition(graph).get(name)?.elements;
+  const has = elementsIn(graph, name);
   if (!has) return false;
   for (const wanted of targets) {
     let all = true;
@@ -217,7 +235,7 @@ function holdsATarget(graph, name, targets) {
  */
 function alreadyInHand(graph, name, held) {
   if (!held || !held.length) return false;
-  const has = composition(graph).get(name)?.elements;
+  const has = elementsIn(graph, name);
   if (!has || !has.size) return false;
   for (const stock of held) {
     let inside = true;
@@ -1018,7 +1036,7 @@ export function fetchPrices(graph, kinds) {
 function withElements(graph, spec) {
   const table = composition(graph);
   const setsOf = (names) => names
-    .map((n) => table.get(n)?.elements)
+    .map((n) => elementsIn(graph, n))
     .filter((e) => e && e.size);
   return { ...spec,
            wanted: setsOf(spec.targets.map((t) => t.name)),
