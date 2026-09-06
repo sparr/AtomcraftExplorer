@@ -1525,6 +1525,48 @@ console.log('\n--- and refused where it has nothing to offer ---');
         `${rstr(pinned.madeOf('Carbon'))} made against ${rstr(pinned.amountOf('Carbon'))} used`);
 }
 
+console.log('\n--- recovered stuff displaces bought stuff ---');
+{
+  // The Lepidolite plan vents eight Carbon Monoxide while buying nine
+  // mushrooms to turn into Carbon, and the Boudouard equilibrium turns the one
+  // into the other. Told to get rid of the carbon monoxide it does, and the
+  // Carbon it hands back takes the place of four of the mushrooms rather than
+  // piling up beside them.
+  const four = ['Potassium', 'Lithium', 'Aluminum', 'Silicon']
+    .map((n, i) => ({ name: n, amount: i === 3 ? 3 : 2 }));
+  const spec = { targets: four, have: ['Lepidolite'] };
+  const before = solvePlan(graph, spec);
+  const after = solvePlan(graph, { ...spec, consume: ['Carbon Monoxide'] });
+
+  const spores = (p) => rstr(p.frontier.find((f) => f.name === 'Bitter Oyster Spore')?.amount ?? R0);
+  check(spores(before) === '9', `it starts out buying nine mushrooms: ${spores(before)}`);
+  check(spores(after) === '5', `and gets rid of the carbon monoxide by buying five: ${spores(after)}`);
+  check(!after.byproducts.some((b) => b.name === 'Carbon Monoxide'),
+        'with none of it left over');
+  check(!after.byproducts.some((b) => b.name === 'Carbon'),
+        'and the carbon it recovers going into the plan, not onto the heap');
+
+  // The charge that buys it is a loop being seeded, not a shortfall renamed:
+  // the Boudouard only gets its carbon monoxide back after carbon has gone in.
+  const carbon = after.priming.find((x) => x.name === 'Carbon');
+  check(carbon && rcmp(after.madeOf('Carbon'), after.amountOf('Carbon')) >= 0,
+        `for a charge of ${carbon ? rstr(carbon.amount) : 'no'} Carbon that comes round again`);
+}
+
+console.log('\n--- and never over a refusal ---');
+{
+  // "Feed nothing back" is an instruction. Refusing the chlorine is meant to
+  // send the planner after Vanadinite, and the refinement would happily put
+  // the charge straight back -- it is cheaper, and it is the argument the
+  // reader has already heard and turned down.
+  const noCl = solvePlan(graph, { targets: ['Potassium', 'Lithium'],
+                                  have: ['Lepidolite'], noFeedBack: ['Chlorine Gas'] });
+  check(!noCl.priming.some((x) => x.name === 'Chlorine Gas'),
+        'a material refused a loop is not laid in behind the reader\'s back');
+  check(noCl.frontier.some((f) => f.name === 'Vanadinite'),
+        'and the plan goes and fetches Vanadinite as it was told to');
+}
+
 console.log('\n--- determinism ---');
 {
   const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };

@@ -719,6 +719,36 @@ that spends less of what you brought wins. Two Carbon Monoxide are two carbons
 and two oxygens, and that is now exactly what comes back — the Carbon asked for,
 one more over, and an Oxygen Gas.
 
+**What it recovers takes the place of what it was buying.** The Lepidolite plan
+vents eight Carbon Monoxide while sending you out for nine mushrooms to turn
+into Carbon, and the Boudouard equilibrium turns the one into the other. Told to
+get rid of the carbon monoxide it now does, and buys **five** mushrooms instead
+of nine.
+
+Two things had to change for that. **Get rid of it** was reaching for
+`Carbon Monoxide + Oxygen`, which is cheaper and turns carbon monoxide into
+carbon dioxide — a leftover traded for a leftover. It now prefers a route that
+makes something the plan is *already paying for*, which is the Boudouard.
+
+And the refinement was refusing the result. It costs a charge of four Carbon,
+because a recycle loop has to be seeded — the Boudouard only gets its carbon
+monoxide back after carbon has gone in — and the adoption rule forbade any
+column getting worse. But a charge is laid in once where a shopping list is
+bought for ever, so charges are out of that comparison entirely, and what keeps
+the door shut instead is a sharper question: **does the charge come round
+again?** A loop being seeded makes at least as much of the material as it
+spends. A shortfall wearing a charge's coat does not — asked to settle this
+same plan, the program once offered one that made no Carbon at all and covered
+all nine of a standing demand with a charge of nine.
+
+One thing it may never do is talk you out of a refusal. **Feed nothing back** on
+a material is an instruction: the Lithium plan told not to recycle its chlorine
+is meant to go and fetch Vanadinite, and the refinement would cheerfully put the
+charge straight back, that being the argument the reader has already turned
+down. The reader's own refusals only — the solver adds to the same list as it
+works, and reading those back as instructions refuses every refinement on any
+plan that ever broke a loop.
+
 ### One reaction at a time
 
 A chamber holds a reaction's inputs, its outputs and its catalyst together, and

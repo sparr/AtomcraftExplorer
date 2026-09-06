@@ -5167,20 +5167,64 @@ const tally = (p) => {
   const stock = new Set([...p.spec.have].filter((n) => !p.spec.plenty.has(n)));
   let feed = 0;
   for (const name of stock) feed += rnum(p.amountOf(name));
+  /**
+   * Charges are not in here, and that is deliberate.
+   *
+   * A charge is laid in once and a shopping list is bought for ever, so a plan
+   * that trades nine mushmrooms a batch for five and a charge of four Carbon is
+   * plainly the better bargain -- and strict dominance, which forbids any
+   * column getting worse, would refuse it for the charge alone. What keeps the
+   * door shut on the bad version is `circulates` below, which is a question
+   * about whether the charge is a charge at all.
+   */
   return [feed,
           p.frontier.reduce((a, f) => a + rnum(f.amount), 0), p.frontier.length,
           p.byproducts.reduce((a, b) => a + rnum(b.amount), 0), p.byproducts.length,
-          p.steps.length,
-          // Charges by the unit, not the kind. Counted in kinds, a plan that
-          // stopped making four Carbon and asked for seven to be laid in
-          // instead looked like no change at all -- and it is not a plan, it is
-          // a shortfall wearing a charge's coat.
-          p.priming.reduce((a, x) => a + rnum(x.amount), 0), p.priming.length];
+          p.steps.length];
 };
 
 /** No worse anywhere, and better somewhere. */
 const dominates = (a, b) =>
   a.every((v, i) => v <= b[i]) && a.some((v, i) => v < b[i]);
+
+/**
+ * Is every charge in this plan a charge, or is one of them a shortfall?
+ *
+ * The two look identical in the output and are nothing alike. A recycle loop
+ * genuinely wants seeding -- the Boudouard equilibrium only gets its carbon
+ * monoxide back after carbon has gone in, so four Carbon have to be laid in to
+ * set it turning -- and what is laid in comes round again, so the plan makes at
+ * least as much of it as it spends.
+ *
+ * A shortfall does not come round. Asked to settle the Lepidolite plan, the
+ * program once returned one that made no Carbon at all and covered all nine of
+ * a standing demand with a charge of nine. Made none, spent nine: that is not a
+ * loop being started, it is the supply being renamed.
+ *
+ * Anything the plan is going out for anyway is fine either way -- you will have
+ * it in your hands.
+ */
+const circulates = (p) => p.priming.every((x) =>
+  rcmp(p.madeOf(x.name), p.amountOf(x.name)) >= 0 ||
+  p.frontier.some((f) => f.name === x.name));
+
+/**
+ * And it may not lay in something the reader said to make.
+ *
+ * "Feed nothing back" on a material is an instruction, not a preference: the
+ * Lithium plan told not to recycle its chlorine is meant to go and fetch
+ * Vanadinite for more, and it did. The refinement is happy to put the charge
+ * straight back -- it is cheaper, the chlorine circulates, and by every measure
+ * here it is the better plan -- which is exactly the argument the reader has
+ * already heard and rejected.
+ *
+ * The reader's own refusals, not the spec's. `solveFedBack` adds to the same
+ * set as it works, so by the end it holds every loop the solver chose to break
+ * as well -- and reading that back as an instruction refuses every refinement
+ * on any plan that ever broke a loop, which is most of them.
+ */
+const respectsRefusals = (p, refused) =>
+  !p.priming.some((x) => refused.has(x.name));
 
 /** Reactions that can never fire: an ungated rival ahead of them takes everything. */
 const NEVER = 1e-6;
@@ -6339,19 +6383,31 @@ function solvePlan(graph, rawSpec, depth = 0) {
       !p.produces.some((o) => spec.excludeMaterials.has(o.name)));
     if (!eaters.length) continue;
 
-    // What it makes matters more than what it costs: getting rid of a leftover
-    // that still has some of the target in it should hand the target back.
+    /**
+     * What it makes matters more than what it costs.
+     *
+     * A target first, obviously. Then anything the plan is *already paying
+     * for*: the Lepidolite plan vents eight Carbon Monoxide while buying nine
+     * mushrooms to make Carbon, and the Boudouard equilibrium turns the one
+     * into the other. Ranked without that, "get rid of it" reached for
+     * `Carbon Monoxide + Oxygen` instead -- cheaper, and it turns carbon
+     * monoxide into carbon dioxide, which is a leftover exchanged for a
+     * leftover. Then what is merely made of the right stuff, and last whatever
+     * is cheapest.
+     */
     const asked = elementsOf(graph, spec.targets.map((t) => t.name));
     const table = composition(graph);
     const worth = (p) => {
       if (p.produces.some((o) => spec.targets.some((t) => t.name === o.name))) return 0;
+      // Something the plan wants and is getting from somewhere else.
+      if (p.produces.some((o) => rcmp(plan.amountOf(o.name), R0) > 0)) return 1;
       const holds = p.produces.some((o) => {
         const els = table.get(o.name)?.elements;
         if (!els) return false;
         for (const el of els) if (asked.has(el)) return true;
         return false;
       });
-      return holds ? 1 : 2;
+      return holds ? 2 : 3;
     };
     const ranked = [...eaters].sort((a, b) =>
       worth(a) - worth(b) ||
@@ -6439,6 +6495,7 @@ function solvePlan(graph, rawSpec, depth = 0) {
    * the pass to the unit, so on most plans this changes nothing and is refused
    * for having nothing to offer.
    */
+  const refused = new Set(rawSpec.noFeedBack || []);
   const settled = refineRuns(graph, plan);
   if (settled) {
     /**
@@ -6455,7 +6512,8 @@ function solvePlan(graph, rawSpec, depth = 0) {
      * one pass over it rebuilds the plan exactly and only the arithmetic moves.
      */
     const trial = solveOnce(graph, { ...plan.spec, fixedRuns: settled });
-    if (trial && dominates(tally(trial), tally(plan))) {
+    if (trial && circulates(trial) && respectsRefusals(trial, refused) &&
+        dominates(tally(trial), tally(plan))) {
       plan = trial;
       plan.brokenLoops = [];
       plan.sharedPins = sharedPins;
