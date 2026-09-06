@@ -1098,6 +1098,7 @@ function renderOptions() {
   for (const [id, cb] of kindBoxes) cb.checked = plan.kinds.includes(id);
   $('#plan-avoid').checked = plan.avoidSideEffects;
   $('#plan-feedback').checked = plan.feedBackAll;
+  $('#plan-charges').checked = plan.takeCharges;
 }
 
 /* --------------------------------------------------------------- balancing */
@@ -1171,6 +1172,7 @@ export function render() {
     noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,
     avoidSideEffects: plan.avoidSideEffects,
+    takeCharges: plan.takeCharges,
   };
   shownTargets = targetsFor(question);
 
@@ -1232,6 +1234,8 @@ export function initPlan(context) {
     edit(setOption, 'avoidSideEffects', e.target.checked));
   $('#plan-feedback').addEventListener('change', (e) =>
     edit(setOption, 'feedBackAll', e.target.checked));
+  $('#plan-charges').addEventListener('change', (e) =>
+    edit(setOption, 'takeCharges', e.target.checked));
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;

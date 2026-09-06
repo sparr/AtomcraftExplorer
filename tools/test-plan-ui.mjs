@@ -725,6 +725,36 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(readPlan(new URLSearchParams()).balance === true, 'and an old link comes back balanced');
 }
 
+/* ------------------------------------------- a charge, or a standing step */
+
+// The same the other way up: laying charges in is the option, so on is the
+// half worth writing down and an old link comes back preferring the step.
+{
+  const params = new URLSearchParams();
+  writePlan({ ...emptyPlan(), targets: [{ name: 'Boron Oxide', amount: 1 }],
+              takeCharges: true }, params);
+  check(params.get('ch') === '1' && readPlan(params).takeCharges === true,
+        'leave to lay a charge in survives a reload');
+  check(readPlan(new URLSearchParams()).takeCharges === false,
+        'and an old link comes back preferring the step');
+  check(!new URLSearchParams(
+          (() => { const q = new URLSearchParams();
+                   writePlan({ ...emptyPlan(), targets: [{ name: 'Boron Oxide', amount: 1 }] }, q);
+                   return q; })()).has('ch'),
+        'while the default writes nothing down at all');
+}
+
+// And the box is really wired to it, rather than being decoration.
+{
+  app.setPlan({ ...emptyPlan(), targets: [{ name: 'Boron Oxide', amount: 1 }] });
+  const box = document.querySelector('#plan-charges');
+  check(box && box.checked === false, 'the charges box starts clear');
+  box.checked = true;
+  box.dispatch('change', { target: box });
+  check(app.getPlan().takeCharges === true, 'and ticking it asks for the charges');
+  check(app.getPlan().targets.length === 1, 'without disturbing what was asked for');
+}
+
 /* ------------------------- a stock, and something you can go on making */
 
 {

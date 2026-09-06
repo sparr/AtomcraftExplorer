@@ -548,6 +548,21 @@ export function normalizeSpec(spec = {}) {
     fixedRuns: spec.fixedRuns || null,
     /** Leftovers the reader has asked the plan to go and find a use for. */
     consume: new Set(spec.consume || []),
+    /**
+     * Whether a charge may be laid in to save what the plan buys every batch.
+     *
+     * Off, and a step is preferred to a charge: making a material outright is
+     * a step you run forever where a charge is laid in once, and that is the
+     * way round most readers want it. The Boron Oxide plan makes its Steam in
+     * a sixth step rather than starting with two of it in hand.
+     *
+     * On, and a charge that pays for itself is allowed to buy the trade back.
+     * It is worth having where the loop is a real one: told to reduce Carbon
+     * Dioxide with potassium, the Lepidolite plan goes from twenty-seven
+     * Lepidolite an order to under seven, because the potassium comes back out
+     * of the reduction every run and only has to be put in once.
+     */
+    takeCharges: !!spec.takeCharges,
     /** byproducts the reader has agreed to plumb back in, one by one. */
     credit: new Set(spec.credit || []),
     /**
@@ -1765,14 +1780,20 @@ export function solvePlan(graph, rawSpec, depth = 0) {
    * that got four Potassium out of the ore for every one it had been getting
    * was found every time and never once survived to be handed over.
    *
-   * Except that it must not undo the pass it now follows. Every material in
-   * `off` was deliberately taken off its loop and made outright, because a
-   * step you run forever is the bargain and a charge you lay in once is the
-   * price -- and the arithmetic, which only counts, was glad to sell it back.
-   * The Boron Oxide plan lost its sixth step and gained two Steam laid in, a
-   * trade this file makes the other way round on purpose.
+   * Except that it must not undo the pass it now follows, unless the reader
+   * said it may. Every material in `off` was deliberately taken off its loop
+   * and made outright, because a step you run forever is the bargain and a
+   * charge you lay in once is the price -- and the arithmetic, which only
+   * counts, was glad to sell it back. The Boron Oxide plan lost its sixth step
+   * and gained two Steam laid in, which is the trade the pass exists to
+   * refuse, so by default it is refused here too.
+   *
+   * `takeCharges` is that preference, and it is a preference rather than a
+   * fact: a charge that pays for itself every batch is a different thing from
+   * a charge that does not, and which of them the reader is looking at is not
+   * something this file can tell.
    */
-  plan = refine(plan, off);
+  plan = refine(plan, spec.takeCharges ? null : off);
 
   plan.brokenLoops = [...off].filter((n) => rcmp(plan.otherSupplyOf(n), R0) > 0);
   plan.sharedPins = sharedPins;

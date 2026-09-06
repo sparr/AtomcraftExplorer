@@ -12,7 +12,7 @@ import { loadData } from '../src/data.js';
 import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS,
          operatingWindow } from '../src/plan-graph.js';
 import { solvePlan, balanceTargets, reachableFrom, routesFor, competitionOf, shareRatio, processCost,
-         rat, radd, rsub, rmul, rdiv, rcmp, rstr, rzero, R0 } from '../src/plan-solve.js';
+         rat, radd, rsub, rmul, rdiv, rcmp, rstr, rzero, rnum, R0 } from '../src/plan-solve.js';
 import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
          formatTemperatureRange, heatingNeed, coolingNeed } from '../src/units.js';
 
@@ -790,6 +790,21 @@ console.log('\n--- a material that comes back ---');
         'and left on its loop it wants laying in instead');
   check(held.steps.length < traded.steps.length,
         `which is the step it saves (${held.steps.length} against ${traded.steps.length})`);
+
+  // And the reader can ask for that trade everywhere rather than one material
+  // at a time. A step is preferred to a charge by default, which is what the
+  // two checks above are about; `takeCharges` says the other thing.
+  const charged = solvePlan(graph, { targets: ['Boron Oxide'], takeCharges: true });
+  check(charged.steps.length < traded.steps.length,
+        `told to lay charges in, the same plan is shorter (${charged.steps.length} ` +
+        `against ${traded.steps.length})`);
+  check(charged.priming.some((x) => x.name === 'Steam'),
+        'because it starts with the Steam in hand instead of making it');
+  check(charged.frontier.reduce((a, f) => a + rnum(f.amount), 0) <=
+        traded.frontier.reduce((a, f) => a + rnum(f.amount), 0),
+        'and buys no more for it, which is the point of allowing it');
+  check(solvePlan(graph, { targets: ['Boron Oxide'] }).steps.length === traded.steps.length,
+        'while the default is unmoved, since it is the default that was measured');
 
   const off = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'],
                                  feedBackAll: false });

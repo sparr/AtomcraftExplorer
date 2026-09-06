@@ -83,6 +83,16 @@ export function emptyPlan() {
     /** Or agree to all of them, and name the exceptions instead. */
     feedBackAll: true,
     noFeedBack: [],
+    /**
+     * Whether to lay a charge in rather than add a step that runs for ever.
+     *
+     * Off, because a step is the standing bargain and a charge is the price,
+     * and that is the way round the plan is written. On where the loop is a
+     * real one and the charge comes back every run: the Lepidolite plan
+     * reducing Carbon Dioxide with potassium drops from twenty-seven ore an
+     * order to under seven, because the potassium is only put in once.
+     */
+    takeCharges: false,
     kinds: [...DEFAULT_KINDS],
     avoidSideEffects: true,
     /**
@@ -134,6 +144,7 @@ export function readPlan(params) {
   plan.consume = list(params.get('cu'));
   plan.noFeedBack = list(params.get('nf'));
   if (params.get('fb') === '0') plan.feedBackAll = false;
+  if (params.get('ch') === '1') plan.takeCharges = true;
 
   for (const entry of list(params.get('pin'))) {
     const at = entry.indexOf(PAIR);
@@ -176,6 +187,7 @@ export function writePlan(plan, params) {
   put('cu', plan.consume.join(SEP));
   put('nf', plan.noFeedBack.join(SEP));
   if (!plan.feedBackAll) params.set('fb', '0');
+  if (plan.takeCharges) params.set('ch', '1');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
 
