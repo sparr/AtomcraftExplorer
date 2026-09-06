@@ -571,6 +571,45 @@ function planOnce(graph, rawSpec) {
    * running a fraction of a time is the likeliest to be doing nothing much.
    */
   const pinned = pinnedFetch;
+  /**
+   * The same question in doubles, for deciding which steps to try dropping.
+   *
+   * Taking a step out and asking whether the rest still manages is one exact
+   * rational solve per step tried, and there are as many tries as there are
+   * steps: forty-five of them on the Columbite plan, which is where fourteen
+   * of its fifteen seconds went. The answer to "can this be left out" does not
+   * need to be exact -- it needs to be right, and then the numbers that come
+   * out of it are worked out exactly once at the end.
+   *
+   * No equality pinning here. Floats and exact equalities do not mix, so the
+   * screen asks the looser question -- does it still buy no more, and still
+   * draw in no more -- with a hair of tolerance, and lets the exact pass be
+   * the judge of that.
+   */
+  const floatRows = rows.map((row) => ({
+    coeffs: new Map([...row.coeffs].map(([i, a]) => [i, rnum(a)])),
+    op: row.op,
+    rhs: rnum(row.rhs),
+  }));
+  const floatCost = new Map([...inputCost].map(([i, a]) => [i, rnum(a)]));
+  const ceiling = { fetch: rnum(base.total) + 1e-6, drawn: rnum(base.drawn) + 1e-6 };
+
+  const screen = (banned) => {
+    const caps = [];
+    for (const p of procs) if (banned.has(p.id)) {
+      caps.push({ coeffs: new Map([[index.get(p.id), 1]]), op: '=', rhs: 0 });
+    }
+    const answer = solveLPFloat({ vars, rows: [...floatRows, ...caps], cost: floatCost });
+    if (!answer.ok) return false;
+    let fetched = 0;
+    let drawn = 0;
+    for (const [name, i] of supply) {
+      if (bought(name)) fetched += answer.x[i];
+      drawn += answer.x[i];
+    }
+    return fetched <= ceiling.fetch && drawn <= ceiling.drawn;
+  };
+
   const banned = new Set();
   let best = base;
   for (;;) {
@@ -580,15 +619,18 @@ function planOnce(graph, rawSpec) {
                       a.id.localeCompare(b.id));
     let dropped = false;
     for (const p of used) {
-      const trial = attempt(new Set([...banned, p.id]),
-        [pinnedFetch(base.total), pinnedInput(base.drawn), ...demands], inputCost);
-      if (!trial) continue;
+      if (!screen(new Set([...banned, p.id]))) continue;
       banned.add(p.id);
-      best = trial;
       dropped = true;
       break;
     }
     if (!dropped) break;
+    // The screen decides which to try; the numbers still come from the exact
+    // solver, and the loop needs a solution to read its next candidates from.
+    const settled = attempt(banned,
+      [pinnedFetch(base.total), pinnedInput(base.drawn), ...demands], inputCost);
+    if (!settled) { banned.delete([...banned].pop()); break; }
+    best = settled;
   }
 
   return assemble(graph, spec, procs, index, supply, best.x, base.total, sub);
