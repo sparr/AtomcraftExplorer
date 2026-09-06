@@ -30,7 +30,27 @@ const MAX_PIVOTS = 20000;
  * `rows` and `cost` come in the same shape the exact solver takes, except that
  * every rational is a number. Returns `{ ok, x }` with `x` a plain array.
  */
-export function solveLPFloat({ vars, rows, cost, lo = new Map() }) {
+/**
+ * Whether phase one may bring an artificial back in.
+ *
+ * It should never need to: an artificial is scaffolding, there to give the
+ * basis somewhere to start. Barring them is textbook and it made the Columbite
+ * plan solvable in thirty-one milliseconds where it had been failing outright.
+ * It also stopped the Lepidolite plan solving at all, which had been taking
+ * forty-six. Both are real, so both are tried -- the barred walk first because
+ * it is the one with a reason behind it, and the permissive one when that
+ * comes back with nothing. Each costs tens of milliseconds; between them they
+ * answer every plan tried here.
+ */
+export function solveLPFloat(problem) {
+  // The first walk gets a short leash. When it is going to fail it fails by
+  // pivoting in circles until the cap, and on the Lepidolite plan that was
+  // seven seconds spent before the walk that works even started.
+  return attempt(problem, true, 2000) || attempt(problem, false, MAX_PIVOTS) ||
+         { ok: false, reason: 'neither walk settled' };
+}
+
+function attempt({ vars, rows, cost, lo = new Map() }, barred, budget) {
   const shift = (i) => lo.get(i) || 0;
   const prepared = rows.map((row) => {
     let rhs = row.rhs;
@@ -112,7 +132,7 @@ export function solveLPFloat({ vars, rows, cost, lo = new Map() }) {
       const at = r * stride;
       for (let j = 0; j < width; j++) dual[j] -= f * table[at + j];
     };
-    for (let step = 0; step < MAX_PIVOTS; step++) {
+    for (let step = 0; step < budget; step++) {
       let enter = -1;
       let best = -EPS;
       for (let j = 0; j < width; j++) {
@@ -159,10 +179,12 @@ export function solveLPFloat({ vars, rows, cost, lo = new Map() }) {
 
   if (artificial.length) {
     const art = new Set(artificial);
-    if (!run((j) => (art.has(j) ? 1 : 0), () => true)) return { ok: false, reason: 'phase one' };
+    // An artificial is scaffolding: it is there to give the basis somewhere to
+    // start, and once it has left there is never a reason to let it back.
+    if (!run((j) => (art.has(j) ? 1 : 0), barred ? (j) => !art.has(j) : () => true)) return null;
     let total = 0;
     for (let i = 0; i < height; i++) if (art.has(basis[i])) total += table[i * stride + width];
-    if (total > 1e-6) return { ok: false, reason: 'infeasible' };
+    if (total > 1e-6) return null;
     for (let i = 0; i < height; i++) {
       if (!art.has(basis[i])) continue;
       let swap = -1;
@@ -173,9 +195,9 @@ export function solveLPFloat({ vars, rows, cost, lo = new Map() }) {
       if (swap >= 0) pivot(i, swap);
     }
     const live = (j) => !art.has(j);
-    if (!run((j) => cost.get(j) || 0, live)) return { ok: false, reason: 'unbounded' };
+    if (!run((j) => cost.get(j) || 0, live)) return null;
   } else if (!run((j) => cost.get(j) || 0, () => true)) {
-    return { ok: false, reason: 'unbounded' };
+    return null;
   }
 
   const x = new Array(vars).fill(0);
