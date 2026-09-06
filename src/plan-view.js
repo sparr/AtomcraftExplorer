@@ -1116,11 +1116,28 @@ let balancedTo = null;
 
 function targetsFor(spec) {
   if (!plan.balance || !plan.targets.length) return plan.targets;
-  const key = JSON.stringify([plan.targets.map((t) => t.name), spec.have, spec.plenty,
-                              spec.include,
-                              spec.alsoUse, spec.pins, spec.runs, spec.excludeProcesses,
-                              spec.excludeMaterials, spec.credit, spec.noFeedBack,
-                              spec.feedBackAll, spec.kinds, spec.avoidSideEffects]);
+  /**
+   * Everything about the question, less the few things that cannot move the
+   * amounts.
+   *
+   * Read off the question rather than listed by hand, because the hand-kept
+   * version went stale the moment something was added to it. "Get rid of it"
+   * arrived in 0.3.4 and was not in the list, so pressing it kept the amounts
+   * worked out before it: the page said one Carbon with a Carbon left over,
+   * and the very same address reloaded said two Carbon and nothing left over.
+   * A cache that disagrees with a fresh load of its own URL is worse than no
+   * cache. Anything added from here on is in the key unless it is named below.
+   *
+   * `targets` is in by name only -- the amounts are what is being worked out.
+   * `kept` is out because it changes nothing about what is made, only whether
+   * a surplus is called waste, and re-balancing on it would cost a dozen
+   * solves to arrive back where it started.
+   */
+  const NOT_IN_BALANCE = new Set(['targets', 'kept']);
+  const key = JSON.stringify([
+    plan.targets.map((t) => t.name),
+    ...Object.keys(spec).filter((k) => !NOT_IN_BALANCE.has(k)).sort().map((k) => spec[k]),
+  ]);
   if (key !== balancedFor) {
     balancedFor = key;
     balancedTo = balanceTargets(ctx.graph, { ...spec, targets: plan.targets });

@@ -535,6 +535,13 @@ what settles which is the shopping list. You are already going out for ninety
 Hydrofluoric Acid, so laying some of that in is not a second errand, and the
 charge is Hydrofluoric Acid instead.
 
+What counts as a change is read off the question itself rather than kept as a
+list. The list went stale the moment something was added to it: **Get rid of it**
+arrived and was not on it, so pressing the button kept the amounts worked out
+before — one Carbon with a Carbon left over — while the identical address
+loaded afresh said two Carbon and nothing left over. Whatever else a cache does,
+it must not disagree with a fresh load of its own URL.
+
 It costs about a dozen solves, so the answer is kept until the question changes
 — which products, out of what, with which steps ruled out.
 

@@ -330,6 +330,41 @@ console.log('\n--- getting rid of a leftover ---');
         'and the leftover goes');
 }
 
+console.log('\n--- pressing it and reloading it agree ---');
+{
+  /**
+   * The amounts are worked out once and kept until the question changes, and
+   * what counts as a change was a list somebody had to remember to add to.
+   * "Get rid of it" was not on it, so pressing the button kept the amounts from
+   * before: one Carbon with a Carbon left over, where the identical address
+   * loaded afresh said two Carbon and nothing left over. Whatever else a cache
+   * does, it must not disagree with a fresh load of its own URL.
+   */
+  app.setPlan(addHave(addTarget(emptyPlan(), 'Carbon'), 'Carbon Monoxide'));
+  app.setMode('plan');
+  const rid = nodes($('#plan-side'), 'plan-item')
+    .filter((n) => n.dataset.material === 'Carbon Dioxide')
+    .flatMap((n) => nodes(n, 'plan-item-acts')).flatMap((a) => [...a.children])
+    .find((b) => b.textContent === 'Get rid of it');
+  check(!!rid, 'the spare carbon dioxide offers to be got rid of');
+  rid.click();
+  const amount = () => nodes($('#goal-targets'), 'goal-amount').map((n) => n.value).join('/');
+  const pressed = amount();
+  const spare = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
+
+  // The same address, arrived at cold.
+  globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Monoxide&cu=Carbon+Dioxide';
+  app.reload();
+  const loaded = amount();
+  const spareLoaded = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
+
+  check(pressed === loaded,
+        `pressing gives what loading gives: ${pressed} against ${loaded}`);
+  check(pressed === '2', `and it is the two the feed comes to: ${pressed}`);
+  check(!spare.includes('Carbon') && !spareLoaded.includes('Carbon'),
+        `with no Carbon left over either way: ${spare.join(',')} / ${spareLoaded.join(',')}`);
+}
+
 console.log('\n--- trading a step for a charge ---');
 {
   // The steam is made rather than taken back off its own loop: a step you run
