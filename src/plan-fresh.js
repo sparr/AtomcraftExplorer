@@ -416,7 +416,36 @@ const KNOWN_BUGS = [
  * steel it does not cancel out of the cycle, so there is no counting the
  * hydrogen either side.
  */
-const ALWAYS_DROP = new Set(['rx:Potassium + Water']);
+const ALWAYS_DROP = new Set([
+  'rx:Potassium + Water',
+
+  /**
+   * Dissolving andesite makes hydrogen out of nothing, and the steam it
+   * becomes is four times the water that went in.
+   *
+   * `2 Andesite + 3 Sulfuric Acid + 3 Water -> 1 Sodium Sulfate + 1 Aluminum
+   * Sulfate + 6 Orthosilicic Acid`. Andesite is `NaAlSi3O8` and carries no
+   * hydrogen, so twelve hydrogen go in and twenty-four come out; the sulfur
+   * goes three in and four out. Decomposing the orthosilicic acid afterwards
+   * is honest -- `H4SiO4 -> SiO2 + 2 H2O` is exactly right -- which is what
+   * turns the invented hydrogen into steam.
+   *
+   * That is why the Columbite plan bought four Andesite: not as a complicated
+   * way of boiling water, but because three water came back as twelve steam
+   * and `evap:Water` only gives one for one.
+   *
+   * The hydrochloric version does the same thing more modestly, ten hydrogen
+   * in and twelve out, so barring only the first would move the plan onto the
+   * second. The granite and sodium silicate reactions of the same shape all
+   * balance, so this is two recipes being wrong rather than a way of writing
+   * silicates.
+   *
+   * Neither can be gated: `Sulfuric Acid` has no formula and does not cancel,
+   * so nothing can count the hydrogen going in.
+   */
+  'rx:Sulfuric Acid + Andesite',
+  'rx:Hydrochloric Acid + Andesite',
+]);
 
 const buggyCache = new WeakMap();
 
