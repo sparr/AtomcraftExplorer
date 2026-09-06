@@ -54,14 +54,20 @@ export const SOURCES = ['world', 'weather', 'air', 'farm', 'made'];
 /**
  * What a plan will go and get unless told otherwise.
  *
- * Everything but the farm. Sparr: growing things are off by default, here and
- * in the interface when it gets one. A plan that answers "where will the
- * carbon come from" with a mushroom, a chicken or a raw hamburger is a plan
- * about foraging, and the reader asking how to make silicon out of ore did not
- * ask about foraging. Refused, the same plans go and find a carbonate instead,
- * which is the answer that was wanted.
+ * What the world hands over, and nothing else. Sparr: growing things off by
+ * default -- a plan that answers "where will the carbon come from" with a
+ * mushroom or a raw hamburger is a plan about foraging, and the reader asking
+ * how to make silicon out of ore did not ask about foraging. Refused, the same
+ * plans go and find a carbonate instead, which is the answer that was wanted.
+ *
+ * Manufactured goods are off for a different reason: they are what you are
+ * meant to be making, and switching them on costs a great deal of time. A plan
+ * that needs them says so.
+ *
+ * When a search comes back with nothing, the thing to show the reader is this
+ * list and the offer to widen it.
  */
-export const DEFAULT_SOURCES = SOURCES.filter((s) => s !== 'farm');
+export const DEFAULT_SOURCES = ['world', 'weather', 'air'];
 
 /**
  * Two of the five cannot be read off the data and are written down here.
@@ -260,20 +266,25 @@ export function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (graph.isManufactured(name)) return false;
 
   /**
-   * A thing with a recipe is a thing you are meant to make, and the category
-   * cannot be opened wholesale.
+   * A thing with a recipe can be bought, but only if the reader asks for it.
    *
-   * The Columbite plan is meant to buy four Hydrofluoric Acid and four
-   * Potassium Hydroxide, both of which have recipes, so with the mines refused
-   * it has nothing to buy and no plan to give. Letting the whole `made`
-   * category be bought fixes that and costs everything else: several hundred
-   * intermediates gain a supply column, and the Lepidolite plan -- which takes
-   * under two seconds -- did not finish in four minutes.
+   * Having a recipe usually ends the question -- you can make it, so make it
+   * -- and for most plans that is right and also fast, because it keeps the
+   * supply columns down to what the world actually hands over. Turning it on
+   * everywhere gives several hundred intermediates a column each, and the
+   * Lepidolite plan went from under two seconds to not finishing in four
+   * minutes.
    *
-   * So the two things Columbite wants have to be named rather than implied by
-   * their category. `made` is a description of where a material comes from and
-   * it is too coarse to be a permission.
+   * So it is off unless asked for. Columbite with its mines refused needs the
+   * four Hydrofluoric Acid and four Potassium Hydroxide its ideal names, and
+   * both have recipes; that plan asks, and pays the time. Lepidolite does not
+   * need to and does not.
+   *
+   * Buying the answer outright is stopped elsewhere: nothing whose elements
+   * cover a target gets a supply column, so a plan for Niobium cannot fetch
+   * Niobium, nor Niobium Pentoxide, nor Columbite.
    */
+  if (sources && sources.has('made')) return true;
   return !graph.producers(name).some((p) => kinds.has(p.kind));
 }
 

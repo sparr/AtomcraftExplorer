@@ -97,9 +97,10 @@ const WANTED = [
     targets: [{ name: 'Tantalum', amount: 2 }, { name: 'Niobium', amount: 2 }],
     have: ['Columbite'],
     edges: [...COLUMBITE_CHAIN, 'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
-    // Sparr: for Columbite, disable mined things too -- the ore it was given
-    // is the only ore it gets.
-    sources: DEFAULT_SOURCES.filter((x) => x !== 'world'),
+    // Sparr: no mined things -- the ore it was given is the only ore it gets
+    // -- and manufactured goods switched on, because the acid and the
+    // hydroxide it is meant to buy both have recipes.
+    sources: ['weather', 'air', 'made'],
     // Per Columbite: four Hydrofluoric Acid, four Potassium Hydroxide, one
     // Water. Carbon closed, and no ore but the Columbite.
     buys: ['Hydrofluoric Acid', 'Potassium Hydroxide', 'Aqueous Potassium Hydroxide', 'Water'],
@@ -118,9 +119,9 @@ const WANTED = [
             'rx:Electrolysis of Molten Lithium Chloride',
             'rx:Chlorine Gas + Hydrogen Gas',
             'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
-    // The same, and the two ores it is standing on are `have` rather than
-    // fetched, so refusing the mines does not take them away.
-    sources: DEFAULT_SOURCES.filter((x) => x !== 'world'),
+    // The same, and the two ores it stands on are `have` rather than fetched,
+    // so refusing the mines does not take them away.
+    sources: ['weather', 'air', 'made'],
     // Six Lepidolite to a Columbite, and two carbon. Nothing else at all.
     buys: [], carbon: true,
     budget: 2,
