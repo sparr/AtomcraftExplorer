@@ -91,6 +91,17 @@ const FROM_AIR = new Set(['Breathable Air', 'Nitrogen', 'Oxygen', 'Hydrogen',
                           'Radon', 'Neon (Fading)', 'Neon (Glowing)']);
 
 /**
+ * Things that grew or were bred and are filed as neither.
+ *
+ * The category data has `Hamburger (Raw)` and `Cow Manure` down as "other" and
+ * nothing else to go on -- no recipe, no mine, nothing to follow -- so they
+ * came out as things you are meant to manufacture. Excluding what grows then
+ * left a plan buying a raw hamburger for its carbon. A short list, and one to
+ * correct rather than to be proud of.
+ */
+const GREW = new Set(['Hamburger (Raw)', 'Cow Manure', 'Compost', 'Compost (Burning)']);
+
+/**
  * Which of the five a material comes from.
  *
  * Follow the mine, because the category of a thing you dug up describes the
@@ -110,7 +121,23 @@ export function sourceOf(graph, name, seen = new Set()) {
   // deposit -- follow the mine first and the leaf comes back as something the
   // world made once and will not make again.
   const own = graph.categoryOf(name);
-  if (own === 'plant' || own === 'biological') return 'farm';
+  if (own === 'plant' || own === 'biological' || GREW.has(name)) return 'farm';
+
+  /**
+   * And a thing you mine a living thing off is part of the living thing.
+   *
+   * `Berry Bush Berry 2_1` is filed as a deposit and is what a Fallen Leaf is
+   * mined from, so following the mine backward -- which is how `Pneumatocyst`
+   * gets sorted -- finds nothing, there being nothing upstream of a bush. It
+   * has to be read forward instead: what comes off it grew, so it grew.
+   */
+  for (const p of graph.consumers(name)) {
+    if (p.kind !== 'mine') continue;
+    for (const o of p.produces) {
+      const made = graph.categoryOf(o.name);
+      if (made === 'plant' || made === 'biological' || GREW.has(o.name)) return 'farm';
+    }
+  }
 
   if (!seen.has(name)) {
     seen.add(name);
