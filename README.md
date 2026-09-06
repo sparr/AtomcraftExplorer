@@ -466,6 +466,20 @@ to obtain, counting them as equal units, or settling the shopping list before
 the feed all give the same answer on every plan tried; the constraints leave
 that little room. Prices are used because the planner already has them.
 
+**One product is still a question about the feed.** Balancing used to need two
+or more, on the reading that it is about the proportion between products and one
+thing has no proportion. But the other half of the question survives without a
+second product: *how much of this will what I have make?* Carbon out of Carbon
+Monoxide, told to get rid of the carbon dioxide, costs two Carbon Monoxide
+whether you ask for one Carbon or two — the Boudouard equilibrium cannot be run
+half a time — so it says two. Asking for one and being handed a spare was the
+same plan described worse. Three Lepidolite make two Potassium on their own the
+same way they make 2/2/2/3.
+
+A feed the plan does not actually draw on is still no constraint, so Molten
+Aluminum out of Water keeps the number it was given rather than climbing until
+it runs out of patience.
+
 ### Amounts that use the feed up
 
 Ask for one each of Potassium, Lithium, Aluminum and Silicon out of Lepidolite
@@ -971,6 +985,22 @@ the game re-rolls them each run.
   the ones that are nullable (`Mass`, `ThermalConductivity`, …) and the ones
   that are enums, where 0 names a case: `State` 0 is Solid and
   `DecaySettings.Mode` 0 is alpha decay, which 192 materials use.
+
+## The plans it is judged by
+
+`tools/cases.mjs` is the canonical list: the handful of questions this planner
+exists to answer well, with what has to stay true of each. `npm test` runs them,
+and `node tools/test-cases.mjs` on its own prints the whole table — which is the
+thing to read when weighing a change, because most of what went wrong in 0.2.x
+and 0.3.x was a rule that was right where it was written and expensive two cases
+away.
+
+They hold *shapes*, not snapshots. "Balances to 2/2/2/3" and "throws away
+nothing with either metal in it" survive an improvement; a list of amounts would
+fail on every one, which teaches everybody to update the file without reading
+it. Alongside them is a short list of things no plan may ever do — make less
+than was asked, want a charge it has no way to come by, run a step no times —
+each of which was a real answer at some point.
 
 ## Tests
 

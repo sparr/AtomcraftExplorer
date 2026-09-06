@@ -2106,7 +2106,19 @@ export function balanceTargets(graph, rawSpec) {
   let plan = solve(amounts);
   if (!plan) return names.map((name, i) => ({ name, amount: typed[i] }));
   let feed = feedOf(plan);
-  const ratio = names.length > 1 && feed.size > 0;
+  /**
+   * One product is still a question about the feed.
+   *
+   * This used to need two or more, on the reading that balancing is about the
+   * proportion between products -- and with one there is no proportion. But
+   * the other half of the question survives perfectly well on its own: how
+   * much of this will what I have make? Carbon out of Carbon Monoxide, told to
+   * get rid of the carbon dioxide, costs two Carbon Monoxide whether you ask
+   * for one Carbon or two, because the Boudouard equilibrium cannot be run
+   * half a time. Asking for one and being handed a spare is the same plan
+   * described worse.
+   */
+  const ratio = feed.size > 0;
   if (ratio) { amounts = names.map(() => 1); plan = solve(amounts); feed = feedOf(plan); }
 
   for (let round = 0; round < 3 && plan; round++) {
@@ -2140,7 +2152,10 @@ export function balanceTargets(graph, rawSpec) {
       const q = solve(amounts);
       if (q) { plan = q; feed = feedOf(plan); }
       // Smallest whole numbers, so the same ratio always reads the same way.
-      const g = amounts.reduce(gcdN);
+      // Only where there is a ratio: with one product the number is not a
+      // proportion to be reduced, it is the answer, and dividing it out puts
+      // the spare straight back.
+      const g = names.length > 1 ? amounts.reduce(gcdN) : 1;
       if (g > 1) {
         const smaller = amounts.map((a) => a / g);
         const r = solve(smaller);

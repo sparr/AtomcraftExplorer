@@ -1176,13 +1176,18 @@ console.log('\n--- amounts that use the feed up ---');
                have: ['Columbite', 'Carbon'] }) === '2 Tantalum, 2 Niobium',
         'Columbite gives Tantalum and Niobium one for one, so 7 and 3 is 2 and 2');
 
-  // One product has no ratio to be in, and a feed nothing draws on is not a
-  // constraint -- Molten Aluminum out of Water would climb until it ran out of
-  // patience. Both keep what they were given and take only the scaling.
+  // A feed nothing draws on is not a constraint: Molten Aluminum out of Water
+  // would climb until it ran out of patience, so it keeps what it was given.
   check(amts({ targets: [{ name: 'Molten Aluminum', amount: 4 }], have: ['Water'] })
         === '4 Molten Aluminum', 'a feed the plan does not draw on holds nothing back');
+
+  // One product used to keep its number and take only the batch scale, on the
+  // reading that balancing is about proportion and one thing has none. The
+  // other half of the question survives without a second product though --
+  // how much of this will what I have make -- and three Lepidolite make two
+  // Potassium the same way they make 2/2/2/3.
   check(amts({ targets: [{ name: 'Potassium', amount: 5 }], have: ['Lepidolite'] })
-        === '10 Potassium', 'and one product only gets the batch scale folded in');
+        === '2 Potassium', 'and one product is still asked what the feed comes to');
   check(amts({ targets: at([1, 1, 1, 1]) }) === '2 Potassium, 2 Lithium, 2 Aluminum, 2 Silicon',
         'with nothing held there is no feed to match, so it is the scale and no more');
   check(balanceTargets(graph, { targets: [] }).length === 0, 'nothing to make, nothing to balance');
