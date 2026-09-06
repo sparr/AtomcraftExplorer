@@ -21,7 +21,18 @@ globalThis.fetch = async () => ({
   json: async () => JSON.parse(readFileSync(new URL('../data/atomcraft.json', import.meta.url))),
 });
 
-/** The edges `IDEAL-PLANS.md` says each answer turns on. */
+/**
+ * `IDEAL-PLANS.md`, in a form a program can check.
+ *
+ * `edges` are the reactions a right answer runs; `buys` is everything its
+ * shopping list is allowed to contain. Anything fetched that is not in `buys`
+ * is the plan going somewhere the ideal does not -- twenty chickens, say, or
+ * an ore nobody offered it -- and that is a different complaint from an edge
+ * it never picked, so both are reported.
+ *
+ * Keep this in step with the file. The file is the argument; this is the
+ * assertion.
+ */
 const CARBON_LOOP = [
   'rx:Molten Potassium + Carbon Dioxide',
   'rx:Potassium Oxide + Water',
@@ -30,38 +41,74 @@ const CARBON_LOOP = [
   'cond:Steam',
 ];
 
+const COLUMBITE_CHAIN = [
+  'rx:Hydrofluoric Acid Dissolves Columbite',
+  'rx:Heptafluorotantalic Acid + Aqueous Potassium Hydroxide',
+  'rx:Heptafluoroniobic Acid + Aqueous Potassium Hydroxide',
+  'rx:Aqueous Potassium Heptafluorotantalate(V) + Water',
+  'rx:Aqueous Potassium Heptafluoroniobate(V) + Water',
+  'rx:Tantalum Pentoxide Reduction',
+  'rx:Niobium Pentoxide Reduction',
+];
+
+const LEPIDOLITE_CHAIN = [
+  'rx:Lepidolite Decomposition',
+  'rx:Lepidolite Decomposition - Lithium',
+  'rx:Lepidolite Decomposition - Potassium',
+  'rx:Silica Reduction',
+  'rx:Molten Alumina Reduction',
+];
+
 const WANTED = [
   {
     id: 'co2-to-carbon',
     targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Dioxide'],
     edges: CARBON_LOOP,
+    // One Carbon Dioxide into one Carbon and one Oxygen Gas, and that is all.
+    buys: [], budget: 0,
   },
   {
     id: 'co-to-carbon',
     targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Monoxide'],
     edges: ['rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
+    // Two carbon monoxide are two carbon, not one and a leftover.
+    buys: [], budget: 0,
   },
   {
     id: 'lepidolite',
     targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
               { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
     have: ['Lepidolite'],
-    edges: ['rx:Lepidolite Decomposition', 'rx:Lepidolite Decomposition - Lithium',
-            'rx:Lepidolite Decomposition - Potassium',
-            'rx:Silica Reduction', 'rx:Molten Alumina Reduction',
-            'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
+    edges: [...LEPIDOLITE_CHAIN, 'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
+    // Nine carbon in and eight back, so one thing that is carbon per three ore,
+    // and an order is three ore.
+    buys: ['Carbon', 'Bitter Oyster Spore', 'Chicken (Raw)', 'Hamburger (Raw)'],
+    budget: 1,
   },
   {
     id: 'columbite',
-    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+    targets: [{ name: 'Tantalum', amount: 2 }, { name: 'Niobium', amount: 2 }],
     have: ['Columbite'],
-    edges: ['rx:Hydrofluoric Acid Dissolves Columbite',
-            'rx:Heptafluorotantalic Acid + Aqueous Potassium Hydroxide',
-            'rx:Heptafluoroniobic Acid + Aqueous Potassium Hydroxide',
-            'rx:Aqueous Potassium Heptafluorotantalate(V) + Water',
-            'rx:Aqueous Potassium Heptafluoroniobate(V) + Water',
-            'rx:Tantalum Pentoxide Reduction', 'rx:Niobium Pentoxide Reduction',
+    edges: [...COLUMBITE_CHAIN, 'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
+    // Per Columbite: four Hydrofluoric Acid, four Potassium Hydroxide, one
+    // Water. Carbon closed, and no ore but the Columbite.
+    buys: ['Hydrofluoric Acid', 'Potassium Hydroxide', 'Aqueous Potassium Hydroxide', 'Water'],
+    budget: 9,
+  },
+  {
+    id: 'combined',
+    targets: [{ name: 'Tantalum', amount: 2 }, { name: 'Niobium', amount: 2 },
+              { name: 'Lithium', amount: 4 }, { name: 'Aluminum', amount: 4 },
+              { name: 'Silicon', amount: 6 }],
+    have: ['Columbite', 'Lepidolite'],
+    edges: [...COLUMBITE_CHAIN, ...LEPIDOLITE_CHAIN,
+            'rx:Hydrochloric Acid Dissolves Lithium Oxide',
+            'rx:Electrolysis of Molten Lithium Chloride',
+            'rx:Chlorine Gas + Hydrogen Gas',
             'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
+    // Six Lepidolite to a Columbite, and two carbon. Nothing else at all.
+    buys: ['Carbon', 'Bitter Oyster Spore', 'Chicken (Raw)', 'Hamburger (Raw)'],
+    budget: 2,
   },
 ];
 
@@ -83,6 +130,25 @@ for (const c of WANTED) {
   console.log(`\n--- ${c.id}: ${sub.processes.length} considered, ` +
     `${short ? short.processes.length : 'no'} shortlisted, ` +
     `${plan ? plan.steps.length : 'no'} run`);
+
+  if (plan) {
+    // Per order, since a plan may fill the order several times over.
+    const orders = Math.min(...c.targets.map((t) => rnum(plan.madeOf(t.name)) / t.amount));
+    const bought = plan.frontier.reduce((a, f) => a + rnum(f.amount), 0);
+    const stray = plan.frontier.filter((f) => !c.buys.includes(f.name));
+    console.log(`      fills the order ${orders}x | shopping list: ` +
+      (plan.frontier.map((f) => `${f.name}×${rstr(f.amount)}`).join(', ') || 'nothing'));
+    console.log(`      ideal buys ${c.budget} per order` +
+      (c.buys.length ? ` of: ${c.buys.join(', ')}` : ', of nothing at all') +
+      ` -- this buys ${(bought / (orders || 1)).toFixed(2)}`);
+    if (stray.length) {
+      console.log(`      BUYS WHAT IT SHOULD NOT: ` +
+        stray.map((f) => `${f.name}×${rstr(f.amount)}`).join(', '));
+    } else if (bought / (orders || 1) > c.budget + 1e-9) {
+      console.log(`      BUYS TOO MUCH: the right things, ` +
+        `${(bought / (orders || 1) / (c.budget || 1)).toFixed(1)}x over`);
+    }
+  }
 
   for (const id of c.edges) {
     const p = graph.byId.get(id);
