@@ -486,21 +486,63 @@ function planOnce(graph, rawSpec) {
   const { index, supply, vars, rows, fetchCost, bought } = built;
 
   /** Run the whole thing with some processes forbidden, and say what it cost. */
-  const attempt = (banned, extra = []) => {
+  /**
+   * Everything that comes in from outside, held or bought alike.
+   *
+   * The second question, once the shopping list is as short as it goes: how
+   * much has to go in at all. Held stock is free at the till and it is not
+   * free in the world -- a plan that decomposes twenty-two Lepidolite to
+   * manufacture water, and bins forty Molten Lithium on the way, buys nothing
+   * and is nobody's idea of a good answer.
+   */
+  const inputCost = new Map();
+  for (const [, i] of supply) inputCost.set(i, rat(1));
+
+  const attempt = (banned, extra = [], cost = fetchCost) => {
     const lo = new Map();
     const caps = [...extra];
     for (const p of procs) if (banned.has(p.id)) {
       caps.push({ coeffs: new Map([[index.get(p.id), rat(1)]]), op: '=', rhs: R0 });
     }
-    const first = solveLP({ vars, rows: [...rows, ...caps], cost: fetchCost, lo, steep: true });
+    const first = solveLP({ vars, rows: [...rows, ...caps], cost, lo, steep: true });
     if (!first.ok) return null;
     let total = R0;
-    for (const [name, i] of supply) if (bought(name)) total = radd(total, first.x[i]);
-    return { total, x: first.x, caps };
+    let drawn = R0;
+    for (const [name, i] of supply) {
+      if (bought(name)) total = radd(total, first.x[i]);
+      drawn = radd(drawn, first.x[i]);
+    }
+    return { total, drawn, x: first.x, caps };
   };
+
+  const sumOf = (which) => {
+    const coeffs = new Map();
+    for (const [name, i] of supply) if (which(name)) coeffs.set(i, rat(1));
+    return coeffs;
+  };
+  const pinnedFetch = (t) => ({ coeffs: sumOf(bought), op: '=', rhs: t });
+  const pinnedInput = (t) => ({ coeffs: sumOf(() => true), op: '=', rhs: t });
 
   let base = attempt(new Set());
   if (!base) return null;
+
+  /**
+   * Then as little as possible in at the door, with the till pinned.
+   *
+   * Step count used to be the second question and it was making bad trades to
+   * answer it: dropping `cond:Steam` saves one step, and costs twenty-two ore
+   * decomposed to make the water another way. Nothing in "buy little, then run
+   * few steps" can see that, because the ore was free and the forty Molten
+   * Lithium it threw away were not counted at all. Asked for nine metal, that
+   * plan spent thirteen ore where three would do.
+   *
+   * Sparr: maximise what comes out against what goes in. With the order at its
+   * floor -- and it is, since nothing here rewards making more than was asked
+   * -- that is the same thing as minimising what goes in, which is linear and
+   * needs no ratio.
+   */
+  const leaner = attempt(new Set(), [pinnedFetch(base.total)], inputCost);
+  if (leaner) base = leaner;
 
   /**
    * And it has to actually use what the reader said they have.
@@ -528,11 +570,7 @@ function planOnce(graph, rawSpec) {
    * the rest still buy no more than before? Cheapest first, since a process
    * running a fraction of a time is the likeliest to be doing nothing much.
    */
-  const pinned = (t) => {
-    const coeffs = new Map();
-    for (const [name, i] of supply) if (bought(name)) coeffs.set(i, rat(1));
-    return { coeffs, op: '=', rhs: t };
-  };
+  const pinned = pinnedFetch;
   const banned = new Set();
   let best = base;
   for (;;) {
@@ -542,7 +580,8 @@ function planOnce(graph, rawSpec) {
                       a.id.localeCompare(b.id));
     let dropped = false;
     for (const p of used) {
-      const trial = attempt(new Set([...banned, p.id]), [pinned(base.total), ...demands]);
+      const trial = attempt(new Set([...banned, p.id]),
+        [pinnedFetch(base.total), pinnedInput(base.drawn), ...demands], inputCost);
       if (!trial) continue;
       banned.add(p.id);
       best = trial;
