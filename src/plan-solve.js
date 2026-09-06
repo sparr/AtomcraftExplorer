@@ -1687,30 +1687,36 @@ export function solvePlan(graph, rawSpec, depth = 0) {
    * for having nothing to offer.
    */
   const refused = new Set(rawSpec.noFeedBack || []);
-  const settled = refineRuns(graph, plan);
-  if (settled) {
-    /**
-     * The same plan, solved again with better numbers -- and it has to be the
-     * same plan. Sent back through the feedback rounds it is not: those work
-     * out which surpluses to credit from the run counts, so different counts
-     * find a different credit set, which re-prices the routes and comes back a
-     * different plan altogether. On the Lepidolite plan it dropped the
-     * mushrooms that make the Carbon, gained a Boudouard equilibrium the
-     * program had never sized, and covered nine Carbon of standing demand with
-     * a charge -- an answer the program had not given and would not have.
-     *
-     * `plan.spec` already carries the credit set those rounds settled on, so
-     * one pass over it rebuilds the plan exactly and only the arithmetic moves.
-     */
-    const trial = solveOnce(graph, { ...plan.spec, fixedRuns: settled });
-    if (trial && circulates(trial) && respectsRefusals(trial, refused) &&
-        dominates(tally(trial), tally(plan))) {
-      plan = trial;
-      plan.brokenLoops = [];
-      plan.sharedPins = sharedPins;
-    }
-  }
 
+  /**
+   * The same plan, solved again with better numbers -- and it has to be the
+   * same plan. Sent back through the feedback rounds it is not: those work out
+   * which surpluses to credit from the run counts, so different counts find a
+   * different credit set, which re-prices the routes and comes back a
+   * different plan altogether. On the Lepidolite plan it dropped the mushrooms
+   * that make the Carbon, gained a Boudouard equilibrium the program had never
+   * sized, and covered nine Carbon of standing demand with a charge -- an
+   * answer the program had not given and would not have.
+   *
+   * `plan.spec` already carries the credit set those rounds settled on, so one
+   * pass over it rebuilds the plan exactly and only the arithmetic moves.
+   */
+  const refine = (p, alsoRefused = null) => {
+    const settled = refineRuns(graph, p);
+    if (!settled) return p;
+    const trial = solveOnce(graph, { ...p.spec, fixedRuns: settled });
+    if (trial && circulates(trial) &&
+        respectsRefusals(trial, refused) &&
+        (!alsoRefused || respectsRefusals(trial, alsoRefused)) &&
+        dominates(tally(trial), tally(p))) {
+      trial.brokenLoops = [];
+      trial.sharedPins = sharedPins;
+      return trial;
+    }
+    return p;
+  };
+
+  plan = refine(plan);
   if (!spec.feedBackAll) { plan.sharedPins = sharedPins; return markFeeds(markHoldings(graph, plan)); }
 
   /**
@@ -1749,6 +1755,25 @@ export function solvePlan(graph, rawSpec, depth = 0) {
    * instead, at the price of a charge. The reverse of "Make it instead", and
    * the reader may want it either way round.
    */
+  /**
+   * And again, now that the passes have finished moving the plan about.
+   *
+   * Once was not enough. The run counts were settled before the step-for-charge
+   * and leavings passes ran, and both of them rebuild the plan from the spec --
+   * so the better numbers were worked out, adopted, and thrown away a few lines
+   * later. On the Lepidolite plan told to reduce Carbon Dioxide, the answer
+   * that got four Potassium out of the ore for every one it had been getting
+   * was found every time and never once survived to be handed over.
+   *
+   * Except that it must not undo the pass it now follows. Every material in
+   * `off` was deliberately taken off its loop and made outright, because a
+   * step you run forever is the bargain and a charge you lay in once is the
+   * price -- and the arithmetic, which only counts, was glad to sell it back.
+   * The Boron Oxide plan lost its sixth step and gained two Steam laid in, a
+   * trade this file makes the other way round on purpose.
+   */
+  plan = refine(plan, off);
+
   plan.brokenLoops = [...off].filter((n) => rcmp(plan.otherSupplyOf(n), R0) > 0);
   plan.sharedPins = sharedPins;
   return markFeeds(markHoldings(graph, plan));
