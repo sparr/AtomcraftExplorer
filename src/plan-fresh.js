@@ -157,7 +157,25 @@ export function sourceOf(graph, name, seen = new Set()) {
     }
   }
 
-  if (!seen.has(name)) {
+  /**
+   * Follow the mine only when digging is the whole story.
+   *
+   * Lepidolite comes out of a Lepidolite Deposit and nowhere else, so where it
+   * was dug from settles what it is. Carbon does not: it is filed as an
+   * element, it is made by half the reactions in the game, and it also happens
+   * to be minable off a Mite. Following that made elemental carbon a farm
+   * product, which put it behind the switch that turns growing things off, and
+   * the Lepidolite plan had to buy Limestone because plain carbon was
+   * unavailable to it.
+   *
+   * So a material that any reaction can make is not defined by where somebody
+   * dug some of it. Only things whose every route is a mine or a phase change
+   * take their origin from what they were dug out of.
+   */
+  const dugOnly = graph.producers(name)
+    .every((p) => p.kind === 'mine' || p.kind === 'phase');
+
+  if (dugOnly && !seen.has(name)) {
     seen.add(name);
     for (const p of graph.producers(name)) {
       if (p.kind !== 'mine') continue;
