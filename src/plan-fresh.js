@@ -26,6 +26,81 @@ import { rat, R0, radd, rsub, rmul, rdiv, rcmp, rnum, rzero, rstr, lcm }
 /** Lying around outside: you go and pick it up. */
 const WORLDLY = new Set(['deposit', 'terrain', 'plant']);
 
+/**
+ * Where a thing comes from, which is not the same as what it is.
+ *
+ * The reader gets to say which of these they are willing to go and get, the
+ * way they already say which kinds of reaction are allowed. Refusing a source
+ * is a real question about a factory -- a deposit runs out and a kelp bed does
+ * not -- and it is the difference between the Columbite plan buying acid and
+ * hydroxide, and the same plan going off to dig up a Fluorite Deposit and
+ * twenty-four Lepidolite because digging was cheaper.
+ *
+ * Sparr's five, in his words:
+ *
+ * - `world`   there is a fixed amount when the map is made and no more ever:
+ *             deposits, the stone in the ground, and the ore you dig out of
+ *             them.
+ * - `weather` spawns for ever on its own: rain, snow, seawater off the source
+ *             pixels, andesitic lava.
+ * - `air`     a machine with no moving parts makes it for ever: the gases that
+ *             condense out of empty space when you cool it.
+ * - `farm`    a machine process makes it for ever: everything grown or bred.
+ * - `made`    everything else, which is to say the things you are meant to
+ *             make rather than find -- most pure elements and their compounds.
+ */
+export const SOURCES = ['world', 'weather', 'air', 'farm', 'made'];
+
+/**
+ * Two of the five cannot be read off the data and are written down here.
+ *
+ * `FALLS_FROM_SKY` in `plan-graph` knows about the rain and the snow because
+ * somebody read the simulation's weather branch; nothing anywhere says which
+ * gases a cold box pulls out of empty air, or that seawater comes off source
+ * pixels. Until it does, these are lists, and they are lists Sparr will want
+ * to correct.
+ */
+const WEATHER = new Set(['Water', 'Falling Snow', 'Snow', 'Seawater', 'Andesitic Lava']);
+const FROM_AIR = new Set(['Breathable Air', 'Nitrogen', 'Oxygen', 'Hydrogen',
+                          'Radon', 'Neon (Fading)', 'Neon (Glowing)']);
+
+/**
+ * Which of the five a material comes from.
+ *
+ * Follow the mine, because the category of a thing you dug up describes the
+ * thing and not the digging. `Lepidolite` is filed as a compound and comes out
+ * of a Lepidolite Deposit and nowhere else -- seventy-nine materials are in
+ * that position, and they are the ores, which is most of what "there is a
+ * fixed amount of it" is about. In the other direction `Pneumatocyst` is filed
+ * as a deposit and is mined off a Kelp Stalk End, so it grows back and the
+ * filing is wrong about the only thing that matters here.
+ */
+export function sourceOf(graph, name, seen = new Set()) {
+  if (WEATHER.has(name) || graph.fallsFromSky(name)) return 'weather';
+  if (FROM_AIR.has(name)) return 'air';
+
+  // What a thing *is* settles it when the thing is alive. A Fallen Leaf is
+  // filed as biological and mined off a Berry Bush Leaves, which is filed as a
+  // deposit -- follow the mine first and the leaf comes back as something the
+  // world made once and will not make again.
+  const own = graph.categoryOf(name);
+  if (own === 'plant' || own === 'biological') return 'farm';
+
+  if (!seen.has(name)) {
+    seen.add(name);
+    for (const p of graph.producers(name)) {
+      if (p.kind !== 'mine') continue;
+      for (const c of p.consumes) {
+        const from = sourceOf(graph, c.name, seen);
+        if (from !== 'made') return from;
+      }
+    }
+  }
+
+  if (own === 'deposit' || own === 'terrain') return 'world';
+  return 'made';
+}
+
 /** Static and not worldly: it exists only where somebody placed it. */
 const placed = (graph, name) =>
   graph.stateOf(name) === 'Static' && !WORLDLY.has(graph.categoryOf(name));
@@ -39,8 +114,9 @@ const placed = (graph, name) =>
  * a recipe is meant to be made. Without it "fetch as little as possible" has a
  * silly answer -- fetch the two Molten Aluminum and skip the smelting.
  */
-export function fetchable(graph, name, kinds) {
+export function fetchable(graph, name, kinds, sources = null) {
   if (placed(graph, name)) return false;
+  if (sources && !sources.has(sourceOf(graph, name))) return false;
   if (graph.fallsFromSky(name)) return true;
   if (WORLDLY.has(graph.categoryOf(name))) return true;
   if (graph.isManufactured(name)) return false;
@@ -75,10 +151,10 @@ export function subgraph(graph, spec) {
   const depth = new Map();
   for (const name of spec.have) depth.set(name, 0);
   for (const p of allowed) for (const i of inputsOf(p)) {
-    if (!depth.has(i.name) && fetchable(graph, i.name, kinds)) depth.set(i.name, 0);
+    if (!depth.has(i.name) && fetchable(graph, i.name, kinds, spec.sources)) depth.set(i.name, 0);
   }
   for (const t of spec.targets) {
-    if (!depth.has(t.name) && fetchable(graph, t.name, kinds)) depth.set(t.name, 0);
+    if (!depth.has(t.name) && fetchable(graph, t.name, kinds, spec.sources)) depth.set(t.name, 0);
   }
   for (let round = 0; round < spec.reach; round++) {
     let moved = false;
@@ -121,7 +197,7 @@ export function subgraph(graph, spec) {
    * equals.
    */
   const buysIn = (p) => inputsOf(p)
-    .filter((i) => !spec.have.has(i.name) && fetchable(graph, i.name, kinds)).length;
+    .filter((i) => !spec.have.has(i.name) && fetchable(graph, i.name, kinds, spec.sources)).length;
   const cost = (p) => inputsOf(p).reduce((a, i) => Math.max(a, depth.get(i.name) ?? 99), 0);
 
   const chosen = new Map();
@@ -161,7 +237,7 @@ export function subgraph(graph, spec) {
     for (const name of front) {
       if (seenBack.has(name)) continue;
       seenBack.add(name);
-      if (spec.have.has(name) || fetchable(graph, name, kinds)) continue;
+      if (spec.have.has(name) || fetchable(graph, name, kinds, spec.sources)) continue;
       for (const p of pick(graph.producers(name).filter(usable), d === 0)) {
         take(p);
         for (const i of inputsOf(p)) next.push(i.name);
@@ -250,7 +326,7 @@ export function subgraph(graph, spec) {
         added++;
         // What that one needs, so it can actually run.
         for (const i of inputsOf(p)) {
-          if (spec.have.has(i.name) || fetchable(graph, i.name, kinds)) continue;
+          if (spec.have.has(i.name) || fetchable(graph, i.name, kinds, spec.sources)) continue;
           for (const q of pick(graph.producers(i.name).filter(usable), false)) take(q);
         }
       }
@@ -277,6 +353,8 @@ export function normalizeFresh(spec) {
       typeof t === 'string' ? { name: t, amount: 1 } : { name: t.name, amount: t.amount ?? 1 }),
     have: new Set(spec.have || []),
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
+    /** Which sorts of thing the reader will go and get. All of them, unless said. */
+    sources: new Set(spec.sources || SOURCES),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
@@ -309,7 +387,7 @@ export function model(graph, spec, procs, materials) {
   const supply = new Map();
   let next = procs.length;
   for (const name of materials) {
-    if (spec.have.has(name) || fetchable(graph, name, spec.kinds)) supply.set(name, next++);
+    if (spec.have.has(name) || fetchable(graph, name, spec.kinds, spec.sources)) supply.set(name, next++);
   }
   const vars = next;
   const bought = (name) => !spec.have.has(name);
