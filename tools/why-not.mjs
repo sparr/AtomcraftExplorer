@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, DEFAULT_KINDS } from '../src/plan-graph.js';
-import { solveFresh, subgraph, shortlist, model, normalizeFresh, fetchable, sourceOf }
+import { solveFresh, subgraph, shortlist, model, normalizeFresh, fetchable, sourceOf, DEFAULT_SOURCES }
   from '../src/plan-fresh.js';
 import { rnum, rstr } from '../src/rational.js';
 import { composition } from '../src/composition.js';
@@ -97,6 +97,9 @@ const WANTED = [
     targets: [{ name: 'Tantalum', amount: 2 }, { name: 'Niobium', amount: 2 }],
     have: ['Columbite'],
     edges: [...COLUMBITE_CHAIN, 'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
+    // Sparr: for Columbite, disable mined things too -- the ore it was given
+    // is the only ore it gets.
+    sources: DEFAULT_SOURCES.filter((x) => x !== 'world'),
     // Per Columbite: four Hydrofluoric Acid, four Potassium Hydroxide, one
     // Water. Carbon closed, and no ore but the Columbite.
     buys: ['Hydrofluoric Acid', 'Potassium Hydroxide', 'Aqueous Potassium Hydroxide', 'Water'],
@@ -115,6 +118,9 @@ const WANTED = [
             'rx:Electrolysis of Molten Lithium Chloride',
             'rx:Chlorine Gas + Hydrogen Gas',
             'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
+    // The same, and the two ores it is standing on are `have` rather than
+    // fetched, so refusing the mines does not take them away.
+    sources: DEFAULT_SOURCES.filter((x) => x !== 'world'),
     // Six Lepidolite to a Columbite, and two carbon. Nothing else at all.
     buys: [], carbon: true,
     budget: 2,
@@ -151,14 +157,15 @@ const only = process.argv[2];
 
 for (const c of WANTED) {
   if (only && c.id !== only) continue;
-  const spec = normalizeFresh({ targets: c.targets, have: c.have });
+  const ask = { targets: c.targets, have: c.have, sources: c.sources };
+  const spec = normalizeFresh(ask);
   const sub = subgraph(graph, spec);
   const inSub = new Set(sub.processes.map((p) => p.id));
 
   const short = shortlist(graph, spec, sub, (procs, mats) => model(graph, spec, procs, mats));
   const inShort = new Set((short?.processes || []).map((p) => p.id));
 
-  const plan = solveFresh(graph, { targets: c.targets, have: c.have });
+  const plan = solveFresh(graph, ask);
   const ran = new Map((plan?.steps || []).map((s) => [s.process.id, s.runs]));
 
   if (plan && plan.shortfall) {

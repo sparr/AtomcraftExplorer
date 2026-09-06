@@ -52,6 +52,18 @@ const WORLDLY = new Set(['deposit', 'terrain', 'plant']);
 export const SOURCES = ['world', 'weather', 'air', 'farm', 'made'];
 
 /**
+ * What a plan will go and get unless told otherwise.
+ *
+ * Everything but the farm. Sparr: growing things are off by default, here and
+ * in the interface when it gets one. A plan that answers "where will the
+ * carbon come from" with a mushroom, a chicken or a raw hamburger is a plan
+ * about foraging, and the reader asking how to make silicon out of ore did not
+ * ask about foraging. Refused, the same plans go and find a carbonate instead,
+ * which is the answer that was wanted.
+ */
+export const DEFAULT_SOURCES = SOURCES.filter((s) => s !== 'farm');
+
+/**
  * Two of the five cannot be read off the data and are written down here.
  *
  * `FALLS_FROM_SKY` in `plan-graph` knows about the rain and the snow because
@@ -246,6 +258,22 @@ export function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (graph.fallsFromSky(name)) return true;
   if (WORLDLY.has(graph.categoryOf(name))) return true;
   if (graph.isManufactured(name)) return false;
+
+  /**
+   * A thing with a recipe is a thing you are meant to make, and the category
+   * cannot be opened wholesale.
+   *
+   * The Columbite plan is meant to buy four Hydrofluoric Acid and four
+   * Potassium Hydroxide, both of which have recipes, so with the mines refused
+   * it has nothing to buy and no plan to give. Letting the whole `made`
+   * category be bought fixes that and costs everything else: several hundred
+   * intermediates gain a supply column, and the Lepidolite plan -- which takes
+   * under two seconds -- did not finish in four minutes.
+   *
+   * So the two things Columbite wants have to be named rather than implied by
+   * their category. `made` is a description of where a material comes from and
+   * it is too coarse to be a permission.
+   */
   return !graph.producers(name).some((p) => kinds.has(p.kind));
 }
 
@@ -577,7 +605,7 @@ export function normalizeFresh(spec) {
     have: new Set(spec.have || []),
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
     /** Which sorts of thing the reader will go and get. All of them, unless said. */
-    sources: new Set(spec.sources || SOURCES),
+    sources: new Set(spec.sources || DEFAULT_SOURCES),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
