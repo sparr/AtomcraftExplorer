@@ -103,7 +103,8 @@ const WANTED = [
     sources: ['weather', 'air', 'made'],
     // Per Columbite: four Hydrofluoric Acid, four Potassium Hydroxide, one
     // Water. Carbon closed, and no ore but the Columbite.
-    buys: ['Hydrofluoric Acid', 'Potassium Hydroxide', 'Aqueous Potassium Hydroxide', 'Water'],
+    // Four fluorine and four potassium, in whatever carries them, and a water.
+    buys: ['Water'], carries: ['F', 'K'],
     budget: 9,
     leaves: ['Iron(II) Fluoride', 'Potassium Fluoride', 'Water', 'Steam',
              'Oxygen Gas', 'Liquid Oxygen'],
@@ -153,7 +154,21 @@ const table = composition(graph);
  */
 const carbonish = (name) =>
   (table.get(name)?.elements?.has('C') ?? false) || sourceOf(graph, name) === 'farm';
-const allowed = (c, name) => c.buys.includes(name) || (c.carbon && carbonish(name));
+
+/**
+ * Anything that carries one of the elements the ideal actually asks for.
+ *
+ * `Fl` counts as fluorine because eight of the game's formulas write it that
+ * way -- Magnesium Fluoride is `MgFl2` -- and `Fl` is Flerovium, which is not
+ * what anyone meant. Thirty-one others spell it `F`. Worth fixing at the
+ * source; until then, reading it here.
+ */
+const SPELT = { F: ['F', 'Fl'] };
+const carries = (c, name) => (c.carries || []).some((el) =>
+  (SPELT[el] || [el]).some((sym) => table.get(name)?.elements?.has(sym) ?? false));
+
+const allowed = (c, name) =>
+  c.buys.includes(name) || (c.carbon && carbonish(name)) || carries(c, name);
 const only = process.argv[2];
 
 for (const bug of unprovenBugs(graph)) {

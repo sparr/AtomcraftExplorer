@@ -200,10 +200,29 @@ ran together and got wrong:
 So, per Columbite, and this is the whole of it: (Sparr)
 
 ```
-in:   1 Columbite + 4 Hydrofluoric Acid + 4 Potassium Hydroxide + 1 Water
+in:   1 Columbite + 4 fluorine + 4 potassium + 1 Water
 out:  2 Tantalum + 2 Niobium + 2 Iron(II) Fluoride + 2 Potassium Fluoride
       + 5 Oxygen Gas
 ```
+
+**Four fluorine and four potassium, not four of any particular compound.**
+(Sparr) The first draft of this said four Hydrofluoric Acid and four Potassium
+Hydroxide, which is one way to carry them and reads as though it were the only
+way. It is not, and a plan that finds a denser carrier is not cheating:
+
+- four Hydrofluoric Acid, one fluorine each, is the plain answer
+- two Magnesium Fluoride carry the same four
+- one Silicon Tetrafluoride carries four on its own -- but every route to one
+  takes four Hydrofluoric Acid, so it is those four and a step, and no saving
+
+and the same for the potassium: four Potassium Hydroxide, or two Potassium
+Oxide, or Potash, so long as four potassium arrive. What is *not* allowed is a
+carrier that costs more than what it is made of -- Aqueous Potash is Water and
+Potash in one bottle, and buying the bottle should lose to buying the two.
+
+Counting the shopping list in units rather than in fluorine and potassium is
+what made a plan buying one Silicon Tetrafluoride look four times better than
+one buying four Hydrofluoric Acid, when they are the same purchase.
 
 - **charge:** 20 Molten Potassium and 10 Water, for the carbon loop and the
   water circuit inside it. Neither appears above because both come back.

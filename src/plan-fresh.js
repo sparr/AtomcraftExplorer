@@ -1105,8 +1105,22 @@ function planOnce(graph, rawSpec) {
    * manufacture water, and bins forty Molten Lithium on the way, buys nothing
    * and is nobody's idea of a good answer.
    */
+  /**
+   * Priced the same way the shopping list is, so the two questions agree.
+   *
+   * Counting raw units here undid the pricing above. One Aqueous Potash is one
+   * unit and the Water and Potash it is made of are two, so this stage
+   * preferred the bottled version however honestly the first stage had priced
+   * it -- and Sparr's tie-break is the other way round: where a one-step
+   * process saves exactly one step, take the simpler and more numerous inputs.
+   * Two plain things beat one compound thing that is only those two and a lid.
+   *
+   * Held stock is one a unit, being had rather than bought.
+   */
   const inputCost = new Map();
-  for (const [, i] of supply) inputCost.set(i, rat(1));
+  for (const [name, i] of supply) {
+    inputCost.set(i, bought(name) ? (fetchCost.get(i) ?? rat(1)) : rat(1));
+  }
 
   const attempt = (banned, extra = [], cost = fetchCost) => {
     const lo = new Map();
