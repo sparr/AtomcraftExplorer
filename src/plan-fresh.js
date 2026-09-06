@@ -613,8 +613,21 @@ function planOnce(graph, rawSpec) {
   const banned = new Set();
   let best = base;
   for (;;) {
+    /**
+     * Every step is a candidate for dropping, phase changes included.
+     *
+     * They do not count toward the tally -- freezing water is not a stage of a
+     * factory -- but that is a reason not to *count* them, not a reason to keep
+     * them. Left out of this, `cond:Oxygen Gas` sat in every plan turning waste
+     * oxygen into waste liquid oxygen, costing nothing and helping nothing, and
+     * the simplex was free to run it any number of times it liked. It settled
+     * on forty-seven fortieths, and since the batch is the lowest common
+     * multiple of every denominator, that one idle step made the Columbite plan
+     * forty times the size of the order -- which is what made its arithmetic
+     * slow, its rationals being forty times bigger than they needed to be.
+     */
     const used = procs
-      .filter((p) => p.kind !== 'phase' && !banned.has(p.id) && !rzero(best.x[index.get(p.id)]))
+      .filter((p) => !banned.has(p.id) && !rzero(best.x[index.get(p.id)]))
       .sort((a, b) => rcmp(best.x[index.get(a.id)], best.x[index.get(b.id)]) ||
                       a.id.localeCompare(b.id));
     let dropped = false;
