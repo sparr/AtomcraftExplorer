@@ -66,13 +66,17 @@ const WANTED = [
     edges: CARBON_LOOP,
     // One Carbon Dioxide into one Carbon and one Oxygen Gas, and that is all.
     buys: [], budget: 0,
+    // The oxygen it came in with, and nothing else.
+    leaves: ['Oxygen Gas', 'Liquid Oxygen'],
   },
   {
     id: 'co-to-carbon',
     targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Monoxide'],
     edges: ['rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
-    // Two carbon monoxide are two carbon, not one and a leftover.
+    // Two carbon monoxide are two carbon, not one and a leftover. Venting the
+    // Carbon Dioxide is keeping half the carbon and calling it done.
     buys: [], budget: 0,
+    leaves: ['Oxygen Gas', 'Liquid Oxygen'],
   },
   {
     id: 'lepidolite',
@@ -84,6 +88,8 @@ const WANTED = [
     // and an order is three ore.
     buys: ['Carbon', 'Bitter Oyster Spore', 'Chicken (Raw)', 'Hamburger (Raw)'],
     budget: 1,
+    leaves: ['Steam', 'Water', 'Hydrofluoric Acid Gas', 'Hydrofluoric Acid',
+             'Oxygen Gas', 'Liquid Oxygen', 'Hydrogen Gas'],
   },
   {
     id: 'columbite',
@@ -94,6 +100,8 @@ const WANTED = [
     // Water. Carbon closed, and no ore but the Columbite.
     buys: ['Hydrofluoric Acid', 'Potassium Hydroxide', 'Aqueous Potassium Hydroxide', 'Water'],
     budget: 9,
+    leaves: ['Iron(II) Fluoride', 'Potassium Fluoride', 'Water', 'Steam',
+             'Oxygen Gas', 'Liquid Oxygen'],
   },
   {
     id: 'combined',
@@ -109,6 +117,8 @@ const WANTED = [
     // Six Lepidolite to a Columbite, and two carbon. Nothing else at all.
     buys: ['Carbon', 'Bitter Oyster Spore', 'Chicken (Raw)', 'Hamburger (Raw)'],
     budget: 2,
+    leaves: ['Iron(II) Fluoride', 'Potassium Fluoride', 'Hydrofluoric Acid Gas',
+             'Hydrofluoric Acid', 'Water', 'Steam', 'Oxygen Gas', 'Liquid Oxygen'],
   },
 ];
 
@@ -141,6 +151,23 @@ for (const c of WANTED) {
     console.log(`      ideal buys ${c.budget} per order` +
       (c.buys.length ? ` of: ${c.buys.join(', ')}` : ', of nothing at all') +
       ` -- this buys ${(bought / (orders || 1)).toFixed(2)}`);
+    /**
+     * What it throws away, which the shopping list does not catch.
+     *
+     * Carbon Monoxide to Carbon buys nothing and looked like a pass, while
+     * making one Carbon and venting the Carbon Dioxide holding the other one.
+     * A plan can be wrong by keeping too little as easily as by buying too
+     * much.
+     */
+    const dumped = plan.byproducts.filter((b) => !(c.leaves || []).includes(b.name));
+    console.log(`      leaves: ` +
+      (plan.byproducts.map((b) => `${b.name}×${rstr(b.amount)}`).join(', ') || 'nothing') +
+      `  (ideal leaves only: ${(c.leaves || []).join(', ') || 'nothing'})`);
+    if (dumped.length) {
+      console.log(`      THROWS AWAY WHAT IT SHOULD NOT: ` +
+        dumped.map((b) => `${b.name}×${rstr(b.amount)}`).join(', '));
+    }
+
     if (stray.length) {
       console.log(`      BUYS WHAT IT SHOULD NOT: ` +
         stray.map((f) => `${f.name}×${rstr(f.amount)}`).join(', '));
