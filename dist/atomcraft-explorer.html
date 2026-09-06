@@ -5127,19 +5127,33 @@ function refineRuns(graph, plan) {
   }
   if (!rows.length) return null;
 
-  // What a thing costs to have, whether or not you happen to be holding some:
-  // priced as held, a stock is free and the program spends it without limit.
-  const price = solveCosts(graph, { ...spec, have: new Set(), plenty: new Set() }).acquire;
+  /**
+   * Count what the plan is judged on, not what a material is worth.
+   *
+   * This priced its inputs out of `solveCosts`, which is the right measure for
+   * choosing a route and the wrong one for choosing run counts. Ore costs
+   * about one there, so twenty-seven Lepidolite and three Lepidolite looked
+   * near enough alike to trade either way -- and the answers that came back
+   * were routinely refused, because `dominates` was reading columns the
+   * objective had never heard of. Six hundred sampled plans, and refinement
+   * had almost nothing to show for itself.
+   *
+   * So price a material by which column it lands in. A stock you were handed
+   * is `feed`, the first column and the one that decides; anything else bought
+   * is a unit on the shopping list. Weighting feed a thousand to one is
+   * lexicographic order done in arithmetic: no quantity of shopping outweighs
+   * a unit of the stock, which is what the ordering says.
+   */
+  const FEED = rat(1000);
   const cost = new Map();
   for (const p of procs) {
     const i = index.get(p.id);
     let c = rat(1, 10000n);
     for (const [name, per] of net.get(i)) {
       if (!outside(name) || rcmp(per, R0) >= 0) continue;
-      const each = price(name);
-      if (Number.isFinite(each) && each > 0) {
-        c = radd(c, rmul(rsub(R0, per), rat(Math.round(each * 100), 100n)));
-      }
+      const units = rsub(R0, per);
+      const held = dag.materials.get(name)?.reason === 'have';
+      c = radd(c, held ? rmul(units, FEED) : units);
     }
     cost.set(i, c);
   }
@@ -5167,23 +5181,62 @@ const fetchLoad = (p) => p.frontier.reduce((a, f) => a + rnum(f.amount), 0);
 const wasteLoad = (p) => p.byproducts.reduce((a, b) => a + rnum(b.amount), 0);
 
 /** What a plan costs its reader, for refusing a refinement that costs more. */
+/**
+ * How many times over a plan fills the order it was given.
+ *
+ * Usually once. It is more when the run counts came back as fractions and the
+ * whole plan had to be multiplied up to make them whole -- which is a real
+ * answer, and a different order from the one that was asked for.
+ */
+const fills = (p) => {
+  const m = p.spec.targets.reduce((least, t) => {
+    const v = rdiv(p.madeOf(t.name), rat(t.amount));
+    return least === null || rcmp(v, least) < 0 ? v : least;
+  }, null);
+  return m === null ? 1 : rnum(m);
+};
+
 const tally = (p) => {
   const stock = new Set([...p.spec.have].filter((n) => !p.spec.plenty.has(n)));
   let feed = 0;
   for (const name of stock) feed += rnum(p.amountOf(name));
   /**
-   * Charges are not in here, and that is deliberate.
+   * A charge counts, at a quarter of what the same thing costs every batch.
    *
-   * A charge is laid in once and a shopping list is bought for ever, so a plan
-   * that trades nine mushmrooms a batch for five and a charge of four Carbon is
-   * plainly the better bargain -- and strict dominance, which forbids any
-   * column getting worse, would refuse it for the charge alone. What keeps the
-   * door shut on the bad version is `circulates` below, which is a question
-   * about whether the charge is a charge at all.
+   * It was left out entirely, which was half right and half a hole. Half
+   * right, because a charge is laid in once where a shopping list is bought
+   * for ever, and a plan that trades nine mushrooms a batch for five and a
+   * charge of four Carbon is plainly the better bargain -- strict dominance
+   * refused it for the charge alone. The hole is that free is not the same as
+   * cheap: with charges out of the reckoning, the program bought feasibility
+   * with them, and offered a plan seeded with thirty-two Potassium Oxide,
+   * sixteen Carbon and nine Hydrogen that fetched twice as much besides.
+   *
+   * A quarter is a judgement and not a measurement. It says a charge is worth
+   * about four batches of buying the same thing, which is enough to make four
+   * Carbon laid in beat four mushrooms a batch, and nowhere near enough to
+   * make fifty-seven units of seed beat anything.
    */
-  return [feed,
-          p.frontier.reduce((a, f) => a + rnum(f.amount), 0), p.frontier.length,
-          p.byproducts.reduce((a, b) => a + rnum(b.amount), 0), p.byproducts.length,
+  const charge = p.priming.reduce((a, x) => a + rnum(x.amount), 0);
+
+  /**
+   * Per order filled, because the two plans are not always the same size.
+   *
+   * Run counts come back from the simplex as fractions and a plan cannot run a
+   * step three quarters of a time, so `batchScale` multiplies the whole thing
+   * up until they are whole -- and the result fills the order four times over.
+   * Counted as they stand, that plan has four times the shopping list and four
+   * times the leavings, and loses to the one it is four times better than.
+   * Asked for two Potassium, the program was offered eight of them out of the
+   * same twenty-seven Lepidolite and turned it down flat.
+   */
+  const each = fills(p);
+  const per = (n) => (each > 0 ? n / each : n);
+
+  return [per(feed),
+          per(p.frontier.reduce((a, f) => a + rnum(f.amount), 0) + charge / 4),
+          p.frontier.length,
+          per(p.byproducts.reduce((a, b) => a + rnum(b.amount), 0)), p.byproducts.length,
           p.steps.length];
 };
 
