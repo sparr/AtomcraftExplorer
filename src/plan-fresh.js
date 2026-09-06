@@ -997,6 +997,40 @@ export function fetchPrices(graph, kinds) {
     const makers = graph.producers(name).filter((p) => kinds.has(p.kind));
     if (!makers.length) { table.set(name, 1); return 1; }
 
+    /**
+     * Phase changes are not alternatives to each other.
+     *
+     * Liquid Hydrogen is made two ways -- four Hydrogen Gas condensed, or four
+     * Hydrogen Gas (Burning) condensed -- and they have no input in common,
+     * one taking hydrogen and the other taking hydrogen that happens to be
+     * alight. So the rule above saw a material with choices, left it at one,
+     * and the Columbite plan bought four hydrogen for the price of one. The
+     * same trick as Silicon Tetrafluoride, through a door I left open.
+     *
+     * Cooling something is not a route to it, it is the thing at a different
+     * temperature, and two ways to cool the same substance are one way. So
+     * where nothing but phase changes make a material, take the cheapest of
+     * them and skip the question of what they share.
+     */
+    if (makers.every((p) => p.kind === 'phase')) {
+      busy.add(name);
+      let best = Infinity;
+      for (const p of makers) {
+        const out = p.produces.find((o) => o.name === name)?.count || 1;
+        let sum = STEP_PRICE;
+        for (const i of inputsOf(p)) {
+          const each = price(i.name);
+          if (!Number.isFinite(each)) { sum = Infinity; break; }
+          sum += each * i.count;
+        }
+        if (sum / out < best) best = sum / out;
+      }
+      busy.delete(name);
+      const answer = Number.isFinite(best) ? Math.max(best, 1) : 1;
+      table.set(name, answer);
+      return answer;
+    }
+
     // Only what appears in every one of them, at the least any of them needs.
     const shared = new Map();
     for (const i of inputsOf(makers[0])) {
