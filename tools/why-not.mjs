@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, DEFAULT_KINDS } from '../src/plan-graph.js';
-import { solveFresh, subgraph, shortlist, model, normalizeFresh, fetchable, sourceOf, DEFAULT_SOURCES }
+import { solveFresh, subgraph, shortlist, model, normalizeFresh, fetchable, sourceOf, DEFAULT_SOURCES, unprovenBugs }
   from '../src/plan-fresh.js';
 import { rnum, rstr } from '../src/rational.js';
 import { composition } from '../src/composition.js';
@@ -155,6 +155,10 @@ const carbonish = (name) =>
   (table.get(name)?.elements?.has('C') ?? false) || sourceOf(graph, name) === 'farm';
 const allowed = (c, name) => c.buys.includes(name) || (c.carbon && carbonish(name));
 const only = process.argv[2];
+
+for (const bug of unprovenBugs(graph)) {
+  console.log(`??? listed as a game bug and NOT applied -- ${bug.why}: ${bug.drop}`);
+}
 
 for (const c of WANTED) {
   if (only && c.id !== only) continue;

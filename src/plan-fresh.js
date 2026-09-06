@@ -370,23 +370,71 @@ const KNOWN_BUGS = [
   { drop: 'rx:Steel Alloy', with: 'rx:Molten Steel + Oxygen Gas', mints: 'C' },
 ];
 
+/**
+ * Bugs that cannot be measured, and are excluded anyway.
+ *
+ * Sparr asked for these one-off, and they are the ones the gate above has to
+ * decline: something in the cycle has no formula and does not cancel, so
+ * nothing can count the element and nothing will ever be able to say the bug
+ * is fixed. They are listed apart from the gated ones so that the difference
+ * stays visible -- these want revisiting by hand, and nobody will be told when.
+ *
+ * `2 Potassium + 2 Water -> 2 Aqueous Potassium Hydroxide + 1 Hydrogen Gas`
+ * is balanced chemistry written about the wrong material. Two potassium and
+ * two water do give two potassium hydroxide and a hydrogen -- but the game
+ * writes the product as the *aqueous* form, which it defines elsewhere as one
+ * Potassium Hydroxide and one Water. Evaporate them again and two water come
+ * out that never went in, along with the hydrogen.
+ *
+ * Which is where the Carbon Monoxide plan was getting hydrogen from. Its feed
+ * is carbon monoxide and it buys nothing, so there was no hydrogen in the
+ * question at all, and it was leaving two Steam.
+ *
+ * The sibling route `rx:Electrolysis of Aqueous Potassium Chloride` says the
+ * same thing correctly -- aqueous in and aqueous out, and the water balances
+ * -- so this is one recipe being careless rather than a modelling choice.
+ *
+ * It cannot be gated: `Potassium Hydroxide` has no formula, and unlike the
+ * steel it does not cancel out of the cycle, so there is no counting the
+ * hydrogen either side.
+ */
+const ALWAYS_DROP = new Set(['rx:Potassium + Water']);
+
 const buggyCache = new WeakMap();
+
+/**
+ * Which listed bugs are live, and which could not be judged at all.
+ *
+ * A gate that cannot answer must say so. `rx:Potassium + Water` writes its
+ * product as Aqueous Potassium Hydroxide where it means the dry sort, so
+ * evaporating it hands back water that never went in -- but `Potassium
+ * Hydroxide` has no formula, and unlike the steel it does not cancel out of
+ * the cycle, so there is no counting the hydrogen. Listed, unverifiable, and
+ * therefore not applied: the alternative is an exclusion that never expires
+ * because nothing can ever tell it to.
+ */
 function knownBugs(graph) {
   let out = buggyCache.get(graph);
   if (out) return out;
-  out = new Set();
+  out = { live: new Set(), unproven: [] };
   for (const bug of KNOWN_BUGS) {
     const a = graph.byId.get(bug.drop);
     const b = graph.byId.get(bug.with);
-    if (mintsElement(graph, a, b, bug.mints)) out.add(bug.drop);
+    if (!a || !b) { out.unproven.push({ ...bug, why: 'no such process' }); continue; }
+    if (mintsElement(graph, a, b, bug.mints)) out.live.add(bug.drop);
+    else out.unproven.push({ ...bug, why: 'cannot count the ' + bug.mints });
   }
+  for (const id of ALWAYS_DROP) out.live.add(id);
   buggyCache.set(graph, out);
   return out;
 }
 
+/** What the gate could not judge, for a caller that wants to report it. */
+export function unprovenBugs(graph) { return knownBugs(graph).unproven; }
+
 export function subgraph(graph, spec) {
   const kinds = spec.kinds;
-  const buggy = knownBugs(graph);
+  const buggy = knownBugs(graph).live;
   const usable = (p) => kinds.has(p.kind) &&
     !buggy.has(p.id) &&
     !spec.excludeProcesses.has(p.id) &&
