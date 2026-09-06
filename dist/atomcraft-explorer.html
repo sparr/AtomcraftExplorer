@@ -4761,7 +4761,7 @@ const MAX_PIVOTS = 5000;
  * the caller is expected to fall back rather than guess -- a plan is better
  * wrong in a way somebody can see than quietly made up.
  */
-function solveLP({ vars, rows, cost, lo = new Map() }) {
+function solveLP({ vars, rows, cost, lo = new Map(), steep = false }) {
   // Shift every variable to sit at zero: x = lo + y, y >= 0. Simpler than
   // carrying bounds through the pivoting, and it costs one pass either side.
   const shift = (i) => lo.get(i) || R0;
@@ -4837,6 +4837,18 @@ function solveLP({ vars, rows, cost, lo = new Map() }) {
    * ever notice that it is the slow choice.
    */
   const run = (costOf, allowed) => {
+    /**
+     * Bland's rule cannot cycle and is very slow; Dantzig's is fast and can.
+     *
+     * Taking the first improving column is what makes this provably terminate,
+     * and it is also why one solve over two hundred and fifty materials took
+     * seven seconds -- it walks the tableau a column at a time when there is a
+     * much better one further along. So the steepest column is taken while the
+     * objective keeps moving, and the moment it stalls -- which is the only
+     * way a cycle can begin -- it falls back to Bland's and stays there.
+     */
+    let stalls = 0;
+    let last = null;
     for (let step = 0; step < MAX_PIVOTS; step++) {
       // Reduced costs, with the basis priced out.
       const dual = new Array(width).fill(R0);
@@ -4848,10 +4860,31 @@ function solveLP({ vars, rows, cost, lo = new Map() }) {
         }
         dual[j] = rsub(costOf(j), z);
       }
+      // Only worth measuring when it is steering: the caller that does not ask
+      // for the steep column takes the same pivots either way.
+      if (steep) {
+        let value = R0;
+        for (let i = 0; i < table.length; i++) {
+          const cb = costOf(basis[i]);
+          if (!rzero(cb)) value = radd(value, rmul(cb, table[i][width]));
+        }
+        if (last !== null && rcmp(value, last) >= 0) stalls++; else stalls = 0;
+        last = value;
+      }
+
       let enter = -1;
-      for (let j = 0; j < width; j++) {
-        if (!allowed(j)) continue;
-        if (rcmp(dual[j], R0) < 0) { enter = j; break; }
+      if (stalls >= 8 || !steep) {
+        for (let j = 0; j < width; j++) {
+          if (!allowed(j)) continue;
+          if (rcmp(dual[j], R0) < 0) { enter = j; break; }
+        }
+      } else {
+        let best = null;
+        for (let j = 0; j < width; j++) {
+          if (!allowed(j)) continue;
+          if (rcmp(dual[j], R0) >= 0) continue;
+          if (best === null || rcmp(dual[j], best) < 0) { best = dual[j]; enter = j; }
+        }
       }
       if (enter < 0) return true;
 
