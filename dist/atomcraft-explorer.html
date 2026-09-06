@@ -6529,6 +6529,21 @@ function solvePlan(graph, rawSpec, depth = 0) {
       if (rzero(trial.runsOf(p.id))) continue;
 
       /**
+       * And it has to be a plan that keeps running.
+       *
+       * `circulates` was asked of the refinement and never of this, which held
+       * as long as this pass could not reach a plan that needed a charge --
+       * and once it could, it found one and offered it. Told to clear the
+       * Lepidolite plan's carbon monoxide and then its carbon dioxide, it came
+       * back with nothing at all on the shopping list, which was the wrong
+       * kind of too-good: eleven Carbon made against eighteen spent, and an
+       * eighteen-Carbon charge standing in for the difference. That is not a
+       * loop being seeded, it is a heap being eaten, and it runs dry on the
+       * third batch.
+       */
+      if (!circulates(trial)) continue;
+
+      /**
        * Per order filled, because the trial is not always the same size.
        *
        * The route that clears the leftover often needs whole runs of something
@@ -6609,6 +6624,20 @@ function solvePlan(graph, rawSpec, depth = 0) {
     // It has to actually run. Otherwise this is not a second reading of the
     // pin at all, it is the pin thrown away.
     if (rzero(trial.runsOf(id))) continue;
+    /**
+     * And it has to keep running, which `score` does not ask.
+     *
+     * Reading a pin as "run it on the spare" is what makes the shopping list
+     * shorter, and a shopping list of nothing is the shortest of all -- so
+     * this pass will take a plan that covers a standing demand out of a charge
+     * over one that goes and buys the stuff, because by every number `score`
+     * counts the first is better. Told to clear the Lepidolite plan's carbon
+     * monoxide and then its carbon dioxide, it swapped a sound answer that
+     * made eighteen Carbon and spent eighteen for one that made eleven, spent
+     * eighteen, and had the difference laid in once. Nothing to buy, and dry
+     * on the third batch.
+     */
+    if (!circulates(trial)) continue;
     if (!better(score(trial), score(plan))) continue;
     spec = shared;
     plan = trial;

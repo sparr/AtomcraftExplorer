@@ -95,15 +95,21 @@ export const CASES = [
     about: 'The same ore, told to make its carbon out of its own exhaust.',
     want: [
       // The plan vents carbon monoxide and buys mushrooms to make carbon, which
-      // is the same carbon twice. Told to use the one up and allowed to lay a
-      // charge in rather than build the potassium loop from fresh ore, it needs
-      // no mushrooms -- and no shopping list at all.
-      ['buys nothing, having the carbon it needs already', (p) =>
-        p.frontier.length === 0],
-      ['and no more ore per order than the plan that buys them', (p, { rnum }) =>
+      // is the same carbon twice over. Told to use the one up, it stops doing
+      // both -- the vented gas goes back in and fewer mushrooms come out of the
+      // shop, per order made.
+      //
+      // "None at all" was the first answer here and it was wrong: eleven Carbon
+      // made against eighteen spent, with an eighteen-Carbon charge covering
+      // the difference, which is a heap being eaten and not a loop turning.
+      // Hence the third check, and the invariant beneath it.
+      ['stops venting the carbon monoxide it was buying carbon to replace', (p) =>
+        !p.byproducts.some((b) => b.name === 'Carbon Monoxide')],
+      ['buys less per order than the plan that vents it', (p, { rnum }) =>
+        p.frontier.reduce((a, f) => a + rnum(f.amount), 0) /
+          (rnum(p.madeOf('Potassium')) / 2) < 5],
+      ['and no more ore per order either', (p, { rnum }) =>
         rnum(p.amountOf('Lepidolite')) / (rnum(p.madeOf('Potassium')) / 2) <= 3],
-      ['while still making what was asked for', (p, { rnum }) =>
-        p.spec.targets.every((t) => rnum(p.madeOf(t.name)) >= t.amount)],
     ],
   },
 ];
@@ -122,4 +128,14 @@ export const NEVER = [
                            p.frontier.some((f) => f.name === x.name))],
   ['and never runs a step no number of times', (p, { rzero }) =>
     p.steps.every((s) => !rzero(s.runs))],
+  /**
+   * A charge is laid in once, so it may seed a loop and may not feed a
+   * shortfall. The check above asks only that the plan makes some of what it
+   * lays in, which the Lepidolite plan did -- eleven Carbon against eighteen
+   * spent -- while quietly running dry on the third batch.
+   */
+  ['and never lets a charge stand in for what it never makes enough of',
+   (p, { rnum }) =>
+     p.priming.every((x) => rnum(p.madeOf(x.name)) >= rnum(p.amountOf(x.name)) ||
+                            p.frontier.some((f) => f.name === x.name))],
 ];
