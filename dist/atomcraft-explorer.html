@@ -6441,7 +6441,20 @@ function solvePlan(graph, rawSpec, depth = 0) {
    */
   const settled = refineRuns(graph, plan);
   if (settled) {
-    const trial = solve({ ...spec, fixedRuns: settled });
+    /**
+     * The same plan, solved again with better numbers -- and it has to be the
+     * same plan. Sent back through the feedback rounds it is not: those work
+     * out which surpluses to credit from the run counts, so different counts
+     * find a different credit set, which re-prices the routes and comes back a
+     * different plan altogether. On the Lepidolite plan it dropped the
+     * mushrooms that make the Carbon, gained a Boudouard equilibrium the
+     * program had never sized, and covered nine Carbon of standing demand with
+     * a charge -- an answer the program had not given and would not have.
+     *
+     * `plan.spec` already carries the credit set those rounds settled on, so
+     * one pass over it rebuilds the plan exactly and only the arithmetic moves.
+     */
+    const trial = solveOnce(graph, { ...plan.spec, fixedRuns: settled });
     if (trial && dominates(tally(trial), tally(plan))) {
       plan = trial;
       plan.brokenLoops = [];
