@@ -49,43 +49,9 @@ export function fetchable(graph, name, kinds) {
 /** A process's inputs: what it spends, and what it needs standing by. */
 const inputsOf = (p) => [...p.consumes, ...p.requires];
 
-/**
- * A phase change that hands back more than it was given.
- *
- * Thirty-nine of the game's nine hundred and forty-six do: heating one Heavy
- * Oil gives four Diesel Vapor, which is what cracking is, and mass is
- * conserved even though the count is not. Run one of them beside its opposite
- * and the count is all the arithmetic sees -- one Heavy Oil Vapor condenses to
- * two Heavy Oil, which evaporate to four Heavy Oil Vapor, and matter is being
- * minted. Asked for Carbon and given a free hand, the first thing the simplex
- * found was that loop: burn the oil it had just made out of nothing, and take
- * the Carbon out of the smoke.
- *
- * A solver that works backwards from what it needs never goes looking for
- * this. One that minimises what it buys goes looking for exactly this. So the
- * gainful ones are set aside, and cracking routes are not available here --
- * a real limitation, and a smaller wrong answer than free matter.
- */
-const mints = (p) => p.kind === 'phase' &&
-  p.produces.reduce((a, o) => a + o.count, 0) >
-  inputsOf(p).reduce((a, i) => a + i.count, 0);
-
-/**
- * The part of the graph worth handing to the simplex.
- *
- * Two thousand three hundred processes over eighteen hundred materials is far
- * past what an exact rational tableau will pivot in a hurry, so the question
- * has to be made smaller before it is asked. This walks back from what was
- * asked for and forward from what the reader has, and stops at anything the
- * world hands over.
- *
- * It is a restriction on the search and not a ranking of plans: everything it
- * keeps competes on equal terms, and the only judgement in here is how many
- * ways of making one material are worth carrying at once.
- */
 export function subgraph(graph, spec) {
   const kinds = spec.kinds;
-  const usable = (p) => kinds.has(p.kind) && !mints(p) &&
+  const usable = (p) => kinds.has(p.kind) &&
     !spec.excludeProcesses.has(p.id) &&
     !inputsOf(p).some((i) => spec.excludeMaterials.has(i.name) || placed(graph, i.name)) &&
     !p.produces.some((o) => spec.excludeMaterials.has(o.name));
@@ -220,7 +186,6 @@ export function normalizeFresh(spec) {
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
-    stockFirst: spec.stockFirst ?? true,
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
     reach: spec.reach ?? FRESH_DEFAULTS.reach,
   };
@@ -312,26 +277,7 @@ export function solveFresh(graph, rawSpec) {
    * where requiring it costs nothing at the till -- a stock that cannot be
    * used without buying more is a stock the plan is right to leave alone.
    */
-  const eats = (name) => {
-    const coeffs = new Map();
-    for (const p of procs) {
-      const c = inputsOf(p).find((i) => i.name === name);
-      if (c) coeffs.set(index.get(p.id), rat(c.count));
-    }
-    return coeffs.size ? { coeffs, op: '>=', rhs: rat(1) } : null;
-  };
   const demands = [];
-  for (const name of spec.have) {
-    const row = eats(name);
-    if (!row) continue;
-    const trial = attempt(new Set(), [...demands, row]);
-    if (!trial) continue;
-    // `stockFirst` is the whole question: does spending what you were given
-    // outrank buying less, or only break ties beneath it? Beneath it, the
-    // Carbon plan buys a chicken rather than touch the carbon dioxide, because
-    // one chicken really is fewer things than the ore the other route needs.
-    if (spec.stockFirst || rcmp(trial.total, base.total) <= 0) { demands.push(row); base = trial; }
-  }
 
   /**
    * Fewest real steps, with the shopping list held where it was.
