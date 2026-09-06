@@ -60,7 +60,33 @@ export const SOURCES = ['world', 'weather', 'air', 'farm', 'made'];
  * pixels. Until it does, these are lists, and they are lists Sparr will want
  * to correct.
  */
-const WEATHER = new Set(['Water', 'Falling Snow', 'Snow', 'Seawater', 'Andesitic Lava']);
+const WEATHER_SEEDS = ['Water', 'Falling Snow', 'Snow', 'Seawater', 'Andesitic Lava'];
+
+/**
+ * And whatever those are when they are hotter or colder.
+ *
+ * If the sky keeps handing you water then it keeps handing you ice and steam,
+ * which are the same substance at a different temperature; the same goes for
+ * andesitic lava and the andesite it sets into. Naming only the seeds and
+ * following the phase links from them means the list stays short and stays
+ * right when it is corrected.
+ */
+const weatherCache = new WeakMap();
+function weatherSet(graph) {
+  let out = weatherCache.get(graph);
+  if (out) return out;
+  out = new Set();
+  const walk = (name) => {
+    if (!name || out.has(name)) return;
+    out.add(name);
+    const raw = graph.db.byName.get(name)?.raw;
+    walk(raw?.Evaporation?.TargetMaterialName);
+    walk(raw?.Condensation?.TargetMaterialName);
+  };
+  for (const seed of WEATHER_SEEDS) walk(seed);
+  weatherCache.set(graph, out);
+  return out;
+}
 const FROM_AIR = new Set(['Breathable Air', 'Nitrogen', 'Oxygen', 'Hydrogen',
                           'Radon', 'Neon (Fading)', 'Neon (Glowing)']);
 
@@ -76,7 +102,7 @@ const FROM_AIR = new Set(['Breathable Air', 'Nitrogen', 'Oxygen', 'Hydrogen',
  * filing is wrong about the only thing that matters here.
  */
 export function sourceOf(graph, name, seen = new Set()) {
-  if (WEATHER.has(name) || graph.fallsFromSky(name)) return 'weather';
+  if (weatherSet(graph).has(name) || graph.fallsFromSky(name)) return 'weather';
   if (FROM_AIR.has(name)) return 'air';
 
   // What a thing *is* settles it when the thing is alive. A Fallen Leaf is
@@ -114,9 +140,64 @@ const placed = (graph, name) =>
  * a recipe is meant to be made. Without it "fetch as little as possible" has a
  * silly answer -- fetch the two Molten Aluminum and skip the smelting.
  */
-export function fetchable(graph, name, kinds, sources = null) {
+/**
+ * Never buy the answer, nor anything the answer is hiding inside.
+ *
+ * Sparr: never fetch something whose composition is a superset of a target.
+ * Asked for Niobium, a plan may not go and get Niobium Pentoxide and call the
+ * reduction a factory -- and the same for the metal itself, which is the
+ * degenerate case the rest of this was tripping over. It is the one thing the
+ * source categories cannot say, because "you are meant to make this" and "this
+ * is the thing you asked me to make" are both `made`.
+ */
+function holdsATarget(graph, name, targets) {
+  if (!targets || !targets.length) return false;
+  const has = composition(graph).get(name)?.elements;
+  if (!has) return false;
+  for (const wanted of targets) {
+    let all = true;
+    for (const el of wanted) if (!has.has(el)) { all = false; break; }
+    if (all) return true;
+  }
+  return false;
+}
+
+/**
+ * Nor anything you could have got out of what you already have.
+ *
+ * Sparr, tentatively: never fetch something whose composition is a subset of
+ * an input. Holding Lepidolite is holding potassium, lithium, aluminium,
+ * silicon, oxygen, hydrogen and fluorine, so going out for water or silica is
+ * going out for something already in the yard. It does not touch a carbon
+ * source, because there is no carbon in Lepidolite -- which is the point.
+ */
+function alreadyInHand(graph, name, held) {
+  if (!held || !held.length) return false;
+  const has = composition(graph).get(name)?.elements;
+  if (!has || !has.size) return false;
+  for (const stock of held) {
+    let inside = true;
+    for (const el of has) if (!stock.has(el)) { inside = false; break; }
+    if (inside) return true;
+  }
+  return false;
+}
+
+export function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (placed(graph, name)) return false;
   if (sources && !sources.has(sourceOf(graph, name))) return false;
+
+  /**
+   * Having a recipe still disqualifies a fetch, even for the rain.
+   *
+   * It looked as though it should not: the sky hands you water whether or not
+   * you also know how to boil it, so Seawater with its seven recipes and Steam
+   * with its hundred were being refused as though they had to be manufactured.
+   * Lifting that made every plan worse at once -- free unlimited water is an
+   * invitation, and the combined factory took it, leaving one thousand seven
+   * hundred Alumina and three thousand Oxygen Gas behind. The category says
+   * where a thing comes from; it does not say the plan should reach for it.
+   */
   if (graph.fallsFromSky(name)) return true;
   if (WORLDLY.has(graph.categoryOf(name))) return true;
   if (graph.isManufactured(name)) return false;
@@ -151,10 +232,10 @@ export function subgraph(graph, spec) {
   const depth = new Map();
   for (const name of spec.have) depth.set(name, 0);
   for (const p of allowed) for (const i of inputsOf(p)) {
-    if (!depth.has(i.name) && fetchable(graph, i.name, kinds, spec.sources)) depth.set(i.name, 0);
+    if (!depth.has(i.name) && fetchable(graph, i.name, kinds, spec.sources, spec)) depth.set(i.name, 0);
   }
   for (const t of spec.targets) {
-    if (!depth.has(t.name) && fetchable(graph, t.name, kinds, spec.sources)) depth.set(t.name, 0);
+    if (!depth.has(t.name) && fetchable(graph, t.name, kinds, spec.sources, spec)) depth.set(t.name, 0);
   }
   for (let round = 0; round < spec.reach; round++) {
     let moved = false;
@@ -197,7 +278,7 @@ export function subgraph(graph, spec) {
    * equals.
    */
   const buysIn = (p) => inputsOf(p)
-    .filter((i) => !spec.have.has(i.name) && fetchable(graph, i.name, kinds, spec.sources)).length;
+    .filter((i) => !spec.have.has(i.name) && fetchable(graph, i.name, kinds, spec.sources, spec)).length;
   const cost = (p) => inputsOf(p).reduce((a, i) => Math.max(a, depth.get(i.name) ?? 99), 0);
 
   const chosen = new Map();
@@ -237,7 +318,7 @@ export function subgraph(graph, spec) {
     for (const name of front) {
       if (seenBack.has(name)) continue;
       seenBack.add(name);
-      if (spec.have.has(name) || fetchable(graph, name, kinds, spec.sources)) continue;
+      if (spec.have.has(name) || fetchable(graph, name, kinds, spec.sources, spec)) continue;
       for (const p of pick(graph.producers(name).filter(usable), d === 0)) {
         take(p);
         for (const i of inputsOf(p)) next.push(i.name);
@@ -326,7 +407,7 @@ export function subgraph(graph, spec) {
         added++;
         // What that one needs, so it can actually run.
         for (const i of inputsOf(p)) {
-          if (spec.have.has(i.name) || fetchable(graph, i.name, kinds, spec.sources)) continue;
+          if (spec.have.has(i.name) || fetchable(graph, i.name, kinds, spec.sources, spec)) continue;
           for (const q of pick(graph.producers(i.name).filter(usable), false)) take(q);
         }
       }
@@ -355,6 +436,8 @@ export function normalizeFresh(spec) {
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
     /** Which sorts of thing the reader will go and get. All of them, unless said. */
     sources: new Set(spec.sources || SOURCES),
+    /** Whether to refuse a fetch that the stock already has the elements for. */
+    thrift: spec.thrift ?? false,
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
@@ -384,10 +467,25 @@ export function normalizeFresh(spec) {
  */
 export function model(graph, spec, procs, materials) {
   const index = new Map(procs.map((p, i) => [p.id, i]));
+  /**
+   * A rule about what may be bought is not a rule about what exists.
+   *
+   * Both of these were tried inside `fetchable` and it made the Lepidolite
+   * plan impossible -- nothing could be made at all. `fetchable` is also how
+   * the candidate walk decides where a chain bottoms out, so refusing forty-
+   * three materials there did not make them unbuyable, it deleted the ground
+   * from under the routes that ended on them. Here, where the shopping list is
+   * actually decided, refusing one means only that: no column to buy it with,
+   * and the plan must make it or do without.
+   */
   const supply = new Map();
   let next = procs.length;
   for (const name of materials) {
-    if (spec.have.has(name) || fetchable(graph, name, spec.kinds, spec.sources)) supply.set(name, next++);
+    if (spec.have.has(name)) { supply.set(name, next++); continue; }
+    if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
+    if (holdsATarget(graph, name, spec.wanted)) continue;
+    if (spec.thrift && alreadyInHand(graph, name, spec.held)) continue;
+    supply.set(name, next++);
   }
   const vars = next;
   const bought = (name) => !spec.have.has(name);
@@ -536,6 +634,17 @@ function freeLunch(graph, spec, plan) {
   return null;
 }
 
+/** The element sets the two composition rules compare against. */
+function withElements(graph, spec) {
+  const table = composition(graph);
+  const setsOf = (names) => names
+    .map((n) => table.get(n)?.elements)
+    .filter((e) => e && e.size);
+  return { ...spec,
+           wanted: setsOf(spec.targets.map((t) => t.name)),
+           held: setsOf([...spec.have]) };
+}
+
 export function solveFresh(graph, rawSpec) {
   const barred = new Set(rawSpec.excludeProcesses || []);
   for (let round = 0; round < 8; round++) {
@@ -549,7 +658,7 @@ export function solveFresh(graph, rawSpec) {
 }
 
 function planOnce(graph, rawSpec) {
-  const spec = normalizeFresh(rawSpec);
+  const spec = withElements(graph, normalizeFresh(rawSpec));
   const whole = subgraph(graph, spec);
   if (!whole.processes.length) return null;
 
