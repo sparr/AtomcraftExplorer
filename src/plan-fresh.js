@@ -99,8 +99,29 @@ export function subgraph(graph, spec) {
     if (!moved) break;
   }
 
-  /** Runnable at all, and how deep a hole it is at its deepest input. */
+  /** Runnable at all: everything it eats can be got from somewhere. */
   const reachable = (p) => inputsOf(p).every((i) => depth.has(i.name));
+
+  /**
+   * How much of what it eats has to be bought.
+   *
+   * This used to rank candidates by how shallow they were -- how quickly the
+   * route bottomed out -- and that is a judgement about cost, which is the
+   * objective's business and not the walk's. Worse, it is the wrong judgement:
+   * a route that hands back what you already have is *made of* deep things, so
+   * the deeper the loop the worse it ranked. Carbon has a hundred and twenty-
+   * five producers in the Lepidolite plan; three were kept; the potassium
+   * reduction that closes the carbon loop came a hundred and seventeenth,
+   * because Molten Potassium is six deep and a chicken is lying on the ground.
+   *
+   * The priority the reader was promised is that buying anything is worse than
+   * any amount of chain. So the walk counts what a route buys, not how far it
+   * reaches: a producer that eats only things the plan can make ranks above one
+   * that eats something off the shelf, and depth is left as a tie-break among
+   * equals.
+   */
+  const buysIn = (p) => inputsOf(p)
+    .filter((i) => !spec.have.has(i.name) && fetchable(graph, i.name, kinds)).length;
   const cost = (p) => inputsOf(p).reduce((a, i) => Math.max(a, depth.get(i.name) ?? 99), 0);
 
   const chosen = new Map();
@@ -124,7 +145,8 @@ export function subgraph(graph, spec) {
   const pick = (list, whole) => {
     const live = list.filter(reachable);
     if (whole) return live;
-    return live.sort((a, b) => cost(a) - cost(b) ||
+    return live.sort((a, b) => buysIn(a) - buysIn(b) ||
+                               cost(a) - cost(b) ||
                                inputsOf(a).length - inputsOf(b).length ||
                                a.id.localeCompare(b.id))
       .slice(0, spec.ways);
@@ -166,6 +188,76 @@ export function subgraph(graph, spec) {
     front = next;
   }
 
+  /**
+   * And whatever would eat what this is about to throw away.
+   *
+   * Neither walk can find a recycling route, and no ranking rescues it. The
+   * backward walk asks what makes Carbon and gets a hundred and twenty-five
+   * answers, of which the useful one -- burn the carbon dioxide you are
+   * venting back into carbon -- is far down any ordering, because its inputs
+   * are deep by construction. The forward walk from the stock never gets there
+   * either, because the carbon dioxide is six steps downstream of the ore.
+   *
+   * So the set is asked a third question, once it exists: what does this
+   * produce that nothing here consumes, and what would consume it? Those are
+   * offered too, along with what they need. It is the only one of the three
+   * walks that is looking for a loop rather than a route, and it is the one
+   * that puts `rx:Molten Potassium + Carbon Dioxide` and `rx:Hydrogen
+   * Combustion` on the table at all.
+   */
+  const table = composition(graph);
+  for (let round = 0; round < spec.loops; round++) {
+    const made = new Set();
+    const eaten = new Set();
+    for (const p of chosen.values()) {
+      for (const o of p.produces) made.add(o.name);
+      for (const i of inputsOf(p)) eaten.add(i.name);
+    }
+    /**
+     * Everything this makes that is worth trying to use up: it carries one of
+     * the three elements the loops are built out of, and few enough things eat
+     * it that all of them can be offered without the set running away.
+     */
+    const recyclable = [...made].filter((n) => {
+      if (spec.targets.some((t) => t.name === n)) return false;
+      const els = table.get(n)?.elements;
+      if (!els || !(els.has('C') || els.has('O') || els.has('H'))) return false;
+      return graph.consumers(n).filter(usable).length <= spec.eaters;
+    });
+    /**
+     * Take every way of using it up, not the three that rank best.
+     *
+     * Ranking was the wrong tool twice over. Carbon Dioxide is not even spare
+     * -- six of its thirteen consumers were already here, freezing it into Dry
+     * Ice and dissolving it into Carbonic Acid -- so a pass that looked only at
+     * what nothing eats never considered it, and a pass that ranked its
+     * consumers put Dry Ice above the potassium reduction on the same
+     * shallow-is-better reasoning that started all this.
+     *
+     * The thing that makes it tractable is that the numbers are small at this
+     * end. Carbon Dioxide has thirteen consumers, Carbon Monoxide five, Steam
+     * ten, Oxygen Gas nine. Producers are where the count explodes -- Carbon
+     * has a hundred and fifty-three -- and this pass does not need those. So
+     * for anything the plan makes that carries carbon, oxygen or hydrogen,
+     * every way of consuming it is offered, and the simplex decides.
+     */
+    let added = 0;
+    for (const name of recyclable) {
+      const eaters = graph.consumers(name).filter(usable).filter(reachable);
+      for (const p of eaters) {
+        if (chosen.has(p.id)) continue;
+        take(p);
+        added++;
+        // What that one needs, so it can actually run.
+        for (const i of inputsOf(p)) {
+          if (spec.have.has(i.name) || fetchable(graph, i.name, kinds)) continue;
+          for (const q of pick(graph.producers(i.name).filter(usable), false)) take(q);
+        }
+      }
+    }
+    if (!added) break;
+  }
+
   const materials = new Set();
   for (const p of chosen.values()) {
     for (const i of inputsOf(p)) materials.add(i.name);
@@ -177,7 +269,7 @@ export function subgraph(graph, spec) {
 
 /* ----------------------------------------------------------------- the ask */
 
-export const FRESH_DEFAULTS = { ways: 3, reach: 9 };
+export const FRESH_DEFAULTS = { ways: 3, reach: 9, loops: 3, eaters: 30 };
 
 export function normalizeFresh(spec) {
   return {
@@ -188,6 +280,8 @@ export function normalizeFresh(spec) {
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
+    loops: spec.loops ?? FRESH_DEFAULTS.loops,
+    eaters: spec.eaters ?? FRESH_DEFAULTS.eaters,
     reach: spec.reach ?? FRESH_DEFAULTS.reach,
   };
 }

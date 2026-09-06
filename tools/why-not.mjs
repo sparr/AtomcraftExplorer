@@ -15,6 +15,7 @@ import { buildProcessGraph, DEFAULT_KINDS } from '../src/plan-graph.js';
 import { solveFresh, subgraph, shortlist, model, normalizeFresh, fetchable }
   from '../src/plan-fresh.js';
 import { rnum, rstr } from '../src/rational.js';
+import { composition } from '../src/composition.js';
 
 globalThis.fetch = async () => ({
   ok: true,
@@ -86,7 +87,7 @@ const WANTED = [
     edges: [...LEPIDOLITE_CHAIN, 'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
     // Nine carbon in and eight back, so one thing that is carbon per three ore,
     // and an order is three ore.
-    buys: ['Carbon', 'Bitter Oyster Spore', 'Chicken (Raw)', 'Hamburger (Raw)'],
+    buys: [], carbon: true,
     budget: 1,
     leaves: ['Steam', 'Water', 'Hydrofluoric Acid Gas', 'Hydrofluoric Acid',
              'Oxygen Gas', 'Liquid Oxygen', 'Hydrogen Gas'],
@@ -115,7 +116,7 @@ const WANTED = [
             'rx:Chlorine Gas + Hydrogen Gas',
             'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
     // Six Lepidolite to a Columbite, and two carbon. Nothing else at all.
-    buys: ['Carbon', 'Bitter Oyster Spore', 'Chicken (Raw)', 'Hamburger (Raw)'],
+    buys: [], carbon: true,
     budget: 2,
     leaves: ['Iron(II) Fluoride', 'Potassium Fluoride', 'Hydrofluoric Acid Gas',
              'Hydrofluoric Acid', 'Water', 'Steam', 'Oxygen Gas', 'Liquid Oxygen'],
@@ -123,6 +124,18 @@ const WANTED = [
 ];
 
 const graph = buildProcessGraph(await loadData());
+
+/**
+ * "One thing that is carbon" is a shape, not a list.
+ *
+ * The ideal says a Lepidolite order is one carbon short and buys one thing to
+ * cover it. Which thing is not the point -- a spore, a chicken, a fallen leaf,
+ * a cut of grass are all the same answer -- so the check asks whether what was
+ * bought carries carbon, rather than naming the four I happened to think of.
+ */
+const table = composition(graph);
+const carbonish = (name) => table.get(name)?.elements?.has('C') ?? false;
+const allowed = (c, name) => c.buys.includes(name) || (c.carbon && carbonish(name));
 const only = process.argv[2];
 
 for (const c of WANTED) {
@@ -145,11 +158,11 @@ for (const c of WANTED) {
     // Per order, since a plan may fill the order several times over.
     const orders = Math.min(...c.targets.map((t) => rnum(plan.madeOf(t.name)) / t.amount));
     const bought = plan.frontier.reduce((a, f) => a + rnum(f.amount), 0);
-    const stray = plan.frontier.filter((f) => !c.buys.includes(f.name));
+    const stray = plan.frontier.filter((f) => !allowed(c, f.name));
     console.log(`      fills the order ${orders}x | shopping list: ` +
       (plan.frontier.map((f) => `${f.name}×${rstr(f.amount)}`).join(', ') || 'nothing'));
     console.log(`      ideal buys ${c.budget} per order` +
-      (c.buys.length ? ` of: ${c.buys.join(', ')}` : ', of nothing at all') +
+      (c.buys.length ? ` of: ${c.buys.join(', ')}` : c.carbon ? ' of anything that is carbon' : ', of nothing at all') +
       ` -- this buys ${(bought / (orders || 1)).toFixed(2)}`);
     /**
      * What it throws away, which the shopping list does not catch.
