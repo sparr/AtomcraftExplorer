@@ -158,24 +158,25 @@ export function sourceOf(graph, name, seen = new Set()) {
   }
 
   /**
-   * Follow the mine only when digging is the whole story.
+   * Follow the mine backward, even where that is arguably too eager.
    *
-   * Lepidolite comes out of a Lepidolite Deposit and nowhere else, so where it
-   * was dug from settles what it is. Carbon does not: it is filed as an
-   * element, it is made by half the reactions in the game, and it also happens
-   * to be minable off a Mite. Following that made elemental carbon a farm
-   * product, which put it behind the switch that turns growing things off, and
-   * the Lepidolite plan had to buy Limestone because plain carbon was
-   * unavailable to it.
+   * Carbon is filed as an element, made by half the reactions in the game, and
+   * also minable off a Mite -- so following the mine makes elemental carbon a
+   * farm product, which is wrong. Narrowing the rule to materials whose every
+   * route is a mine or a phase change fixes the label and moves a few hundred
+   * materials from `farm` to `made`, and any plan permitted to buy
+   * manufactured goods then has eight hundred and sixty-one columns to
+   * consider instead of six hundred. The doubles cannot settle that, the
+   * fallback cannot grind it, and the combined factory went from a plan in
+   * under a second to no plan at all.
    *
-   * So a material that any reaction can make is not defined by where somebody
-   * dug some of it. Only things whose every route is a mine or a phase change
-   * take their origin from what they were dug out of.
+   * It also changed nothing that anyone would see: carbon is behind a switch
+   * either way, off as a farm product and off as a manufactured one, and the
+   * Lepidolite plan buys Limestone in both worlds. A better label for a worse
+   * planner is a bad trade, so the eager rule stays until the float pass can
+   * carry the wider question.
    */
-  const dugOnly = graph.producers(name)
-    .every((p) => p.kind === 'mine' || p.kind === 'phase');
-
-  if (dugOnly && !seen.has(name)) {
+  if (!seen.has(name)) {
     seen.add(name);
     for (const p of graph.producers(name)) {
       if (p.kind !== 'mine') continue;
@@ -770,10 +771,27 @@ export function model(graph, spec, procs, materials) {
    * actually decided, refusing one means only that: no column to buy it with,
    * and the plan must make it or do without.
    */
+  /**
+   * Only things something here would actually eat.
+   *
+   * A column to buy a material nothing in the plan consumes can never be worth
+   * using -- it would buy the stuff and set it down. Most of the candidate
+   * set's materials are like that: they are outputs, and they appear only
+   * because some step makes them.
+   *
+   * It matters because a plan permitted to buy manufactured goods was opening
+   * a column for nearly three hundred of them, which is most of a thousand-
+   * variable model, and the exact solver at the end of the pipeline cannot
+   * carry that. The combined factory went from two seconds to not finishing.
+   */
+  const eaten = new Set();
+  for (const p of procs) for (const i of inputsOf(p)) eaten.add(i.name);
+
   const supply = new Map();
   let next = procs.length;
   for (const name of materials) {
     if (spec.have.has(name)) { supply.set(name, next++); continue; }
+    if (!eaten.has(name)) continue;
     if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
     if (holdsATarget(graph, name, spec.wanted)) continue;
     if (alreadyInHand(graph, name, spec.held)) continue;
@@ -1186,6 +1204,22 @@ function planOnce(graph, rawSpec) {
 
   const build = (procs, materials) => model(graph, spec, procs, materials);
   const narrow = shortlist(graph, spec, whole, build);
+
+  /**
+   * Falling back to the whole candidate set is fine, until it is not.
+   *
+   * When the doubles cannot settle, the exact solver is asked about everything
+   * instead -- slow and right, which is the trade this pipeline is built on.
+   * It stops being a trade somewhere past a few hundred variables: the
+   * combined factory's model is eight hundred and sixty-one, and asking
+   * exactly about that does not finish in any time worth waiting.
+   *
+   * So the fallback has a ceiling. Past it, no plan and a reason, rather than
+   * a solver that appears to be thinking.
+   */
+  const TOO_BIG_TO_GRIND = 400;
+  if (!narrow && whole.processes.length > TOO_BIG_TO_GRIND) return null;
+
   const sub = narrow || whole;
   const procs = sub.processes;
   if (!procs.length) return null;

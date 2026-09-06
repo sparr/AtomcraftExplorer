@@ -132,11 +132,27 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget) {
       const at = r * stride;
       for (let j = 0; j < width; j++) dual[j] -= f * table[at + j];
     };
+    /**
+     * A column with nowhere to pivot is not a verdict on the problem.
+     *
+     * The ratio test finds no row to leave when the entering column has no
+     * positive entry, and calling that unboundedness is wrong in phase one,
+     * where the objective is a sum of artificials and cannot run away
+     * downwards. It only means this column cannot come in just now. Reported
+     * as failure it sank the combined factory's model -- eight hundred and
+     * sixty-one columns, both walks giving up inside a fifth of a second, and
+     * the caller falling back to an exact solve that never finished.
+     *
+     * Set aside and try the next one. The set clears after any successful
+     * pivot, because whether a column can be pivoted on is a fact about the
+     * tableau and the tableau has just moved.
+     */
+    const dead = new Set();
     for (let step = 0; step < budget; step++) {
       let enter = -1;
       let best = -EPS;
       for (let j = 0; j < width; j++) {
-        if (!allowed(j)) continue;
+        if (!allowed(j) || dead.has(j)) continue;
         if (dual[j] < best) { best = dual[j]; enter = j; }
       }
       if (enter < 0) return true;
@@ -180,9 +196,10 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget) {
        * a verdict, so when it gives up the caller falls back to asking the
        * exact solver about everything -- slow, and right.
        */
-      if (leave < 0) return false;
+      if (leave < 0) { dead.add(enter); continue; }
       pivot(leave, enter);
       carry(leave, enter);
+      if (dead.size) dead.clear();
     }
     return false;
   };
