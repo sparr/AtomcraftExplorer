@@ -760,8 +760,13 @@ export function model(graph, spec, procs, materials) {
     if (!constrained.has(t.name) && !spec.have.has(t.name)) return null;
   }
 
+  const prices = fetchPrices(graph, spec.kinds);
   const fetchCost = new Map();
-  for (const [name, i] of supply) if (bought(name)) fetchCost.set(i, rat(1));
+  for (const [name, i] of supply) {
+    if (!bought(name)) continue;
+    const each = prices.get(name) ?? 1;
+    fetchCost.set(i, rat(Math.round(each * 64), 64n));
+  }
   return { index, supply, vars, rows, fetchCost, bought };
 }
 
@@ -920,6 +925,93 @@ function freeLunch(graph, spec, plan) {
     if (blame) return blame;
   }
   return null;
+}
+
+/**
+ * What a fetch really costs, in things the world actually hands over.
+ *
+ * Sparr: every way to make Silicon Tetrafluoride takes four Hydrofluoric Acid,
+ * so buying one is buying four and doing a step, and the shopping list that
+ * called it one unit was flattering it fourfold. The only way to Aqueous
+ * Potash is Water and Potash together, so buying it is buying both and is
+ * slightly worse than buying them, not better.
+ *
+ * So a material the world gives you -- mined, weather, air, grown -- is worth
+ * one, because that is what going and getting it costs. Anything else is
+ * priced at what its cheapest recipe would have cost you, plus a little for
+ * the step, and that is what the shopping list counts.
+ *
+ * Worked out once per graph by walking down from each material to the things
+ * that are simply had. A recipe that leads back to itself is no help pricing
+ * itself, so a cycle prices as unreachable and some other route is taken.
+ */
+const STEP_PRICE = 1 / 64;
+
+const priceCache = new WeakMap();
+export function fetchPrices(graph, kinds) {
+  let table = priceCache.get(graph);
+  if (table) return table;
+  table = new Map();
+  const busy = new Set();
+
+  /**
+   * What every route to it must spend, and nothing more.
+   *
+   * Sparr: only where every way of making the thing has something in common.
+   * Where there are several routes with nothing shared between them, that
+   * choice is worth having and this should keep out of it -- a material with
+   * options is genuinely easier to come by than one with a single recipe, and
+   * pricing it as though it were the cheapest of them would be pretending to
+   * know which the reader will use.
+   *
+   * So: the common inputs, at the smallest count any route needs, plus a
+   * little for the step. Silicon Tetrafluoride is made four ways and all four
+   * want four Hydrofluoric Acid, so it costs four of them and a step, and the
+   * shopping list stops flattering it. Aqueous Potash has one recipe -- Water
+   * and Potash -- so it costs both, which is slightly worse than buying the
+   * two, and it should be.
+   */
+  const price = (name) => {
+    if (table.has(name)) return table.get(name);
+    if (busy.has(name)) return Infinity;
+    if (sourceOf(graph, name) !== 'made') { table.set(name, 1); return 1; }
+
+    const makers = graph.producers(name).filter((p) => kinds.has(p.kind));
+    if (!makers.length) { table.set(name, 1); return 1; }
+
+    // Only what appears in every one of them, at the least any of them needs.
+    const shared = new Map();
+    for (const i of inputsOf(makers[0])) {
+      const out = makers[0].produces.find((o) => o.name === name)?.count || 1;
+      shared.set(i.name, i.count / out);
+    }
+    for (const p of makers.slice(1)) {
+      const out = p.produces.find((o) => o.name === name)?.count || 1;
+      const here = new Map(inputsOf(p).map((i) => [i.name, i.count / out]));
+      for (const [n, per] of [...shared]) {
+        if (!here.has(n)) shared.delete(n);
+        else shared.set(n, Math.min(per, here.get(n)));
+      }
+    }
+    if (!shared.size) { table.set(name, 1); return 1; }
+
+    busy.add(name);
+    let sum = STEP_PRICE;
+    for (const [n, per] of shared) {
+      const each = price(n);
+      if (!Number.isFinite(each)) { sum = Infinity; break; }
+      sum += each * per;
+    }
+    busy.delete(name);
+
+    const answer = Number.isFinite(sum) ? Math.max(sum, 1) : 1;
+    table.set(name, answer);
+    return answer;
+  };
+
+  for (const m of graph.db.materials) price(m.name);
+  priceCache.set(graph, table);
+  return table;
 }
 
 /** The element sets the two composition rules compare against. */
