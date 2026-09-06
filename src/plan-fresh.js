@@ -19,6 +19,7 @@
 import { DEFAULT_KINDS } from './plan-graph.js';
 import { composition, elementsOf } from './composition.js';
 import { solveLP } from './simplex.js';
+import { solveLPFloat } from './simplex-float.js';
 import { rat, R0, radd, rsub, rmul, rdiv, rcmp, rnum, rzero, rstr, lcm }
   from './rational.js';
 
@@ -200,27 +201,26 @@ export function normalizeFresh(spec) {
  * talk the shopping list back up -- which is what "if possible, with no fetch"
  * means when it is written down rather than weighted.
  */
-export function solveFresh(graph, rawSpec) {
-  const spec = normalizeFresh(rawSpec);
-  const sub = subgraph(graph, spec);
-  const procs = sub.processes;
-  if (!procs.length) return null;
-
+/**
+ * Supply against demand, one row a material, one column a step.
+ *
+ * Every material carries `made + supplied >= used + asked for`. A supply
+ * column exists only where the world will hand the stuff over or the reader
+ * said they have it; held stock costs nothing and there is as much of it as
+ * you like, and everything else costs one a unit, which is the whole of what
+ * "fetch total" means.
+ */
+function model(graph, spec, procs, materials) {
   const index = new Map(procs.map((p, i) => [p.id, i]));
-  const P = procs.length;
-
-  // One supply variable per material the world will hand over, and one per
-  // material the reader says they have. What is held costs nothing; what is
-  // bought costs one a unit, which is what "fetch total" counts.
   const supply = new Map();
-  let next = P;
-  for (const name of sub.materials) {
+  let next = procs.length;
+  for (const name of materials) {
     if (spec.have.has(name) || fetchable(graph, name, spec.kinds)) supply.set(name, next++);
   }
   const vars = next;
   const bought = (name) => !spec.have.has(name);
 
-  const net = new Map();               // material -> Map(var -> rational)
+  const net = new Map();
   const put = (name, i, v) => {
     let row = net.get(name);
     if (!row) net.set(name, (row = new Map()));
@@ -235,7 +235,7 @@ export function solveFresh(graph, rawSpec) {
 
   const demand = new Map(spec.targets.map((t) => [t.name, rat(t.amount)]));
   const rows = [];
-  for (const name of sub.materials) {
+  for (const name of materials) {
     const coeffs = net.get(name);
     if (!coeffs || !coeffs.size) continue;
     rows.push({ coeffs, op: '>=', rhs: demand.get(name) || R0 });
@@ -244,6 +244,58 @@ export function solveFresh(graph, rawSpec) {
 
   const fetchCost = new Map();
   for (const [name, i] of supply) if (bought(name)) fetchCost.set(i, rat(1));
+  return { index, supply, vars, rows, fetchCost, bought };
+}
+
+/**
+ * Which of the candidates a good answer actually uses.
+ *
+ * The exact tableau cannot be asked this: four hundred processes over three
+ * hundred materials is minutes a solve, and the step-elimination wants one
+ * solve per step it tries to drop. So the same question is put in doubles,
+ * which answers in well under a second, and all that is kept is the list of
+ * processes that came out non-zero -- usually twenty or thirty. Every number
+ * the reader is shown is then worked out exactly over that shortlist.
+ *
+ * A shortlist that is slightly wrong costs a slightly worse plan. It cannot
+ * cost a wrong quantity, because no quantity from here survives.
+ */
+function shortlist(graph, spec, sub, build) {
+  const model = build(sub.processes, sub.materials);
+  if (!model) return null;
+  const rows = model.rows.map((row) => ({
+    coeffs: new Map([...row.coeffs].map(([i, a]) => [i, rnum(a)])),
+    op: row.op,
+    rhs: rnum(row.rhs),
+  }));
+  const cost = new Map([...model.fetchCost].map(([i, a]) => [i, rnum(a)]));
+  const answer = solveLPFloat({ vars: model.vars, rows, cost });
+  if (!answer.ok) return null;
+  const keep = sub.processes.filter((p) => answer.x[model.index.get(p.id)] > 0);
+  if (!keep.length) return null;
+  const materials = new Set();
+  for (const p of keep) {
+    for (const i of inputsOf(p)) materials.add(i.name);
+    for (const o of p.produces) materials.add(o.name);
+  }
+  for (const t of spec.targets) materials.add(t.name);
+  return { processes: keep, materials };
+}
+
+export function solveFresh(graph, rawSpec) {
+  const spec = normalizeFresh(rawSpec);
+  const whole = subgraph(graph, spec);
+  if (!whole.processes.length) return null;
+
+  const build = (procs, materials) => model(graph, spec, procs, materials);
+  const narrow = shortlist(graph, spec, whole, build);
+  const sub = narrow || whole;
+  const procs = sub.processes;
+  if (!procs.length) return null;
+
+  const built = model(graph, spec, procs, sub.materials);
+  if (!built) return null;
+  const { index, supply, vars, rows, fetchCost, bought } = built;
 
   /** Run the whole thing with some processes forbidden, and say what it cost. */
   const attempt = (banned, extra = []) => {
