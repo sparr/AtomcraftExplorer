@@ -267,8 +267,20 @@ function materialProcesses(db) {
         id: `${heating ? 'evap' : 'cond'}:${m.name}`,
         kind: 'phase',
         label: `${m.label} ${verb} ${lbl(t.TargetMaterialName)}`,
-        inputs: self(),
-        outputs: one(t.TargetMaterialName, t.Amount || 1),
+        /**
+         * `Amount` counts the vapor either way round.
+         *
+         * On an Evaporation it is how many you get: one Heavy Oil boils into
+         * two Heavy Oil Vapor. On a Condensation it is how many it *takes*:
+         * two Heavy Oil Vapor settle back into one Heavy Oil. The same number,
+         * opposite ends of the arrow, which is why every pair carries the same
+         * one -- and why reading them alike is not a rounding error but a
+         * machine for making matter. Taken as written the round trip turned
+         * one vapor into two liquid into four vapor, and a planner asked to
+         * buy as little as possible finds that before it finds anything else.
+         */
+        inputs: heating ? self() : one(m.name, t.Amount || 1),
+        outputs: one(t.TargetMaterialName, heating ? (t.Amount || 1) : 1),
         requires: [],
         // Which side of the number you have to be on depends on the
         // direction. Evaporation needs the tile at least that hot;
@@ -507,8 +519,10 @@ function phaseChains(db) {
           id: `chain:${heating ? 'heat' : 'cool'}:${start.name}#${hops.length}`,
           kind: 'phase',
           label: `${start.label} ${said} into ${lbl(last.name)}`,
-          inputs: [{ name: start.name, count: 1 }],
-          outputs: [{ name: last.name, count: amount }],
+          // Same the whole way down a chain: heating multiplies what comes
+          // out, cooling multiplies what has to go in.
+          inputs: [{ name: start.name, count: heating ? 1 : amount }],
+          outputs: [{ name: last.name, count: heating ? amount : 1 }],
           requires: [],
           conditions: {
             ...(heating ? { temperature: Math.max(...limit) }
