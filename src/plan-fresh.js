@@ -138,11 +138,30 @@ export function subgraph(graph, spec) {
 
   const chosen = new Map();
   const take = (p) => { if (!chosen.has(p.id)) chosen.set(p.id, p); };
-  const pick = (list) => list.filter(reachable)
-    .sort((a, b) => cost(a) - cost(b) ||
-                    inputsOf(a).length - inputsOf(b).length ||
-                    a.id.localeCompare(b.id))
-    .slice(0, spec.ways);
+  /**
+   * Keeping the ways that bottom out soonest is how the deep route gets lost.
+   *
+   * Asked for Carbon by somebody holding Carbon Dioxide, this kept a chicken,
+   * a hamburger and a mushroom spore -- all one step from something lying
+   * about outside -- and dropped the potassium reduction, which is six steps
+   * deep and the only thing in the game that turns their carbon dioxide into
+   * carbon. Then it reported that buying a chicken was cheaper than using the
+   * stock, which was true of what it had been given and false of the game.
+   *
+   * Ranking candidates by how shallow they are is the old planner's bias
+   * wearing a different hat, and it is worst exactly where an all-at-once
+   * solver was supposed to help. So the first ring is taken whole -- every way
+   * of making what was asked for, every way of spending what the reader has --
+   * and the cap applies only further out, where the count really does explode.
+   */
+  const pick = (list, whole) => {
+    const live = list.filter(reachable);
+    if (whole) return live;
+    return live.sort((a, b) => cost(a) - cost(b) ||
+                               inputsOf(a).length - inputsOf(b).length ||
+                               a.id.localeCompare(b.id))
+      .slice(0, spec.ways);
+  };
 
   // Backward: what makes the thing, and what makes that -- shallowest first,
   // so the ways kept are the ones that bottom out soonest.
@@ -154,7 +173,7 @@ export function subgraph(graph, spec) {
       if (seenBack.has(name)) continue;
       seenBack.add(name);
       if (spec.have.has(name) || fetchable(graph, name, kinds)) continue;
-      for (const p of pick(graph.producers(name).filter(usable))) {
+      for (const p of pick(graph.producers(name).filter(usable), d === 0)) {
         take(p);
         for (const i of inputsOf(p)) next.push(i.name);
       }
@@ -172,7 +191,7 @@ export function subgraph(graph, spec) {
     for (const name of front) {
       if (seenFwd.has(name)) continue;
       seenFwd.add(name);
-      for (const p of pick(graph.consumers(name).filter(usable))) {
+      for (const p of pick(graph.consumers(name).filter(usable), d === 0)) {
         take(p);
         for (const o of p.produces) next.push(o.name);
       }
@@ -201,6 +220,7 @@ export function normalizeFresh(spec) {
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
+    stockFirst: spec.stockFirst ?? true,
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
     reach: spec.reach ?? FRESH_DEFAULTS.reach,
   };
@@ -305,7 +325,12 @@ export function solveFresh(graph, rawSpec) {
     const row = eats(name);
     if (!row) continue;
     const trial = attempt(new Set(), [...demands, row]);
-    if (trial && rcmp(trial.total, base.total) <= 0) { demands.push(row); base = trial; }
+    if (!trial) continue;
+    // `stockFirst` is the whole question: does spending what you were given
+    // outrank buying less, or only break ties beneath it? Beneath it, the
+    // Carbon plan buys a chicken rather than touch the carbon dioxide, because
+    // one chicken really is fewer things than the ore the other route needs.
+    if (spec.stockFirst || rcmp(trial.total, base.total) <= 0) { demands.push(row); base = trial; }
   }
 
   /**
