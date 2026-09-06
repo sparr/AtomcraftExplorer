@@ -200,6 +200,22 @@ export function fetchable(graph, name, kinds, sources = null, spec = null) {
    * more steps or a poorer ratio. If a plan still reaches for the tap when the
    * shopping list is the first thing counted, the fault is in the counting.
    */
+  /**
+   * The sky does not care whether you can also boil water.
+   *
+   * Having a recipe is what usually disqualifies a fetch -- a thing you can
+   * make is a thing you are meant to make -- and that reasoning does not reach
+   * the rain, or seawater off a source pixel, or nitrogen out of a cold box.
+   * Seawater has seven recipes and Steam more than a hundred, and both were
+   * being refused as though the weather had to be built.
+   *
+   * Sparr: all nine belong in the infinitely fetchable set, even though some
+   * of them can also be made. Being freely available is not the same as being
+   * free -- the priorities count every unit bought, so a plan reaching for the
+   * tap loses on the first question asked, which is where it should lose.
+   */
+  const from = sourceOf(graph, name);
+  if (from === 'weather' || from === 'air') return true;
   if (graph.fallsFromSky(name)) return true;
   if (WORLDLY.has(graph.categoryOf(name))) return true;
   if (graph.isManufactured(name)) return false;
@@ -647,11 +663,31 @@ function withElements(graph, spec) {
            held: setsOf([...spec.have]) };
 }
 
+/**
+ * Does it actually make the things it was asked for.
+ *
+ * It should not be possible to fail this: every target carries a row saying
+ * its net production is at least the demand, and the solver reports whether it
+ * satisfied its rows. It failed anyway -- asked for two Potassium among four
+ * metals the answer came back with none at all, ninety-four runs of the
+ * aluminium branch, fifty-two Aluminum against the four wanted, and not one
+ * step that makes potassium. The row was there, the producers were in the
+ * candidate set, and the solve said yes.
+ *
+ * So the answer is read back rather than trusted. A plan that does not deliver
+ * is not a worse plan, it is not a plan, and the caller is told so plainly
+ * instead of being handed a shopping list for a factory that makes nothing.
+ */
+function delivers(plan) {
+  return plan.spec.targets.every((t) => rcmp(plan.madeOf(t.name), rat(t.amount)) >= 0);
+}
+
 export function solveFresh(graph, rawSpec) {
   const barred = new Set(rawSpec.excludeProcesses || []);
   for (let round = 0; round < 8; round++) {
     const plan = planOnce(graph, { ...rawSpec, excludeProcesses: [...barred] });
     if (!plan) return null;
+    if (!delivers(plan)) return null;
     const cheat = freeLunch(graph, normalizeFresh(rawSpec), plan);
     if (!cheat) return plan;
     barred.add(cheat);
