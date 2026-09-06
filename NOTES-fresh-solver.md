@@ -18,12 +18,30 @@ more, and keep it out if so.
 
 ## What it does today
 
-| case | result |
-|---|---|
-| `co-to-carbon` | **solved, 0.8s.** One step, two Carbon Monoxide in, one Carbon and one Carbon Dioxide out, nothing fetched. |
-| `co2-to-carbon` | solved, 5s, **wrong**: fetches one Chicken (Raw) and cooks it. |
-| `columbite` | one LP solve takes 5s; the full solve does not finish usefully. |
-| `lepidolite` | one LP solve takes 14s; same. |
+Every quantity below is exact. The float pass only decides *which* steps are
+on the table.
+
+| case | time | result |
+|---|---|---|
+| `columbite` | 0.7s | **all seven checks met** — six Tantalum and six Niobium one for one out of three Columbite, nothing holding either metal thrown away |
+| `co2-to-carbon` | 0.7s | **nothing fetched**, four Carbon out of four Carbon Dioxide. The one miss is that the oxygen comes back as Liquid Oxygen where the check names Oxygen Gas |
+| `lepidolite` | 2.1s | solves, four of six checks. Fetches Chicken (Raw) and Aqueous Sodium Aluminate, and spends seventeen ore |
+| `co-to-carbon` | — | float pass fails both walks, falls back to the exact solver, does not finish |
+| `lepidolite-exhaust` | — | not attempted: this solver has no notion of "get rid of it" |
+
+Two of those misses are worth reading before believing:
+
+- **`balances to 2/2/2/3`** is not really tested. The harness asks for one of
+  each, because balancing lives in `plan-state` and is not wired to this
+  solver, so the plan makes 4/4/4/4 and the check fails on a question it was
+  never asked.
+- **Liquid Oxygen against Oxygen Gas** is the same oxygen at a different
+  temperature. Met in spirit, missed as written.
+
+The rest are real. The Lepidolite plan spends seventeen ore where the old
+planner spends three, and buys chickens, and leaves a heap. That is the trade
+working exactly as specified: any amount of free stock beats a single unit
+bought.
 
 ## What the two priorities do not say
 
@@ -56,22 +74,17 @@ Asking for one can make four.
 
 ## What is in the way
 
-Speed, and it is structural rather than a matter of tuning. The subgraph handed
-to the simplex is 250-430 variables over 190-250 materials, and one exact
-rational solve of that is 5-14 seconds; the step-elimination pass needs one per
-step it tries to remove. Switching the entering-variable rule from Bland's to
-the steepest column (`steep: true`, opt-in, off for the existing solver) took
-columbite from 6.9s to 5.1s -- the cost is per-pivot BigInt arithmetic over a
-dense tableau, not the number of pivots.
+**One case still cannot be planned.** `co-to-carbon` has a 465-process
+candidate set and the float pass fails both phase-one walks on it, so it falls
+back to the exact solver and does not finish. Every other case now shortlists
+in tens of milliseconds. This is a bug in the float pass, not a limit of the
+approach — the same problem is answered by the exact solver, slowly.
 
-Making this viable needs one of:
+**Leftovers.** Free unlimited stock means the plan will pour ore through a
+wasteful route rather than buy one cheap thing. Lepidolite spends seventeen ore
+and leaves seventeen Hydrofluoric Acid Gas, thirteen Glass and fourteen Aqueous
+Potassium Hydroxide behind. Sparr flagged this as the thing to revisit if it
+got silly. It has got fairly silly.
 
-- a sparse or revised simplex rather than a dense tableau;
-- floating point for the search with exact arithmetic only to verify and repair
-  the answer;
-- a much smaller subgraph, which trades away the alternatives that made an
-  all-at-once solver worth building.
-
-The third is the cheapest and the least interesting: narrowing the candidate
-set until the LP is fast is a way of going back to choosing the route in
-advance, which is what this was meant to stop doing.
+**No `consume`, no balancing, no charges.** Three of the reader's controls have
+no counterpart here yet, and the fifth canonical case needs the first of them.
