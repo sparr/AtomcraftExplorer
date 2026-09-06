@@ -86,6 +86,26 @@ export const CASES = [
         p.byproducts.every((b) => b.name === 'Oxygen Gas')],
     ],
   },
+  {
+    id: 'lepidolite-exhaust',
+    url: '#mode=plan&t=Potassium~Lithium~Aluminum~Silicon&h=Lepidolite' +
+         '&cu=Carbon+Monoxide~Carbon+Dioxide&ch=1',
+    plan: { targets: ['Potassium', 'Lithium', 'Aluminum', 'Silicon'], have: ['Lepidolite'],
+            consume: ['Carbon Monoxide', 'Carbon Dioxide'], takeCharges: true },
+    about: 'The same ore, told to make its carbon out of its own exhaust.',
+    want: [
+      // The plan vents carbon monoxide and buys mushrooms to make carbon, which
+      // is the same carbon twice. Told to use the one up and allowed to lay a
+      // charge in rather than build the potassium loop from fresh ore, it needs
+      // no mushrooms -- and no shopping list at all.
+      ['buys nothing, having the carbon it needs already', (p) =>
+        p.frontier.length === 0],
+      ['and no more ore per order than the plan that buys them', (p, { rnum }) =>
+        rnum(p.amountOf('Lepidolite')) / (rnum(p.madeOf('Potassium')) / 2) <= 3],
+      ['while still making what was asked for', (p, { rnum }) =>
+        p.spec.targets.every((t) => rnum(p.madeOf(t.name)) >= t.amount)],
+    ],
+  },
 ];
 
 /**

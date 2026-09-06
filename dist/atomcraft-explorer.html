@@ -6527,8 +6527,27 @@ function solvePlan(graph, rawSpec, depth = 0) {
       }, depth + 1);
       // It has to actually run and actually take the stuff.
       if (rzero(trial.runsOf(p.id))) continue;
+
+      /**
+       * Per order filled, because the trial is not always the same size.
+       *
+       * The route that clears the leftover often needs whole runs of something
+       * the plan was running in fractions, so the answer comes back filling the
+       * order twice over -- and read as totals it has twice the shopping list
+       * and twice the leavings of the plan it beats. The Lepidolite plan's four
+       * Carbon Dioxide go by a potassium loop that, laid in once rather than
+       * built from ore, wants nothing bought at all: no shopping list against
+       * the five mushrooms it had. Counted flat that reads as nine against
+       * five and is turned away.
+       *
+       * The same mistake `tally` was making, in the other place that compares
+       * two plans.
+       */
+      const mine = fills(plan) || 1;
+      const theirs = fills(trial) || 1;
+      const wasLeft = rnum(left.amount) / mine;
       const still = trial.byproducts.find((b) => b.name === name);
-      if (still && rcmp(still.amount, left.amount) >= 0) continue;
+      if (still && rnum(still.amount) / theirs >= wasLeft) continue;
       /**
        * And it may not clear one heap by making a bigger one, or undo what an
        * earlier "get rid of it" bought.
@@ -6550,8 +6569,8 @@ function solvePlan(graph, rawSpec, depth = 0) {
        * twenty-six units of everything else. So the leftovers may grow by at
        * most what was cleared -- and the shopping list may not grow at all.
        */
-      if (fetchLoad(trial) > fetchLoad(plan)) continue;
-      if (wasteLoad(trial) - wasteLoad(plan) > rnum(left.amount)) continue;
+      if (fetchLoad(trial) / theirs > fetchLoad(plan) / mine) continue;
+      if (wasteLoad(trial) / theirs - wasteLoad(plan) / mine > wasLeft) continue;
       spec = trial.spec;
       plan = trial;
       inherited = trial.sharedPins;
