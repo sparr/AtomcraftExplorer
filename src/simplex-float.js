@@ -151,14 +151,24 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget) {
        * So the bar for "this row can leave" is far lower than the bar for
        * "this number is interesting".
        */
+      /**
+       * Among rows that tie, pivot on the biggest number.
+       *
+       * Ties are the normal case here -- most of these rows have a zero on the
+       * right and every one of them gives a ratio of nothing -- and choosing
+       * between them by row order is choosing by nothing at all. The largest
+       * coefficient is the one that divides cleanest, which is the usual
+       * defence against a walk that grinds round the same degenerate corner.
+       */
       let leave = -1;
       let ratio = Infinity;
+      let pivotAt = 0;
       for (let i = 0; i < height; i++) {
         const a = table[i * stride + enter];
         if (a <= PIVOT_MIN) continue;
         const r = table[i * stride + width] / a;
-        if (r < ratio - EPS || (Math.abs(r - ratio) <= EPS && basis[i] < basis[leave])) {
-          ratio = r; leave = i;
+        if (r < ratio - EPS || (Math.abs(r - ratio) <= EPS && a > pivotAt)) {
+          ratio = r; leave = i; pivotAt = a;
         }
       }
       /**

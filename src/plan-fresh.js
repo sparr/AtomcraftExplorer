@@ -282,7 +282,101 @@ function shortlist(graph, spec, sub, build) {
   return { processes: keep, materials };
 }
 
+/**
+ * A loop that makes something out of nothing.
+ *
+ * Asked to buy as little as possible, the solver will find any set of steps
+ * that hands back more than it was given, and the game has them: three Molten
+ * Iron and one Carbon make three Molten Steel, and each Molten Steel burns
+ * back to a whole Carbon Dioxide, so one carbon becomes three. Given a wide
+ * enough field the Lepidolite plan was built on that, and needed almost no ore
+ * and no shopping list at all. It is not a cheap plan, it is a lie.
+ *
+ * The test is material-level and needs no chemistry: take the steps the plan
+ * chose, cut off every supply -- nothing fetched, nothing held -- and ask
+ * whether they can still produce anything. A set that can is a perpetual
+ * motion machine, and the biggest wheel in it is the one to take out.
+ *
+ * Counting atoms was tried first and is the wrong tool. An aqueous salt's
+ * formula does not carry its water, so evaporating one appears to conjure the
+ * steam, and three hundred and fifty-six of the game's reactions read as
+ * minting something. The game is deliberately approximate in places; this
+ * question is not about chemistry at all, only about whether a wheel turns
+ * for free.
+ */
+function freeLunch(graph, spec, plan) {
+  const procs = plan.steps.map((s) => s.process);
+  if (procs.length < 2) return null;
+  const index = new Map(procs.map((p, i) => [p.id, i]));
+
+  const net = new Map();
+  const put = (name, i, v) => {
+    let row = net.get(name);
+    if (!row) net.set(name, (row = new Map()));
+    row.set(i, (row.get(i) || 0) + v);
+  };
+  for (const p of procs) {
+    const i = index.get(p.id);
+    for (const o of p.produces) put(o.name, i, o.count);
+    for (const c of inputsOf(p)) put(c.name, i, -c.count);
+  }
+
+  // Every material must come out even or ahead, with nothing coming in.
+  const rows = [];
+  for (const [, coeffs] of net) rows.push({ coeffs, op: '>=', rhs: 0 });
+  // Bounded, so that a wheel which does turn for free reports a number rather
+  // than running away and reporting nothing at all.
+  for (const p of procs) {
+    rows.push({ coeffs: new Map([[index.get(p.id), 1]]), op: '<=', rhs: 1000 });
+  }
+
+  /**
+   * Asked once for each material the plan both makes and spends, because a
+   * wheel has to be turning on something. Not the targets: the carbon wheel
+   * does not make Potassium out of nothing, it makes Carbon out of nothing and
+   * spends it reducing the silica, and by the time it reaches Potassium there
+   * is real ore in the chain. And not the total number of units either --
+   * three Carbon Dioxide out of one Carbon and three Oxygen is fewer things
+   * than it started with, and still a carbon multiplied by three.
+   */
+  const spun = new Set();
+  for (const p of procs) for (const o of p.produces) spun.add(o.name);
+  for (const name of spun) {
+    const coeffs = net.get(name);
+    if (!coeffs) continue;
+    if (!procs.some((p) => inputsOf(p).some((i) => i.name === name))) continue;
+    const cost = new Map();
+    for (const [i, v] of coeffs) if (v !== 0) cost.set(i, -v);
+    const answer = solveLPFloat({ vars: procs.length, rows, cost });
+    if (!answer.ok) continue;
+    let made = 0;
+    for (const [i, v] of coeffs) made += v * answer.x[i];
+    if (made <= 1e-6) continue;
+
+    let biggest = 0;
+    let blame = null;
+    for (const p of procs) {
+      const runs = answer.x[index.get(p.id)];
+      if (runs > biggest) { biggest = runs; blame = p.id; }
+    }
+    if (blame) return blame;
+  }
+  return null;
+}
+
 export function solveFresh(graph, rawSpec) {
+  const barred = new Set(rawSpec.excludeProcesses || []);
+  for (let round = 0; round < 8; round++) {
+    const plan = planOnce(graph, { ...rawSpec, excludeProcesses: [...barred] });
+    if (!plan) return null;
+    const cheat = freeLunch(graph, normalizeFresh(rawSpec), plan);
+    if (!cheat) return plan;
+    barred.add(cheat);
+  }
+  return null;
+}
+
+function planOnce(graph, rawSpec) {
   const spec = normalizeFresh(rawSpec);
   const whole = subgraph(graph, spec);
   if (!whole.processes.length) return null;
