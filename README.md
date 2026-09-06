@@ -427,6 +427,45 @@ formula. Only where the plan is shopping for the very stuff it is binning, and
 only as a whole re-solve, because on a single pass it scores worse and only pays
 once the feedback rounds run again on top of it.
 
+**Run counts are settled all at once, where one pass cannot do it.** Sizing each
+step in turn is exact while one thing has one maker, and wrong the moment two of
+them make the same thing: whichever the walk reaches first takes the whole
+demand and the other is sized on top. Told to get rid of the carbon dioxide, a
+plan for Carbon ran the Boudouard equilibrium and the potassium reduction twice
+each where once each would do — at twice the feed, whatever amount was asked.
+
+Iterating that does not help, and finding out why settled the design. "Each
+covers what the others did not" is satisfied by any pair adding to the demand,
+including pairs adding to less, so the counts settle somewhere short and the
+plan quietly under-produces: asking for four Carbon got two. What was missing is
+the constraint. Written down it is a linear program — every material that has to
+be made must have at least as much coming out as going in — and it is solved in
+exact rationals, in `simplex.js`.
+
+Two carbon monoxide are two carbons and two oxygens, and that is now what comes
+back, at every size:
+
+    2 Carbon Monoxide → 2 Carbon + 1 Oxygen Gas
+    6 Carbon Monoxide → 6 Carbon + 3 Oxygen Gas
+
+Done on the finished plan rather than inside the sizing. Tried inside, it moved
+the run counts while the passes that come after were still reading them, and a
+Columbite plan went from three ore to six chasing its own tail. By the end the
+routes are settled and nothing downstream reacts.
+
+And taken only where it is better on every count and worse on none. Most plans
+have one maker per material, the program agrees with the pass to the unit, and
+it is turned away for offering nothing — Lepidolite and Columbite are bit-for-bit
+what they were. Charges are weighed by the unit rather than the kind, which is
+not fussiness: counted in kinds, a plan that stopped making four Carbon and
+asked for seven to be laid in instead read as no change at all, and that is not
+a plan, it is a shortfall in a charge's coat.
+
+What it minimises turned out not to matter. Pricing the inputs by what they cost
+to obtain, counting them as equal units, or settling the shopping list before
+the feed all give the same answer on every plan tried; the constraints leave
+that little room. Prices are used because the planner already has them.
+
 ### Amounts that use the feed up
 
 Ask for one each of Potassium, Lithium, Aluminum and Silicon out of Lepidolite

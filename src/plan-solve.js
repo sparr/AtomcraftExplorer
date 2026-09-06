@@ -22,6 +22,7 @@
  */
 import { KIND, DEFAULT_KINDS, operatingWindow } from './plan-graph.js';
 import { composition, elementsOf, madeOfAny } from './composition.js';
+import { solveLP } from './simplex.js';
 import { heatingNeed, coolingNeed } from './units.js';
 
 /* ------------------------------------------------------------- fractions */
@@ -160,6 +161,137 @@ export function shareRatio(chances) {
   k[k.indexOf(Math.max(...k))] += 100 - sum;
   return { k, d: 100, rounded: true };
 }
+
+/**
+ * Settle the run counts of a finished plan all at once.
+ *
+ * The backward pass sizes each step in turn, which cannot be right whenever two
+ * of them make the same thing: whichever is reached first takes the whole
+ * demand and the other is sized on top. Told to get rid of the carbon dioxide,
+ * a plan for Carbon runs the Boudouard equilibrium and the potassium reduction
+ * twice each where once each would do, at twice the feed, however much is
+ * asked for.
+ *
+ * Asked as a program instead -- every material that has to be made must have at
+ * least as much coming out as going in -- it comes out at one of each.
+ *
+ * Done here, on the finished plan, and not inside the sizing. Tried there it
+ * moved the run counts while the passes that come after were still looking at
+ * them, and a Columbite plan went from three ore to six chasing its own tail.
+ * By this point the routes are settled and nothing downstream will react, so
+ * the worst it can do is be refused.
+ *
+ * What it minimises barely matters: on every plan tried, pricing the inputs by
+ * what they cost to obtain, counting them as equal units, or settling the
+ * shopping list before the feed all give the same answer to the unit. The
+ * constraints leave that little room. Prices are used because the planner
+ * already has them and they cost nothing to reuse.
+ */
+function refineRuns(graph, plan) {
+  const dag = plan.dag;
+  const spec = plan.spec;
+  const procs = [...dag.processes.values()].filter((p) => !dag.forced.has(p.id));
+  if (procs.length < 2) return null;
+  const index = new Map(procs.map((p, i) => [p.id, i]));
+
+  /** A process and its chamber-mates, each at its share of the leader's runs. */
+  const chamber = (p) => {
+    const group = dag.groups.get(p.id);
+    if (!group) return [{ p, f: rat(1) }];
+    const mine = group.find((m) => m.id === p.id);
+    if (!mine) return [{ p, f: rat(1) }];
+    return group
+      .map((m) => ({ p: dag.processes.get(m.id), f: rat(m.k, BigInt(mine.k)) }))
+      .filter((x) => x.p);
+  };
+
+  const net = new Map();
+  for (const p of procs) {
+    const per = new Map();
+    for (const { p: q, f } of chamber(p)) {
+      for (const o of q.produces) per.set(o.name, radd(per.get(o.name) || R0, rmul(f, rat(o.count))));
+      for (const c of q.consumes) per.set(c.name, rsub(per.get(c.name) || R0, rmul(f, rat(c.count))));
+    }
+    net.set(index.get(p.id), per);
+  }
+
+  /**
+   * Only what the world hands over is free. A credited material is supplied by
+   * the plan's own surplus and has to balance like anything else -- taken as
+   * free, the program drops the steps that make it and buys a shorter plan on
+   * a promise it cannot keep.
+   */
+  const outside = (name) =>
+    ['have', 'acquire', 'raw'].includes(dag.materials.get(name)?.reason);
+
+  const rows = [];
+  for (const [name, node] of dag.materials) {
+    if (outside(name)) continue;
+    const coeffs = new Map();
+    for (const [i, per] of net) {
+      const c = per.get(name);
+      if (c && !rzero(c)) coeffs.set(i, c);
+    }
+    if (!coeffs.size) continue;
+    const want = spec.targets.find((t) => t.name === name);
+    rows.push({ coeffs, op: '>=', rhs: want ? rat(want.amount) : R0 });
+  }
+  if (!rows.length) return null;
+
+  // What a thing costs to have, whether or not you happen to be holding some:
+  // priced as held, a stock is free and the program spends it without limit.
+  const price = solveCosts(graph, { ...spec, have: new Set(), plenty: new Set() }).acquire;
+  const cost = new Map();
+  for (const p of procs) {
+    const i = index.get(p.id);
+    let c = rat(1, 10000n);
+    for (const [name, per] of net.get(i)) {
+      if (!outside(name) || rcmp(per, R0) >= 0) continue;
+      const each = price(name);
+      if (Number.isFinite(each) && each > 0) {
+        c = radd(c, rmul(rsub(R0, per), rat(Math.round(each * 100), 100n)));
+      }
+    }
+    cost.set(i, c);
+  }
+
+  const lo = new Map();
+  for (const p of procs) {
+    if (spec.include.has(p.id)) lo.set(index.get(p.id), rat(spec.runs.get(p.id) ?? 1));
+  }
+
+  const answer = solveLP({ vars: procs.length, rows, cost, lo });
+  if (!answer.ok) return null;
+
+  const runs = new Map();
+  for (const p of procs) {
+    const n = answer.x[index.get(p.id)];
+    for (const { p: q, f } of chamber(p)) {
+      runs.set(q.id, radd(runs.get(q.id) || R0, rmul(n, f)));
+    }
+  }
+  return runs;
+}
+
+/** What a plan costs its reader, for refusing a refinement that costs more. */
+const tally = (p) => {
+  const stock = new Set([...p.spec.have].filter((n) => !p.spec.plenty.has(n)));
+  let feed = 0;
+  for (const name of stock) feed += rnum(p.amountOf(name));
+  return [feed,
+          p.frontier.reduce((a, f) => a + rnum(f.amount), 0), p.frontier.length,
+          p.byproducts.reduce((a, b) => a + rnum(b.amount), 0), p.byproducts.length,
+          p.steps.length,
+          // Charges by the unit, not the kind. Counted in kinds, a plan that
+          // stopped making four Carbon and asked for seven to be laid in
+          // instead looked like no change at all -- and it is not a plan, it is
+          // a shortfall wearing a charge's coat.
+          p.priming.reduce((a, x) => a + rnum(x.amount), 0), p.priming.length];
+};
+
+/** No worse anywhere, and better somewhere. */
+const dominates = (a, b) =>
+  a.every((v, i) => v <= b[i]) && a.some((v, i) => v < b[i]);
 
 /** Reactions that can never fire: an ungated rival ahead of them takes everything. */
 const NEVER = 1e-6;
@@ -311,6 +443,8 @@ export function normalizeSpec(spec = {}) {
     /** Spare output counted as a product rather than waste. Changes nothing
      *  about what is made -- it is a reading of the same surplus. */
     kept: new Set(spec.kept || []),
+    /** Run counts settled elsewhere, for the refinement to hand back. */
+    fixedRuns: spec.fixedRuns || null,
     /** Leftovers the reader has asked the plan to go and find a use for. */
     consume: new Set(spec.consume || []),
     /** byproducts the reader has agreed to plumb back in, one by one. */
@@ -711,6 +845,34 @@ export function amounts(dag, spec, order, related = null) {
   let credit = new Map();
   let runs = new Map(), demand = new Map(), supply = new Map();
   let converged = true;
+
+  /**
+   * Run counts worked out somewhere else are simply booked.
+   *
+   * The refinement solves the whole plan's arithmetic at once and hands the
+   * answer back through here, so that everything downstream -- the shopping
+   * list, the leavings, the charges -- is worked out the one way it always is.
+   */
+  if (spec.fixedRuns) {
+    for (const t of spec.targets) {
+      demand.set(t.name, radd(demand.get(t.name) || R0, rat(t.amount)));
+    }
+    for (const p of dag.processes.values()) {
+      const n = spec.fixedRuns.get(p.id) || R0;
+      runs.set(p.id, n);
+      if (rzero(n)) continue;
+      for (const { name, count } of p.consumes) {
+        demand.set(name, radd(demand.get(name) || R0, rmul(n, rat(count))));
+      }
+      for (const { name, count } of p.requires) {
+        demand.set(name, rmax(demand.get(name) || R0, rat(count)));
+      }
+      for (const { name, count } of p.produces) {
+        supply.set(name, radd(supply.get(name) || R0, rmul(n, rat(count))));
+      }
+    }
+    return { runs, demand, supply, credit, converged: true };
+  }
 
   for (let round = 0; round < (useCredit ? 12 : 1); round++) {
     runs = new Map();
@@ -1309,13 +1471,24 @@ export function solvePlan(graph, rawSpec, depth = 0) {
       a.id.localeCompare(b.id));
 
     for (const p of ranked.slice(0, CONSUME_ROUTES)) {
+      /**
+       * Once is the floor, not the whole surplus.
+       *
+       * Pinning it to eat everything going spare fixes the answer before the
+       * plan has been worked out with it in: the leftover is N, so the step is
+       * pinned at N runs, which demands N of whatever feeds it, which runs that
+       * N times -- and where that also makes the target, the plan comes out at
+       * twice what was asked, at twice the feed, for any N.
+       *
+       * On its own this changes nothing at all: the backward pass has no use
+       * for the freedom. It is the refinement below that spends it.
+       */
       const per = p.consumes.find((i) => i.name === name).count;
-      const runs = Math.floor(rnum(left.amount) / per);
-      if (runs < 1) continue;
+      if (rnum(left.amount) < per) continue;
       const trial = solvePlan(graph, {
         ...rawSpec,
         include: [...spec.include, p.id],
-        runs: { ...(rawSpec.runs || {}), [p.id]: runs },
+        runs: { ...(rawSpec.runs || {}), [p.id]: 1 },
       }, depth + 1);
       // It has to actually run and actually take the stuff.
       if (rzero(trial.runsOf(p.id))) continue;
@@ -1363,6 +1536,28 @@ export function solvePlan(graph, rawSpec, depth = 0) {
     spec = shared;
     plan = trial;
     sharedPins.set(name, id);
+  }
+
+  /**
+   * Last of all, settle the arithmetic.
+   *
+   * The routes are chosen by here and nothing after this reads the run counts,
+   * so a better set of them cannot send any other pass off somewhere new --
+   * which is exactly what went wrong when this sat inside the sizing.
+   *
+   * Taken only where it is better on every count that matters and worse on
+   * none. Most plans have one maker per material and the program agrees with
+   * the pass to the unit, so on most plans this changes nothing and is refused
+   * for having nothing to offer.
+   */
+  const settled = refineRuns(graph, plan);
+  if (settled) {
+    const trial = solve({ ...spec, fixedRuns: settled });
+    if (trial && dominates(tally(trial), tally(plan))) {
+      plan = trial;
+      plan.brokenLoops = [];
+      plan.sharedPins = sharedPins;
+    }
   }
 
   if (!spec.feedBackAll) { plan.sharedPins = sharedPins; return markFeeds(markHoldings(graph, plan)); }

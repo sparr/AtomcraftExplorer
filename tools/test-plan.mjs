@@ -1467,6 +1467,59 @@ console.log('\n--- closing the list is not one thing ---');
         `and the difference is all that is left: ${plan.byproducts.map((b) => b.name).join(', ')}`);
 }
 
+console.log('\n--- run counts settled all at once ---');
+{
+  // Two makers of one thing cannot be sized one at a time: whichever the
+  // backward pass reaches first takes the whole demand and the other is sized
+  // on top. Told to get rid of the carbon dioxide, this ran the Boudouard
+  // equilibrium and the potassium reduction twice each where once each does,
+  // at twice the feed, for any amount asked.
+  const ask = (n) => solvePlan(graph, { targets: [{ name: 'Carbon', amount: n }],
+                                        have: ['Carbon Monoxide'],
+                                        consume: ['Carbon Dioxide'] });
+  for (const n of [2, 4, 6]) {
+    const p = ask(n);
+    check(rstr(p.amountOf('Carbon Monoxide')) === String(n),
+          `${n} Carbon takes ${rstr(p.amountOf('Carbon Monoxide'))} Carbon Monoxide, not ${n * 2}`);
+    check(rstr(p.madeOf('Carbon')) === String(n),
+          `and makes exactly the ${rstr(p.madeOf('Carbon'))} asked for`);
+  }
+
+  // Every carbon in the feed comes back out, and the difference is oxygen.
+  const two = ask(2);
+  check(two.byproducts.every((b) => b.name === 'Oxygen Gas'),
+        `with nothing left over but oxygen: ${two.byproducts.map((b) => b.name).join(', ')}`);
+}
+
+console.log('\n--- and refused where it has nothing to offer ---');
+{
+  // Most plans have one maker per material, and there the backward pass is
+  // exact -- the program agrees with it to the unit and is turned away for
+  // offering nothing. These two are the ones that must not move.
+  const lep = solvePlan(graph, { targets: ['Potassium', 'Lithium'], have: ['Lepidolite'] });
+  check(lep.frontier.length === 0 && lep.steps.length === 14,
+        `Lepidolite is untouched: ${lep.steps.length} steps, ${lep.frontier.length} to fetch`);
+
+  const col = solvePlan(graph, { targets: [{ name: 'Tantalum', amount: 6 },
+                                           { name: 'Niobium', amount: 6 }],
+                                 have: ['Columbite'] });
+  check(rstr(col.amountOf('Columbite')) === '3',
+        `and Columbite still comes to three ore: ${rstr(col.amountOf('Columbite'))}`);
+  check(!col.byproducts.some((b) => b.holds.length),
+        'with nothing tantalum- or niobium-bearing thrown away');
+
+  // A refinement is taken only where it is better on every count and worse on
+  // none. Charges are weighed by the unit: counted in kinds, a plan that
+  // stopped making four Carbon and asked for seven to be laid in instead read
+  // as no change at all, and it is not a plan -- it is a shortfall in a coat.
+  const pinned = solvePlan(graph, {
+    targets: ['Potassium', 'Lithium', 'Aluminum', 'Silicon'].map((n) => ({ name: n, amount: 2 })),
+    have: ['Lepidolite'], pins: { Carbon: 'rx:Boudouard Equilibrium 500-725K' } });
+  check(rcmp(pinned.madeOf('Carbon'), pinned.amountOf('Carbon')) >= 0,
+        `and never one that makes less than it uses: ` +
+        `${rstr(pinned.madeOf('Carbon'))} made against ${rstr(pinned.amountOf('Carbon'))} used`);
+}
+
 console.log('\n--- determinism ---');
 {
   const spec = { targets: ['Vinegar', 'Sulfuric Acid'], have: ['Water'] };
