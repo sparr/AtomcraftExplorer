@@ -675,7 +675,47 @@ export function shortlist(graph, spec, sub, build) {
   const cost = new Map([...model.fetchCost].map(([i, a]) => [i, rnum(a)]));
   const answer = solveLPFloat({ vars: model.vars, rows, cost });
   if (!answer.ok) return null;
-  const keep = sub.processes.filter((p) => answer.x[model.index.get(p.id)] > 0);
+
+  /**
+   * Shortlist on both questions, not just the first.
+   *
+   * The shortlist was picked by minimising the shopping list alone, and the
+   * second question -- how much goes in at all -- was then asked only of what
+   * that pass happened to choose. Where two routes both buy nothing the first
+   * question cannot separate them, so it takes whichever vertex it lands on,
+   * and the better one is not on the table when it matters.
+   *
+   * That is how the combined factory came to manufacture its water. Condensing
+   * the steam it was already making costs nothing and buys nothing; so does
+   * dissolving glass, and so does running a lithium chain and binning four
+   * hundred Molten Lithium. All three fetch nothing, the first pass shrugged,
+   * and `cond:Steam` -- which was in the candidate set the whole time -- never
+   * reached the solver that would have preferred it.
+   *
+   * So the same walk is made a second time with the shopping list held where
+   * the first left it and the input counted instead, and both supports are
+   * kept. It costs one more float solve, which is tens of milliseconds.
+   */
+  const total = [...model.supply]
+    .filter(([name]) => model.bought(name))
+    .reduce((a, [, i]) => a + answer.x[i], 0);
+  const cap = {
+    coeffs: new Map([...model.supply]
+      .filter(([name]) => model.bought(name))
+      .map(([, i]) => [i, 1])),
+    op: '<=',
+    rhs: total + 1e-6,
+  };
+  const drawn = new Map([...model.supply].map(([, i]) => [i, 1]));
+  const second = solveLPFloat({ vars: model.vars, rows: [...rows, cap], cost: drawn });
+
+  const chosen = new Set();
+  for (const p of sub.processes) {
+    const i = model.index.get(p.id);
+    if (answer.x[i] > 0) chosen.add(p.id);
+    if (second.ok && second.x[i] > 0) chosen.add(p.id);
+  }
+  const keep = sub.processes.filter((p) => chosen.has(p.id));
   if (!keep.length) return null;
   const materials = new Set();
   for (const p of keep) {

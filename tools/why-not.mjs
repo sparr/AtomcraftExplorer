@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, DEFAULT_KINDS } from '../src/plan-graph.js';
-import { solveFresh, subgraph, shortlist, model, normalizeFresh, fetchable }
+import { solveFresh, subgraph, shortlist, model, normalizeFresh, fetchable, sourceOf }
   from '../src/plan-fresh.js';
 import { rnum, rstr } from '../src/rational.js';
 import { composition } from '../src/composition.js';
@@ -134,7 +134,18 @@ const graph = buildProcessGraph(await loadData());
  * bought carries carbon, rather than naming the four I happened to think of.
  */
 const table = composition(graph);
-const carbonish = (name) => table.get(name)?.elements?.has('C') ?? false;
+
+/**
+ * Anything grown or bred is carbon, whatever the formula table says.
+ *
+ * Composition is inferred and it abstains on plenty -- a Chicken (Raw) and a
+ * Chicken Egg both come back unknown -- so asking the table alone flagged a
+ * plan for buying a chicken to make carbon out of, which is the very thing the
+ * ideal permits. Where the table cannot say, being something that grew is
+ * answer enough.
+ */
+const carbonish = (name) =>
+  (table.get(name)?.elements?.has('C') ?? false) || sourceOf(graph, name) === 'farm';
 const allowed = (c, name) => c.buys.includes(name) || (c.carbon && carbonish(name));
 const only = process.argv[2];
 
