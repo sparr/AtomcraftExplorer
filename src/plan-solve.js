@@ -273,6 +273,10 @@ function refineRuns(graph, plan) {
   return runs;
 }
 
+/** How much there is to fetch, and how much is left lying about, by the unit. */
+const fetchLoad = (p) => p.frontier.reduce((a, f) => a + rnum(f.amount), 0);
+const wasteLoad = (p) => p.byproducts.reduce((a, b) => a + rnum(b.amount), 0);
+
 /** What a plan costs its reader, for refusing a refinement that costs more. */
 const tally = (p) => {
   const stock = new Set([...p.spec.have].filter((n) => !p.spec.plenty.has(n)));
@@ -1550,6 +1554,29 @@ export function solvePlan(graph, rawSpec, depth = 0) {
       if (rzero(trial.runsOf(p.id))) continue;
       const still = trial.byproducts.find((b) => b.name === name);
       if (still && rcmp(still.amount, left.amount) >= 0) continue;
+      /**
+       * And it may not clear one heap by making a bigger one, or undo what an
+       * earlier "get rid of it" bought.
+       *
+       * The reader asked for this, so it need not be a better plan by the
+       * ordinary measure -- getting rid of something is allowed to cost steps
+       * and a charge. But it was allowed anything at all, and told to clear the
+       * carbon monoxide and then the carbon dioxide the second re-solved
+       * straight past the first: the mushrooms went back from five to nine and
+       * the carbon monoxide came back with them, all so that four carbon
+       * dioxide could go. Each was worth doing and the pair was worth less than
+       * either.
+       *
+       * Clearing one heap is allowed to make another, but not a bigger one.
+       * The Carbon plan's carbon dioxide goes by building a potassium loop
+       * that throws off an oxygen of its own, which is the trade being asked
+       * for and is roughly one for one. The Lepidolite plan's goes by building
+       * the same loop out of fresh ore, and turns four carbon dioxide into
+       * twenty-six units of everything else. So the leftovers may grow by at
+       * most what was cleared -- and the shopping list may not grow at all.
+       */
+      if (fetchLoad(trial) > fetchLoad(plan)) continue;
+      if (wasteLoad(trial) - wasteLoad(plan) > rnum(left.amount)) continue;
       spec = trial.spec;
       plan = trial;
       inherited = trial.sharedPins;

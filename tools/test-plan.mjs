@@ -1553,6 +1553,33 @@ console.log('\n--- recovered stuff displaces bought stuff ---');
         `for a charge of ${carbon ? rstr(carbon.amount) : 'no'} Carbon that comes round again`);
 }
 
+console.log('\n--- one of them does not undo the last ---');
+{
+  // Told to clear the carbon monoxide and then the carbon dioxide, the second
+  // used to re-solve straight past the first: the mushrooms went back from
+  // five to nine and the carbon monoxide came back with them, all so that four
+  // carbon dioxide could go. Each was worth doing; the pair was worth less
+  // than either.
+  const four = ['Potassium', 'Lithium', 'Aluminum', 'Silicon']
+    .map((n, i) => ({ name: n, amount: i === 3 ? 3 : 2 }));
+  const spec = { targets: four, have: ['Lepidolite'] };
+  const spores = (p) => rstr(p.frontier.find((f) => f.name === 'Bitter Oyster Spore')?.amount ?? R0);
+
+  const one = solvePlan(graph, { ...spec, consume: ['Carbon Monoxide'] });
+  const both = solvePlan(graph, { ...spec, consume: ['Carbon Monoxide', 'Carbon Dioxide'] });
+  check(spores(both) === spores(one),
+        `asking for both keeps what one bought: ${spores(one)} then ${spores(both)}`);
+  check(!both.byproducts.some((b) => b.name === 'Carbon Monoxide'),
+        'and the carbon monoxide stays gone');
+
+  // The carbon dioxide is left alone here on purpose. Getting the last four
+  // carbons out of it means building the potassium chain from more ore rather
+  // than recirculating it, which costs nine mushrooms and two Plants to save
+  // four -- so it is refused, and refusing is the right answer.
+  check(both.byproducts.some((b) => b.name === 'Carbon Dioxide'),
+        'while what cannot be cleared cheaply is left where it is');
+}
+
 console.log('\n--- and never over a refusal ---');
 {
   // "Feed nothing back" is an instruction. Refusing the chlorine is meant to

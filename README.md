@@ -741,6 +741,20 @@ spends. A shortfall wearing a charge's coat does not — asked to settle this
 same plan, the program once offered one that made no Carbon at all and covered
 all nine of a standing demand with a charge of nine.
 
+**And one press may not undo the last.** Told to clear the carbon monoxide and
+then the carbon dioxide, the second used to re-solve straight past the first —
+the mushrooms went back from five to nine and the carbon monoxide came back with
+them, all so that four carbon dioxide could go. Each was worth doing and the
+pair was worth less than either.
+
+Clearing one heap is allowed to make another, but not a bigger one. The Carbon
+plan's carbon dioxide goes by building a potassium loop that throws off an
+oxygen of its own, which is the trade being asked for and is about one for one.
+The Lepidolite plan's goes by building that same loop out of fresh ore, and
+turns four carbon dioxide into twenty-six units of everything else — so it is
+left where it is, which is the right answer. The shopping list may not grow at
+all, and the leftovers may grow by at most what was cleared.
+
 One thing it may never do is talk you out of a refusal. **Feed nothing back** on
 a material is an instruction: the Lithium plan told not to recycle its chlorine
 is meant to go and fetch Vanadinite, and the refinement would cheerfully put the
