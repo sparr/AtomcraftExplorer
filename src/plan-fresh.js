@@ -210,7 +210,7 @@ export function normalizeFresh(spec) {
  * you like, and everything else costs one a unit, which is the whole of what
  * "fetch total" means.
  */
-function model(graph, spec, procs, materials) {
+export function model(graph, spec, procs, materials) {
   const index = new Map(procs.map((p, i) => [p.id, i]));
   const supply = new Map();
   let next = procs.length;
@@ -260,7 +260,7 @@ function model(graph, spec, procs, materials) {
  * A shortlist that is slightly wrong costs a slightly worse plan. It cannot
  * cost a wrong quantity, because no quantity from here survives.
  */
-function shortlist(graph, spec, sub, build) {
+export function shortlist(graph, spec, sub, build) {
   const model = build(sub.processes, sub.materials);
   if (!model) return null;
   const rows = model.rows.map((row) => ({
