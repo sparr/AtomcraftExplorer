@@ -150,6 +150,10 @@ for (const c of WANTED) {
   const plan = solveFresh(graph, { targets: c.targets, have: c.have });
   const ran = new Map((plan?.steps || []).map((s) => [s.process.id, s.runs]));
 
+  if (plan && plan.shortfall) {
+    console.log(`\n!!! ${c.id}: THE PLAN DOES NOT DELIVER -- ` +
+      plan.shortfall.map((x) => `${x.name}: asked ${x.asked}, made ${rstr(x.made)}`).join('; '));
+  }
   console.log(`\n--- ${c.id}: ${sub.processes.length} considered, ` +
     `${short ? short.processes.length : 'no'} shortlisted, ` +
     `${plan ? plan.steps.length : 'no'} run`);

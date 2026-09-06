@@ -523,12 +523,33 @@ export function model(graph, spec, procs, materials) {
 
   const demand = new Map(spec.targets.map((t) => [t.name, rat(t.amount)]));
   const rows = [];
+  const constrained = new Set();
   for (const name of materials) {
     const coeffs = net.get(name);
     if (!coeffs || !coeffs.size) continue;
+    constrained.add(name);
     rows.push({ coeffs, op: '>=', rhs: demand.get(name) || R0 });
   }
   if (!rows.length) return null;
+
+  /**
+   * A demand nothing can touch is not a demand the solver will notice.
+   *
+   * Rows are built per material, and a material that no process here produces
+   * or consumes gets none -- there would be nothing in it. That is fine for
+   * some bystander material and quietly disastrous for a target: with no row
+   * saying "make at least two Potassium", the solver is not ignoring the
+   * constraint, it was never given one, and it says yes to a plan that makes
+   * none.
+   *
+   * It happens when the conservation pass has barred enough processes that the
+   * last route to a target is gone. The answer that came back had ninety-four
+   * runs of the alumina branch and no potassium at all, and every check
+   * downstream believed it.
+   */
+  for (const t of spec.targets) {
+    if (!constrained.has(t.name) && !spec.have.has(t.name)) return null;
+  }
 
   const fetchCost = new Map();
   for (const [name, i] of supply) if (bought(name)) fetchCost.set(i, rat(1));
@@ -678,16 +699,39 @@ function withElements(graph, spec) {
  * is not a worse plan, it is not a plan, and the caller is told so plainly
  * instead of being handed a shopping list for a factory that makes nothing.
  */
-function delivers(plan) {
-  return plan.spec.targets.every((t) => rcmp(plan.madeOf(t.name), rat(t.amount)) >= 0);
+function shortfallOf(plan) {
+  const short = [];
+  for (const t of plan.spec.targets) {
+    const made = plan.madeOf(t.name);
+    if (rcmp(made, rat(t.amount)) < 0) short.push({ name: t.name, asked: t.amount, made });
+  }
+  return short.length ? short : null;
 }
 
 export function solveFresh(graph, rawSpec) {
   const barred = new Set(rawSpec.excludeProcesses || []);
+  /**
+   * The best answer so far, kept because barring a wheel can bar the road.
+   *
+   * Each round takes out the biggest wheel of a loop that turns for free and
+   * asks again. Sometimes the re-ask is impossible -- the barred process was
+   * also the only way to a target -- and throwing everything away then meant
+   * the Lepidolite plan reported that it could not be made at all, having
+   * already found a perfectly good answer two rounds earlier and discarded it.
+   */
+  let best = null;
   for (let round = 0; round < 8; round++) {
     const plan = planOnce(graph, { ...rawSpec, excludeProcesses: [...barred] });
-    if (!plan) return null;
-    if (!delivers(plan)) return null;
+    if (!plan) return best;
+    /**
+     * Handed back, not thrown away. Sparr: do not silently discard a bad plan,
+     * surface it. A plan that does not deliver is evidence of a bug somewhere
+     * upstream, and the one thing it must not do is look like a good answer --
+     * so it comes back marked, and every caller that reports a plan reports
+     * this first.
+     */
+    plan.shortfall = shortfallOf(plan);
+    if (!plan.shortfall) best = plan;
     const cheat = freeLunch(graph, normalizeFresh(rawSpec), plan);
     if (!cheat) return plan;
     barred.add(cheat);
