@@ -165,8 +165,7 @@ function holdsATarget(graph, name, targets) {
 /**
  * Nor anything you could have got out of what you already have.
  *
- * Sparr, tentatively: never fetch something whose composition is a subset of
- * an input. Holding Lepidolite is holding potassium, lithium, aluminium,
+ * Sparr: never fetch something whose composition is a subset of an input. Holding Lepidolite is holding potassium, lithium, aluminium,
  * silicon, oxygen, hydrogen and fluorine, so going out for water or silica is
  * going out for something already in the yard. It does not touch a carbon
  * source, because there is no carbon in Lepidolite -- which is the point.
@@ -188,15 +187,18 @@ export function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (sources && !sources.has(sourceOf(graph, name))) return false;
 
   /**
-   * Having a recipe still disqualifies a fetch, even for the rain.
+   * The sky does not care whether you also know how to boil water.
    *
-   * It looked as though it should not: the sky hands you water whether or not
-   * you also know how to boil it, so Seawater with its seven recipes and Steam
-   * with its hundred were being refused as though they had to be manufactured.
-   * Lifting that made every plan worse at once -- free unlimited water is an
-   * invitation, and the combined factory took it, leaving one thousand seven
-   * hundred Alumina and three thousand Oxygen Gas behind. The category says
-   * where a thing comes from; it does not say the plan should reach for it.
+   * Having a recipe is what usually disqualifies a fetch, and that reasoning
+   * does not apply to rain, or to seawater off a source pixel, or to nitrogen
+   * out of a cold box. Seawater has seven recipes and Steam has more than a
+   * hundred, and both were being refused as though they had to be built.
+   *
+   * Lifting it once made every plan worse and I put it back; Sparr's answer is
+   * that being freely available is not the same as being free, and the
+   * priorities are what should say so -- any amount of fetching is worse than
+   * more steps or a poorer ratio. If a plan still reaches for the tap when the
+   * shopping list is the first thing counted, the fault is in the counting.
    */
   if (graph.fallsFromSky(name)) return true;
   if (WORLDLY.has(graph.categoryOf(name))) return true;
@@ -278,7 +280,9 @@ export function subgraph(graph, spec) {
    * equals.
    */
   const buysIn = (p) => inputsOf(p)
-    .filter((i) => !spec.have.has(i.name) && fetchable(graph, i.name, kinds, spec.sources, spec)).length;
+    .filter((i) => !spec.have.has(i.name) &&
+                   fetchable(graph, i.name, kinds, spec.sources, spec)).length;
+
   const cost = (p) => inputsOf(p).reduce((a, i) => Math.max(a, depth.get(i.name) ?? 99), 0);
 
   const chosen = new Map();
@@ -436,8 +440,6 @@ export function normalizeFresh(spec) {
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
     /** Which sorts of thing the reader will go and get. All of them, unless said. */
     sources: new Set(spec.sources || SOURCES),
-    /** Whether to refuse a fetch that the stock already has the elements for. */
-    thrift: spec.thrift ?? false,
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
@@ -484,7 +486,7 @@ export function model(graph, spec, procs, materials) {
     if (spec.have.has(name)) { supply.set(name, next++); continue; }
     if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
     if (holdsATarget(graph, name, spec.wanted)) continue;
-    if (spec.thrift && alreadyInHand(graph, name, spec.held)) continue;
+    if (alreadyInHand(graph, name, spec.held)) continue;
     supply.set(name, next++);
   }
   const vars = next;
