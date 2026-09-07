@@ -1259,6 +1259,34 @@ function freeLunch(graph, spec, plan) {
 const STEP_PRICE = 1 / 64;
 
 const priceCache = new WeakMap();
+/**
+ * Which phase group a material belongs to, named for its first member.
+ *
+ * Two temperatures of one substance answer the same, so a rule comparing the
+ * inputs of competing recipes can tell "acid or its vapour" from a real fork.
+ */
+const groupCache = new WeakMap();
+function phaseGroup(graph, name) {
+  let table = groupCache.get(graph);
+  if (!table) {
+    table = new Map();
+    groupCache.set(graph, table);
+    for (const m of graph.db.materials) {
+      if (table.has(m.name)) continue;
+      const seen = [m.name];
+      table.set(m.name, m.name);
+      for (let i = 0; i < seen.length; i++) {
+        const raw = graph.db.byName.get(seen[i])?.raw;
+        for (const field of ['Evaporation', 'Condensation']) {
+          const to = raw?.[field]?.TargetMaterialName;
+          if (to && !table.has(to)) { table.set(to, m.name); seen.push(to); }
+        }
+      }
+    }
+  }
+  return table.get(name) ?? name;
+}
+
 export function fetchPrices(graph, kinds) {
   let table = priceCache.get(graph);
   if (table) return table;
@@ -1344,18 +1372,41 @@ export function fetchPrices(graph, kinds) {
       return answer;
     }
 
-    // Only what appears in every one of them, at the least any of them needs.
+    /**
+     * Only what appears in every one of them, at the least any of them needs
+     * -- and two temperatures of the same substance are not two of them.
+     *
+     * Beryllium Fluoride is made two ways: Beryllium Oxide with two
+     * Hydrofluoric Acid Gas, and Beryllium Oxide with two Hydrofluoric Acid.
+     * That is one recipe, and whether the acid is boiling is not a choice
+     * worth pricing. Compared by name they share only the oxide, the two acid
+     * fall out as the part the routes disagree on, and the fluoride came back
+     * at 1.78 -- less than the three atoms in it, and cheaper per fluorine
+     * than the acid it is made of. Columbite bought it by the crate.
+     *
+     * So inputs are matched by phase group. The rule is the one already used a
+     * few lines up, where a material made only by cooling is priced as the
+     * substance rather than as a choice between temperatures.
+     */
     const shared = new Map();
-    for (const i of inputsOf(makers[0])) {
-      const out = makers[0].produces.find((o) => o.name === name)?.count || 1;
-      shared.set(i.name, i.count / out);
-    }
-    for (const p of makers.slice(1)) {
+    const perOf = (p) => {
       const out = p.produces.find((o) => o.name === name)?.count || 1;
-      const here = new Map(inputsOf(p).map((i) => [i.name, i.count / out]));
-      for (const [n, per] of [...shared]) {
-        if (!here.has(n)) shared.delete(n);
-        else shared.set(n, Math.min(per, here.get(n)));
+      const m = new Map();
+      for (const i of inputsOf(p)) {
+        const key = phaseGroup(graph, i.name);
+        const each = { name: i.name, per: i.count / out };
+        const had = m.get(key);
+        if (!had || each.per < had.per) m.set(key, each);
+      }
+      return m;
+    };
+    for (const [key, each] of perOf(makers[0])) shared.set(key, each);
+    for (const p of makers.slice(1)) {
+      const here = perOf(p);
+      for (const [key, each] of [...shared]) {
+        const mine = here.get(key);
+        if (!mine) shared.delete(key);
+        else if (mine.per < each.per) shared.set(key, mine);
       }
     }
     // Nothing shared between the routes, so the recipe says nothing about what
@@ -1366,7 +1417,7 @@ export function fetchPrices(graph, kinds) {
 
     busy.add(name);
     let sum = STEP_PRICE;
-    for (const [n, per] of shared) {
+    for (const { name: n, per } of shared.values()) {
       const each = price(n);
       if (!Number.isFinite(each)) { sum = Infinity; break; }
       sum += each * per;
