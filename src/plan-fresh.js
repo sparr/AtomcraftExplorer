@@ -1516,11 +1516,50 @@ function planOnce(graph, rawSpec) {
       `${held.length > 1 ? 'them' : 'it'} cannot help`);
   }
 
-  const makes = (name) => graph.producers(name).some((p) => spec.kinds.has(p.kind)) ||
-    spec.have.has(name) || fetchable(graph, name, spec.kinds, spec.sources, spec);
-  if (spec.targets.length && spec.targets.every((t) => !makes(t.name))) {
-    return giveUp(`nothing makes ${spec.targets.map((t) => t.name).join(' or ')} ` +
-      `and ${spec.targets.length > 1 ? 'none' : 'it'} can be fetched`);
+  /**
+   * And a want nothing can reach, said before four hundred candidates are
+   * walked looking for it.
+   *
+   * "Does anything anywhere make this" is too weak a question. Aluminium is
+   * made by dozens of reactions, so it passed -- and asked for Caesium and
+   * Aluminium out of Pollucite the walk chased every one of them, blew past
+   * the size ceiling and blamed its own arithmetic. Pollucite's one reaction
+   * yields Nepheline, which not a single process in the game consumes, so the
+   * aluminium is locked in it for good; and every other aluminium source is
+   * barred from the shopping list for covering a target. There was no answer
+   * and no cheap way to hear so.
+   *
+   * The question worth asking is what can be reached at all: close forward
+   * over everything held and everything the model would actually sell, and see
+   * whether the target turns up. If it does not, nothing downstream will find
+   * it either, because this is the most generous supply the plan will ever
+   * have.
+   *
+   * Any target, not every: a plan owes all of them, so one unreachable want is
+   * the end of it. That is the opposite of the stock rule above, where holding
+   * one useless thing among several useful ones is no reason to stop.
+   */
+  const reach = new Set(spec.have);
+  for (const m of graph.db.materials) {
+    const name = m.name;
+    if (reach.has(name)) continue;
+    if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
+    if (holdsATarget(graph, name, spec.wanted)) continue;
+    if (alreadyInHand(graph, name, spec.held)) continue;
+    reach.add(name);
+  }
+  const allowed = graph.processes.filter((p) => spec.kinds.has(p.kind));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const p of allowed) {
+      if (!inputsOf(p).every((i) => reach.has(i.name))) continue;
+      for (const o of p.produces) if (!reach.has(o.name)) { reach.add(o.name); grew = true; }
+    }
+  }
+  const lost = spec.targets.filter((t) => !reach.has(t.name)).map((t) => t.name);
+  if (lost.length) {
+    return giveUp(`nothing can reach ${lost.join(' or ')} from what is held, ` +
+      `and buying ${lost.length > 1 ? 'them' : 'it'} is barred`);
   }
 
   const whole = subgraph(graph, spec);
