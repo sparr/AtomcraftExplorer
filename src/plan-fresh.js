@@ -2472,15 +2472,39 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
          !holdsATarget(graph, name, spec.wanted) &&
          !alreadyInHand(graph, name, spec.held));
       const OUT_OF_REACH = 1e6;
+      /**
+       * Sparr: fetching the want atoms is never legitimate, under any
+       * circumstances.
+       *
+       * A charge is a fetch -- it is stuff you have to turn up holding -- so
+       * this is the same rule the shopping list obeys, and it has to be a
+       * refusal rather than a high price. Priced merely out of reach, it was
+       * still the bargain when every other way out of a deadlock was out of
+       * reach too, and the Columbite plan asked to be started with a niobium
+       * salt while being asked to make niobium.
+       *
+       * A wheel has more than one place to push it. The two-step loop here is
+       * the heptafluoro salt against the potassium hydroxide it gives back;
+       * refusing the salt does not stop the wheel turning, it just picks the
+       * other side.
+       */
+      const carriesAWant = (name) => holdsATarget(graph, name, spec.wanted);
       let best = null;
       for (const step of candidates) {
         const short = missing(step);
+        const forbidden = short.some(([name]) => carriesAWant(name));
         const price = short.reduce((a, [name, amount]) =>
           a + (gettable(name) ? (prices.get(name) ?? 1) : OUT_OF_REACH) * rnum(amount), 0);
         const outside = short.every(([name]) => fetched.has(name) || !pending.has(name));
-        if (!best || (outside !== best.outside ? outside : price < best.price)) {
-          best = { step, short, price, outside };
-        }
+        const better = !best ? true
+          : forbidden !== best.forbidden ? !forbidden
+          : outside !== best.outside ? outside
+          : price < best.price;
+        if (better) best = { step, short, price, outside, forbidden };
+      }
+      if (best && best.forbidden && notes) {
+        notes.push(`nothing but ${best.short.map(([n]) => n).join(' and ')} would start ` +
+                   `this, and that is made of what was asked for`);
       }
       if (!best || !best.short.length) break;
       for (const [name, amount] of best.short) {

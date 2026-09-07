@@ -26,7 +26,20 @@ const carries = (name, el) => table.get(name)?.elements?.has(el) ?? false;
 // Whether two materials are the same substance in different states, so an
 // invariant can say "do not ask me to start with the thing I am making".
 const sameStuff = (a, b) => phaseGroup(graph, a) === phaseGroup(graph, b);
-const helpers = { rnum, rzero, rstr, carries, sameStuff };
+/**
+ * The planner's own rule, asked from outside: does this material contain every
+ * element of something the plan was told to make? Mirrors `holdsATarget`,
+ * which is what the shopping list and the charge both consult.
+ */
+const holdsAWant = (p, name) => {
+  const has = table.get(name)?.elements;
+  if (!has) return false;
+  return p.spec.targets.some((t) => {
+    const want = table.get(t.name)?.elements;
+    return want && want.size && [...want].every((el) => has.has(el));
+  });
+};
+const helpers = { rnum, rzero, rstr, carries, sameStuff, holdsAWant };
 const budget = Number(process.env.FRESH_BUDGET || 240000);
 
 let met = 0, missed = 0, broke = 0;
