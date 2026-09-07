@@ -233,7 +233,7 @@ for (const c of WANTED) {
     `${plan ? plan.steps.length : 'no'} run`);
   // The channel carries both "why there is no plan" and running commentary
   // from a plan that came out fine, so it must not label the second as the
-  // first: "gave up: tidy(atoms): left 34 -> 34" is a plan, not a failure.
+  // first: "gave up: spoils: 34 -> 34 atoms" is a plan, not a failure.
   for (const n of notes) console.log(`      ${plan ? 'note' : 'gave up'}: ${n}`);
 
   if (plan) {

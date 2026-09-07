@@ -901,23 +901,11 @@ export function subgraph(graph, spec) {
 export const FRESH_DEFAULTS = { ways: 3, reach: 9, loops: 3, eaters: 30 };
 
 /**
- * How hard to try not to leave things on the floor: 'off', 'units' or 'atoms'.
- * Ranked above step count, so it is asked before anything is dropped.
- *
- * `atoms`, because `units` cannot tell compressing waste from producing less
- * of it. Weighed by the unit, a plan that vents Liquid Oxygen instead of
- * Oxygen Gas looks four times tidier and throws away exactly as much: on
- * lepidolite `units` reports 4.25 units against 7.25 and twenty-five atoms
- * either way, and it pays seven steps for the privilege. Weighed by matter,
- * with phase packing counted, that trade stops looking like one.
- *
- * What is left is a strict improvement. Four of the five cases come out
- * exactly as they did with this off -- there was no real waste to remove --
- * and columbite drops from twenty-four atoms on the floor to seventeen, in one
- * step fewer, buying its hydrofluoric acid outright instead of going round by
- * magnesium.
+ * The leavings were briefly a thing to minimise, ranked above step count.
+ * Sparr: that is backwards. A plan that buys nothing is giving them away free,
+ * more of them is more value, and fewer steps matters more than either. They
+ * are the last tie-break now and there is nothing to configure.
  */
-export const TIDY_DEFAULT = 'atoms';
 
 export function normalizeFresh(spec) {
   return {
@@ -933,8 +921,6 @@ export function normalizeFresh(spec) {
     loops: spec.loops ?? FRESH_DEFAULTS.loops,
     eaters: spec.eaters ?? FRESH_DEFAULTS.eaters,
     reach: spec.reach ?? FRESH_DEFAULTS.reach,
-    /** 'off', 'units' or 'atoms' -- see TIDY_DEFAULT. */
-    tidy: spec.tidy ?? TIDY_DEFAULT,
   };
 }
 
@@ -1725,34 +1711,26 @@ function planOnce(graph, rawSpec) {
    * nothing in the phase group has a formula to anchor with.
    */
   const perAtom = (name) => graph.db.byName.get(name)?.matter ?? 1;
-  const tidiness = spec.tidy;
-  const tidyCost = tidiness === 'off' ? null
-    : leftoverCost(tidiness === 'atoms' ? perAtom : perUnit);
-  const leftIn = (x) => {
+  /**
+   * What the plan leaves on the floor, priced by matter.
+   *
+   * Used at the very end and not here. Sparr: a plan that buys nothing is
+   * giving those leavings away free, so more of them is more value, and the
+   * only way two plans from the same stock leave different amounts is that
+   * something along the way does not conserve. The game does that on purpose
+   * in places -- air is not modelled, so a reaction helps itself to oxygen
+   * where that is convenient -- and a plan is not wrong for using it.
+   *
+   * So this is no longer a thing to minimise, and it no longer outranks step
+   * count. It breaks the last tie: same shopping list, same draw, same steps,
+   * then take the one that hands back the most.
+   */
+  const spoilsCost = leftoverCost(perAtom);
+  const spoilsIn = (x) => {
     let n = R0;
-    if (tidyCost) for (const [i, a] of tidyCost) n = radd(n, rmul(a, x[i]));
+    for (const [i, a] of spoilsCost) n = radd(n, rmul(a, x[i]));
     return n;
   };
-  let leftTotal = R0;
-  if (tidyCost) {
-    const tidy = attempt(new Set(), [pinnedFetch(base.total), pinnedInput(base.drawn)], tidyCost);
-    if (notes) {
-      notes.push(`tidy(${tidiness}): ` + (tidy
-        ? `left ${rstr(leftIn(base.x))} -> ${rstr(leftIn(tidy.x))}`
-        : 'INFEASIBLE with both tills pinned'));
-    }
-    if (tidy) base = tidy;
-    leftTotal = leftIn(base.x);
-  }
-  /**
-   * Held where it was, like the two tills before it.
-   *
-   * Without this the whole stage was wasted work: the exact pass at the end of
-   * the step-elimination re-minimised the input cost and picked whatever
-   * vertex it liked, so a plan that had just been tidied came back untidy and
-   * every case scored the same with the setting on as with it off.
-   */
-  const pinnedLeft = (t) => ({ coeffs: tidyCost, op: '=', rhs: t });
 
   const demands = [];
 
@@ -1786,11 +1764,8 @@ function planOnce(graph, rawSpec) {
     op: row.op,
     rhs: rnum(row.rhs),
   }));
-  // With tidiness on it is the question that outranks step count, so it is the
-  // one the screen should be heading toward.
-  const floatCost = new Map([...(tidyCost || inputCost)].map(([i, a]) => [i, rnum(a)]));
-  const ceiling = { fetch: rnum(base.total) + 1e-6, drawn: rnum(base.drawn) + 1e-6,
-                    left: rnum(leftTotal) + 1e-6 };
+  const floatCost = new Map([...inputCost].map(([i, a]) => [i, rnum(a)]));
+  const ceiling = { fetch: rnum(base.total) + 1e-6, drawn: rnum(base.drawn) + 1e-6 };
 
   const screen = (banned) => {
     const caps = [];
@@ -1805,11 +1780,7 @@ function planOnce(graph, rawSpec) {
       if (bought(name)) fetched += answer.x[i];
       drawn += answer.x[i];
     }
-    if (fetched > ceiling.fetch || drawn > ceiling.drawn) return false;
-    if (!tidyCost) return true;
-    let left = 0;
-    for (const [i, a] of tidyCost) left += rnum(a) * answer.x[i];
-    return left <= ceiling.left;
+    return fetched <= ceiling.fetch && drawn <= ceiling.drawn;
   };
 
   const banned = new Set();
@@ -1843,11 +1814,49 @@ function planOnce(graph, rawSpec) {
     // The screen decides which to try; the numbers still come from the exact
     // solver, and the loop needs a solution to read its next candidates from.
     const settled = attempt(banned,
-      [pinnedFetch(base.total), pinnedInput(base.drawn),
-       ...(tidyCost ? [pinnedLeft(leftTotal)] : []), ...demands],
-      tidyCost || inputCost);
+      [pinnedFetch(base.total), pinnedInput(base.drawn), ...demands], inputCost);
     if (!settled) { banned.delete([...banned].pop()); break; }
     best = settled;
+  }
+
+  /**
+   * Last of all, and only among answers already equal on everything else.
+   *
+   * The steps are settled, the shopping list is pinned and so is what goes in
+   * at the door, so this cannot trade any of them away. What it can still
+   * choose is which corner of the remaining face to sit in, and Sparr's answer
+   * is the one that leaves the most behind. Free matter is free matter.
+   *
+   * Maximised, which is minimising its negative -- the LP has no other way to
+   * be asked. Where the answer is genuinely determined this changes nothing,
+   * which is most of the time: it only has room to move where the plan runs a
+   * reaction the game does not balance, and those exist on purpose.
+   */
+  if (spoilsCost.size) {
+    /**
+     * Every supply held exactly where it stands, not merely its total.
+     *
+     * Pinning the totals alone was far too loose a rein: maximising what is
+     * left over rewards a plan for running whatever the game does not balance,
+     * and given room to rearrange the shopping list at the same price it took
+     * it. Columbite went from buying thirty atoms to seventy, swapping into
+     * silicon tetrafluoride and slaked lime, and threw a hundred and sixteen
+     * hydrofluoric acid away to do it. Sparr's condition is a constant number
+     * of steps *and inputs* and production ratio, so the inputs have to be
+     * constant one by one.
+     */
+    const fixed = [];
+    for (const [, i] of supply) {
+      fixed.push({ coeffs: new Map([[i, rat(1)]]), op: '=', rhs: best.x[i] });
+    }
+    const richer = attempt(banned, [...fixed, ...demands],
+      new Map([...spoilsCost].map(([i, a]) => [i, rsub(R0, a)])));
+    if (richer) {
+      if (notes) {
+        notes.push(`spoils: ${rstr(spoilsIn(best.x))} -> ${rstr(spoilsIn(richer.x))} atoms left over`);
+      }
+      if (rcmp(spoilsIn(richer.x), spoilsIn(best.x)) > 0) best = richer;
+    }
   }
 
   return assemble(graph, spec, procs, index, supply, best.x, base.total, sub);
