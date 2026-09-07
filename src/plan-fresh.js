@@ -1005,7 +1005,27 @@ export function shortlist(graph, spec, sub, build) {
     op: row.op,
     rhs: rnum(row.rhs),
   }));
+  /**
+   * A thumb on the scale for the shorter way round, where the price is equal.
+   *
+   * The shortlist is settled by one solve, and only what that solve used
+   * survives into the step-elimination -- so a route dropped here can never be
+   * found again, however few steps it would have taken. Which of two equally
+   * cheap routes wins was arbitrary, and Carbon Monoxide to Carbon shows what
+   * that costs: with the potassium loop in the candidate set it shortlists the
+   * potassium route, seven steps, and the four-step hydrogen route is not
+   * merely beaten but absent, `rx:Electrolysis of Water` never having reached
+   * the tableau. Same fetch, same draw per carbon, same leavings, three steps
+   * more.
+   *
+   * So each run costs a little, and among answers the two real questions call
+   * equal the simplex takes the one that runs fewer times. A hundredth of a
+   * step price at a hundred runs, which is far too small to outweigh anything
+   * either question actually cares about -- it decides ties and nothing else.
+   */
+  const NUDGE = 1e-5;
   const cost = new Map([...model.fetchCost].map(([i, a]) => [i, rnum(a)]));
+  for (const [, i] of model.index) cost.set(i, (cost.get(i) || 0) + NUDGE);
   const answer = solveLPFloat({ vars: model.vars, rows, cost });
   if (!answer.ok) return null;
 
@@ -1040,6 +1060,7 @@ export function shortlist(graph, spec, sub, build) {
     rhs: total + 1e-6,
   };
   const drawn = new Map([...model.supply].map(([, i]) => [i, 1]));
+  for (const [, i] of model.index) drawn.set(i, (drawn.get(i) || 0) + NUDGE);
   const second = solveLPFloat({ vars: model.vars, rows: [...rows, cap], cost: drawn });
 
   const chosen = new Set();
