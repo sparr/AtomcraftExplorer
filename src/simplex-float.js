@@ -47,10 +47,11 @@ export function solveLPFloat(problem) {
   // pivoting in circles until the cap, and on the Lepidolite plan that was
   // seven seconds spent before the walk that works even started.
   return attempt(problem, true, 2000) || attempt(problem, false, MAX_PIVOTS) ||
+         attempt(problem, false, MAX_PIVOTS, true) ||
          { ok: false, reason: 'neither walk settled' };
 }
 
-function attempt({ vars, rows, cost, lo = new Map() }, barred, budget) {
+function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = false) {
   const shift = (i) => lo.get(i) || 0;
   const prepared = rows.map((row) => {
     let rhs = row.rhs;
@@ -181,7 +182,7 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget) {
       let pivotAt = 0;
       for (let i = 0; i < height; i++) {
         const a = table[i * stride + enter];
-        if (a <= PIVOT_MIN) continue;
+        if (a <= (loose ? 1e-14 : PIVOT_MIN)) continue;
         const r = table[i * stride + width] / a;
         if (r < ratio - EPS || (Math.abs(r - ratio) <= EPS && a > pivotAt)) {
           ratio = r; leave = i; pivotAt = a;
@@ -211,7 +212,23 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget) {
     if (!run((j) => (art.has(j) ? 1 : 0), barred ? (j) => !art.has(j) : () => true)) return null;
     let total = 0;
     for (let i = 0; i < height; i++) if (art.has(basis[i])) total += table[i * stride + width];
-    if (total > 1e-6) return null;
+
+    /**
+     * Phase one saying "done" with artificials still in it is not always a
+     * verdict of infeasible.
+     *
+     * Setting aside a column with no pivot row is what lets a big tableau make
+     * progress, and it has a failure of its own: if every column that would
+     * improve things gets set aside, the walk believes it has finished while
+     * the artificials are still standing, and reports a feasible problem as
+     * infeasible. The combined factory did exactly that -- eight hundred and
+     * forty-six columns, given up on inside a tenth of a second.
+     *
+     * So when that happens, try once more taking whatever pivot can be found,
+     * however small. It is worse arithmetic and it is the difference between
+     * an answer and none.
+     */
+    if (total > 1e-6 && !loose) return null;
     for (let i = 0; i < height; i++) {
       if (!art.has(basis[i])) continue;
       let swap = -1;

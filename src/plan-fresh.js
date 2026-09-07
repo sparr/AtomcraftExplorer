@@ -176,7 +176,27 @@ export function sourceOf(graph, name, seen = new Set()) {
    * planner is a bad trade, so the eager rule stays until the float pass can
    * carry the wider question.
    */
-  if (!seen.has(name)) {
+  /**
+   * An element is what it is, whatever you dug some of it out of.
+   *
+   * Carbon is minable off a Mite (Fed) and a Mite (Hungry), and following the
+   * mine backward made elemental carbon a farm product -- so a plan that had
+   * switched off growing things could not buy carbon as carbon at any price,
+   * and the Lepidolite plan bought Limestone because that was the only carbon
+   * left standing. Sparr: being able to supply carbon matters, so excluding it
+   * is not the answer.
+   *
+   * The wider version of this rule -- ignore the mine wherever a reaction can
+   * make the thing -- is correct and far too expensive: it moves a few hundred
+   * materials into `made`, and a plan allowed to buy manufactured goods then
+   * has more columns than the doubles can settle. This is the same idea at the
+   * width the evidence supports. Twenty-one materials are pulled into `farm`
+   * by their mines, and exactly one of them is an element.
+   *
+   * Carbon Dioxide is filed as a compound and lands in `farm` the same way,
+   * which is just as wrong and does not matter yet: no plan here buys it.
+   */
+  if (own !== 'element' && !seen.has(name)) {
     seen.add(name);
     for (const p of graph.producers(name)) {
       if (p.kind !== 'mine') continue;
