@@ -1291,6 +1291,304 @@ function querySymbols(text, symbols) {
 return { parseFormula, formulaHtml, querySymbols };
 })();
 
+const __mod_formulas = (() => {
+/**
+ * Formulas for the materials AllMaterials.json leaves blank.
+ *
+ * 833 of the 1871 materials carry no formula at all, and 249 of those can be
+ * pinned down. Three sources, in descending order of how much they should be
+ * trusted:
+ *
+ *   hand      Named compounds whose chemistry is not in doubt, written out
+ *             here because the data simply omits them -- sulfuric acid, lye,
+ *             quicklime. A few also override an inference that a single buggy
+ *             reaction would otherwise have won: "Hydrochloric Acid Dissolves
+ *             Potash" balances only if potash is KOH, but "Aqueous Potash +
+ *             Slaked Lime" is textbook causticisation, so K2CO3 it is.
+ *
+ *   reaction  Solved by conservation of atoms. Where a reaction has exactly
+ *             one participant of unknown composition, the rest of the equation
+ *             determines it. Only kept when two or more independent reactions
+ *             agree: a single reaction is not evidence, because roughly a
+ *             third of them do not conserve atoms in the first place. Nuclear
+ *             decay, beam impact, growth and mining are excluded as sources --
+ *             those are meant not to balance.
+ *
+ *   rule      "Aqueous X" is X dissolved in water, so it is X plus H2O. The
+ *             data agrees where it bothers to say: of the 53 aqueous
+ *             materials, 16 spell the formula "X+H2O" and 10 write a bare "X".
+ *             Those 10 are the reason so many aqueous reactions come out
+ *             short by exactly one water.
+ *
+ * Deliberately absent: 24 materials where the evidence conflicts (limestone
+ * gravel reads as CaCO3 in three reactions and CaO in three others), 122
+ * resting on a single reaction, and everything with a fractional atom count.
+ * Paints, batters and egg yolk have no formula worth writing.
+ *
+ * Regenerate with: node tools/derive-formulas.mjs
+ */
+
+const DERIVED_FORMULAS = {
+  // -- named compounds the data omits, written by hand
+  "Acetic Acid":                                 "C2H4O2",
+  "Aluminum Hydroxide":                          "Al(OH)3",
+  "Ammonium Metavanadate":                       "NH4VO3",
+  "Ammonium Nitrate":                            "NH4NO3",
+  "Ammonium Oxalate":                            "(NH4)2C2O4",
+  "Antimony Oxytrifluoride":                     "SbOF3",
+  "Antimony Pentachloride":                      "SbCl5",
+  "Antimony Pentafluoride":                      "SbF5",
+  "Antimony Pentoxide":                          "Sb2O5",
+  "Antimony Tribromide":                         "SbBr3",
+  "Antimony Trichloride":                        "SbCl3",
+  "Antimony Trifluoride":                        "SbF3",
+  "Antimony Triiodide":                          "SbI3",
+  "Antimony(III) Oxide":                         "Sb2O3",
+  "Aqua Regia":                                  "HNO3+3HCl",
+  "Aqueous Potash":                              "K2CO3+H2O",
+  "Aqueous Potassium Heptafluoroniobate(V)":     "K2NbF7+H2O",
+  "Aqueous Potassium Heptafluorotantalate(V)":   "K2TaF7+H2O",
+  "Heptafluoroniobic Acid":                      "H2NbF7",
+  "Heptafluorotantalic Acid":                    "H2TaF7",
+  "Limestone Gravel":                            "CaCO3",
+  "Limewater":                                   "Ca(OH)2+H2O",
+  "Lye":                                         "NaOH",
+  "Niobium Pentoxide":                           "Nb2O5",
+  "Potash":                                      "K2CO3",
+  "Potassium Heptafluoroniobate(V)":             "K2NbF7",
+  "Potassium Heptafluorotantalate(V)":           "K2TaF7",
+  "Sand":                                        "SiO2",
+  "Seawater":                                    "NaCl+H2O",
+  "Steel":                                       "Fe",
+  "Sulfuric Acid":                               "H2SO4",
+  "Tantalum Pentoxide":                          "Ta2O5",
+
+  // -- solved from reactions, corroborated by two or more of them
+  "Aluminum Vapor":                              "Al",
+  "Balance Input Down to Left":                  "Sr",
+  "Balance Input Down to Right":                 "Sr",
+  "Balance Input Left to Down":                  "Sr",
+  "Balance Input Left to Up":                    "Sr",
+  "Balance Input Right to Down":                 "Sr",
+  "Balance Input Right to Up":                   "Sr",
+  "Balance Input Up to Left":                    "Sr",
+  "Balance Input Up to Right":                   "Sr",
+  "Balance Output Down to Left":                 "Sr",
+  "Balance Output Down to Right":                "Sr",
+  "Balance Output Left to Down":                 "Sr",
+  "Balance Output Left to Up":                   "Sr",
+  "Balance Output Right to Down":                "Sr",
+  "Balance Output Right to Up":                  "Sr",
+  "Balance Output Up to Left":                   "Sr",
+  "Balance Output Up to Right":                  "Sr",
+  "Bits of Balance Input":                       "Sr",
+  "Bits of Balance Output":                      "Sr",
+  "Bits of Bubbler":                             "Cu",
+  "Bits of Electrode":                           "Cu",
+  "Bits of Gun":                                 "Fe",
+  "Bits of Heating Element":                     "CrNi4",
+  "Bits of Heating Element (1000)":              "CrNi4",
+  "Bits of Heating Element (1500)":              "CrNi4",
+  "Bits of Heating Element (2000)":              "CrNi4",
+  "Bits of Laser Amethyst":                      "Cu",
+  "Bits of Laser Beryl":                         "Cu",
+  "Bits of Laser Diamond":                       "Cu",
+  "Bits of Laser Emerald":                       "Cu",
+  "Bits of Laser Ruby":                          "Cu",
+  "Bits of Laser Sapphire":                      "Cu",
+  "Bits of Laser Topaz":                         "Cu",
+  "Bits of Loaded Gun":                          "Fe",
+  "Bits of Pump":                                "Cu",
+  "Bits of Pump Down":                           "Cu",
+  "Bits of Pump Left":                           "Cu",
+  "Bits of Pump Right":                          "Cu",
+  "Bits of Pump Up":                             "Cu",
+  "Bits of Temperature Sensor":                  "Cr",
+  "Bits of Toggleable Pump":                     "Cu",
+  "Bits of Toggleable Pump Down":                "Cu",
+  "Bits of Toggleable Pump Left":                "Cu",
+  "Bits of Toggleable Pump Right":               "Cu",
+  "Bits of Toggleable Pump Up":                  "Cu",
+  "Boric Acid":                                  "H3BO3",
+  "Bubbler":                                     "Cu",
+  "Calcium Nitrate":                             "CaN2O6",
+  "Carbonic Acid":                               "CH2O3",
+  "Ceramic Wall":                                "CCaO3",
+  "Compacted Dirt":                              "H2O3Si",
+  "Copper Vapor":                                "Cu",
+  "Dirt":                                        "H2O3Si",
+  "Electrode Off":                               "Ni",
+  "Electrode On":                                "Ni",
+  "Glass":                                       "O2Si",
+  "Gold Wall":                                   "Au",
+  "Gun (Down) (Off)":                            "Fe",
+  "Gun (Down) (On)":                             "Fe",
+  "Gun (Left) (Off)":                            "Fe",
+  "Gun (Left) (On)":                             "Fe",
+  "Gun (Right) (Off)":                           "Fe",
+  "Gun (Right) (On)":                            "Fe",
+  "Gun (Up) (Off)":                              "Fe",
+  "Gun (Up) (On)":                               "Fe",
+  "Gun Loaded (Down) (Off)":                     "Fe",
+  "Gun Loaded (Down) (On)":                      "Fe",
+  "Gun Loaded (Left) (Off)":                     "Fe",
+  "Gun Loaded (Left) (On)":                      "Fe",
+  "Gun Loaded (Right) (Off)":                    "Fe",
+  "Gun Loaded (Right) (On)":                     "Fe",
+  "Gun Loaded (Up) (Off)":                       "Fe",
+  "Gun Loaded (Up) (On)":                        "Fe",
+  "Heating Element (1000)":                      "CrNi4",
+  "Heating Element (1500)":                      "CrNi4",
+  "Heating Element (2000)":                      "CrNi4",
+  "Heating Element (500)":                       "CrNi4",
+  "Ice":                                         "H2O",
+  "Iron Vapor":                                  "Fe",
+  "Laser Amethyst Down Off":                     "Cu",
+  "Laser Amethyst Down On":                      "Cu",
+  "Laser Amethyst Left Off":                     "Cu",
+  "Laser Amethyst Left On":                      "Cu",
+  "Laser Amethyst Right Off":                    "Cu",
+  "Laser Amethyst Right On":                     "Cu",
+  "Laser Amethyst Up Off":                       "Cu",
+  "Laser Amethyst Up On":                        "Cu",
+  "Laser Beryl Down Off":                        "Cu",
+  "Laser Beryl Down On":                         "Cu",
+  "Laser Beryl Left Off":                        "Cu",
+  "Laser Beryl Left On":                         "Cu",
+  "Laser Beryl Right Off":                       "Cu",
+  "Laser Beryl Right On":                        "Cu",
+  "Laser Beryl Up Off":                          "Cu",
+  "Laser Beryl Up On":                           "Cu",
+  "Laser Diamond Down Off":                      "Cu",
+  "Laser Diamond Down On":                       "Cu",
+  "Laser Diamond Left Off":                      "Cu",
+  "Laser Diamond Left On":                       "Cu",
+  "Laser Diamond Right Off":                     "Cu",
+  "Laser Diamond Right On":                      "Cu",
+  "Laser Diamond Up Off":                        "Cu",
+  "Laser Diamond Up On":                         "Cu",
+  "Laser Emerald Down Off":                      "Cu",
+  "Laser Emerald Down On":                       "Cu",
+  "Laser Emerald Left Off":                      "Cu",
+  "Laser Emerald Left On":                       "Cu",
+  "Laser Emerald Right Off":                     "Cu",
+  "Laser Emerald Right On":                      "Cu",
+  "Laser Emerald Up Off":                        "Cu",
+  "Laser Emerald Up On":                         "Cu",
+  "Laser Ruby Down Off":                         "Cu",
+  "Laser Ruby Down On":                          "Cu",
+  "Laser Ruby Left Off":                         "Cu",
+  "Laser Ruby Left On":                          "Cu",
+  "Laser Ruby Right Off":                        "Cu",
+  "Laser Ruby Right On":                         "Cu",
+  "Laser Ruby Up Off":                           "Cu",
+  "Laser Ruby Up On":                            "Cu",
+  "Laser Sapphire Down Off":                     "Cu",
+  "Laser Sapphire Down On":                      "Cu",
+  "Laser Sapphire Left Off":                     "Cu",
+  "Laser Sapphire Left On":                      "Cu",
+  "Laser Sapphire Right Off":                    "Cu",
+  "Laser Sapphire Right On":                     "Cu",
+  "Laser Sapphire Up Off":                       "Cu",
+  "Laser Sapphire Up On":                        "Cu",
+  "Laser Topaz Down Off":                        "Cu",
+  "Laser Topaz Down On":                         "Cu",
+  "Laser Topaz Left Off":                        "Cu",
+  "Laser Topaz Left On":                         "Cu",
+  "Laser Topaz Right Off":                       "Cu",
+  "Laser Topaz Right On":                        "Cu",
+  "Laser Topaz Up Off":                          "Cu",
+  "Laser Topaz Up On":                           "Cu",
+  "Liquid Hydrogen":                             "H8",
+  "Lithium Hydroxide":                           "HLiO",
+  "Lithium Sulfate":                             "LiO4S",
+  "Lithium Titanate":                            "Li4O12Ti5",
+  "Molten Alumina":                              "Al2O3",
+  "Molten Aluminum":                             "Al",
+  "Molten Ammonium Nitrate":                     "H4N2O3",
+  "Molten Calcium Fluoride":                     "CaF2",
+  "Molten Chromite":                             "Cr2FeO4",
+  "Molten Copper":                               "Cu",
+  "Molten Ferrochrome":                          "Cr2Fe",
+  "Molten Iron":                                 "Fe",
+  "Molten Nichrome":                             "CrNi4",
+  "Molten Salt":                                 "ClNa",
+  "Molten Silica":                               "O2Si",
+  "Molten Silicon":                              "Si",
+  "Molten Steel":                                "Fe",
+  "Molten Stibnite":                             "S3Sb2",
+  "Molten Zinc":                                 "Zn",
+  "Potassium Bisulfate":                         "HKO4S",
+  "Potassium Hydroxide":                         "HKO",
+  "Potassium Sulfide":                           "K2S",
+  "Pump Down":                                   "Cu",
+  "Pump Left":                                   "Cu",
+  "Pump Right":                                  "Cu",
+  "Pump Up":                                     "Cu",
+  "Silver Wall":                                 "Ag",
+  "Silver Wall (Turning Off)":                   "Ag",
+  "Silver Wire (Turning Off)":                   "Ag",
+  "Silver Wire Off":                             "Ag",
+  "Slush":                                       "H2O",
+  "Sodium Aluminate":                            "AlNaO2",
+  "Sodium Silicate":                             "Na2O3Si",
+  "Sodium Sulfide":                              "Na2S",
+  "Steel Wall":                                  "Fe",
+  "Temperature Sensor (1000)":                   "Cr",
+  "Temperature Sensor (1500)":                   "Cr",
+  "Temperature Sensor (2000)":                   "Cr",
+  "Temperature Sensor (500)":                    "Cr",
+  "Toggleable Pump Down":                        "Cu",
+  "Toggleable Pump Down (Active)":               "Cu",
+  "Toggleable Pump Left":                        "Cu",
+  "Toggleable Pump Left (Active)":               "Cu",
+  "Toggleable Pump Right":                       "Cu",
+  "Toggleable Pump Right (Active)":              "Cu",
+  "Toggleable Pump Up":                          "Cu",
+  "Toggleable Pump Up (Active)":                 "Cu",
+  "Vinegar":                                     "C2H6O3",
+  "Yeast":                                       "C",
+  "Zinc Vapor":                                  "Zn",
+  "Zinc Wire":                                   "Zn",
+  "Zinc Wire (Turning Off)":                     "Zn",
+  "Zinc Wire Off":                               "Zn",
+  "Zinc Wire On":                                "Zn",
+
+  // -- "Aqueous X" is X + H2O
+  "Aqueous Ammonium Bromide":                    "H6BrNO",
+  "Aqueous Ammonium Chloride":                   "H6ClNO",
+  "Aqueous Ammonium Iodide":                     "H6INO",
+  "Aqueous Bromine":                             "H2BrO",
+  "Aqueous Chlorine":                            "H2ClO",
+  "Aqueous Iodine":                              "H2IO",
+  "Aqueous Lithium Bromide":                     "H2BrLiO",
+  "Aqueous Lithium Chloride":                    "H2ClLiO",
+  "Aqueous Lithium Hydroxide":                   "H3LiO2",
+  "Aqueous Lithium Iodide":                      "H2ILiO",
+  "Aqueous Lye":                                 "H3NaO2",
+  "Aqueous Magnesium Bromide":                   "H2Br2MgO",
+  "Aqueous Manganese(II) Sulfate":               "H2MnO5S",
+  "Aqueous Potassium Bromide":                   "H2BrKO",
+  "Aqueous Potassium Chloride":                  "H2ClKO",
+  "Aqueous Potassium Fluoride":                  "H2FKO",
+  "Aqueous Potassium Hydroxide":                 "H3KO2",
+  "Aqueous Potassium Iodide":                    "H2IKO",
+  "Aqueous Potassium Nitrate":                   "H2KNO4",
+  "Aqueous Potassium Sulfate":                   "H2K2O5S",
+  "Aqueous Sodium Aluminate":                    "H2AlNaO3",
+  "Aqueous Sodium Bromide":                      "H2BrNaO",
+  "Aqueous Sodium Iodide":                       "H2INaO",
+};
+
+/** The formula we believe a material has, when the game gives none. */
+function derivedFormula(name) {
+  return Object.prototype.hasOwnProperty.call(DERIVED_FORMULAS, name)
+    ? DERIVED_FORMULAS[name] : null;
+}
+
+return { DERIVED_FORMULAS, derivedFormula };
+})();
+
 const __mod_data = (() => {
 /**
  * Loads the baked bundle and builds the lookup structures the UI needs.
@@ -1298,6 +1596,7 @@ const __mod_data = (() => {
  * Everything here is derived once at start-up; the search path only reads.
  */
 const {parseFormula} = __mod_formula;
+const {derivedFormula} = __mod_formulas;
 
 /**
  * Fixed display order for back-reference relationships, so a material's
@@ -1423,7 +1722,11 @@ async function loadData(url = './data/atomcraft.json') {
   const states = bundle.enums.State;
 
   const materials = bundle.materials.map((raw, index) => {
-    const formula = parseFormula(raw.Formula, symbols);
+    // Most of the data carries a formula; 833 materials do not, and for 249 of
+    // those we have worked one out ourselves. Kept distinguishable, because a
+    // derived formula is a belief and the game's is a fact.
+    const derived = raw.Formula ? null : derivedFormula(raw.Name);
+    const formula = parseFormula(raw.Formula || derived, symbols);
     // Isotopes all share their element's localized name ("Lead"), so put the
     // mass number back on to keep them distinguishable in a result list.
     const display = raw.MassNumber ? `${raw.Display || raw.Name}-${raw.MassNumber}`
@@ -1435,6 +1738,7 @@ async function loadData(url = './data/atomcraft.json') {
       display,
       base: baseName(raw.Name),
       formula,
+      formulaDerived: !!derived,
       state: states[raw.State ?? 0] || String(raw.State),
       color: cssColor(raw.Color, raw.Alpha),
       description: raw.Description || '',

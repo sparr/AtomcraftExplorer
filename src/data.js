@@ -4,6 +4,7 @@
  * Everything here is derived once at start-up; the search path only reads.
  */
 import { parseFormula } from './formula.js';
+import { derivedFormula } from './formulas.js';
 
 /**
  * Fixed display order for back-reference relationships, so a material's
@@ -129,7 +130,11 @@ export async function loadData(url = './data/atomcraft.json') {
   const states = bundle.enums.State;
 
   const materials = bundle.materials.map((raw, index) => {
-    const formula = parseFormula(raw.Formula, symbols);
+    // Most of the data carries a formula; 833 materials do not, and for 249 of
+    // those we have worked one out ourselves. Kept distinguishable, because a
+    // derived formula is a belief and the game's is a fact.
+    const derived = raw.Formula ? null : derivedFormula(raw.Name);
+    const formula = parseFormula(raw.Formula || derived, symbols);
     // Isotopes all share their element's localized name ("Lead"), so put the
     // mass number back on to keep them distinguishable in a result list.
     const display = raw.MassNumber ? `${raw.Display || raw.Name}-${raw.MassNumber}`
@@ -141,6 +146,7 @@ export async function loadData(url = './data/atomcraft.json') {
       display,
       base: baseName(raw.Name),
       formula,
+      formulaDerived: !!derived,
       state: states[raw.State ?? 0] || String(raw.State),
       color: cssColor(raw.Color, raw.Alpha),
       description: raw.Description || '',
