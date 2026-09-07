@@ -14,7 +14,9 @@
 import { search } from './search.js';
 import { solvePlan, balanceTargets, routesFor, usesFor,
          rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
-import { solveFresh, blankFresh, SOURCE_KINDS } from './plan-fresh.js';
+import { solveFresh, blankFresh, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
+import { SCORES, optionSets, digest } from './plan-menu.js';
+import { rnum } from './rational.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
 import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
@@ -1176,6 +1178,138 @@ function targetsFor(spec) {
 
 /* ------------------------------------------------------------------ render */
 
+/* ------------------------------------------------------------------- menu */
+
+/**
+ * The same question asked every way the sources allow, side by side.
+ *
+ * Not run unless asked for. Thirty-one solves is forty-five seconds on the
+ * Columbite question, which is a very long time to hold a tab still, so this
+ * does one per turn of the event loop and redraws as each lands. The rows
+ * appear cheapest-first and settle as the slow combinations come in.
+ *
+ * Kept against the *question* rather than the plan, because picking a row
+ * changes the sources and nothing else: the sweep that produced the menu is
+ * still the right sweep, and re-running it because the player took one of its
+ * own suggestions would be absurd.
+ */
+let sweep = null;
+let sweepToken = 0;
+let askedFor = null;
+
+const questionKey = (ask) => JSON.stringify({
+  targets: ask.targets, have: ask.have, plenty: ask.plenty, consume: ask.consume,
+  kinds: ask.kinds, include: ask.include, pins: ask.pins, runs: ask.runs,
+  excludeProcesses: ask.excludeProcesses, excludeMaterials: ask.excludeMaterials,
+  takeCharges: ask.takeCharges, avoidSideEffects: ask.avoidSideEffects,
+  feedBackAll: ask.feedBackAll, noFeedBack: ask.noFeedBack,
+});
+
+const menuTools = () => ({
+  matter: (name) => ctx.graph.db.byName.get(name)?.matter ?? 1,
+  toNumber: rnum,
+});
+
+function startSweep(ask) {
+  const token = ++sweepToken;
+  sweep = { key: questionKey(ask), ask, entries: [], queue: optionSets([...SOURCES]), token };
+  const turn = () => {
+    if (!sweep || sweep.token !== token) return;      // a newer question won
+    const options = sweep.queue.shift();
+    if (!options) { sweep.queue = null; renderMenu(); return; }
+    let answer = null;
+    try {
+      answer = solveFresh(ctx.graph, { ...ask, sources: options });
+    } catch { answer = null; }                        // a combination that cannot: a row of its own
+    sweep.entries.push({ options, plan: answer });
+    renderMenu();
+    setTimeout(turn, 0);
+  };
+  setTimeout(turn, 0);
+}
+
+const sameSources = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+
+function menuRow(row, table) {
+  const tr = el('tr', 'menu-row');
+  if (sameSources(row.via[0], plan.sources)) tr.classList.add('is-current');
+  for (const score of SCORES) {
+    const td = el('td', 'menu-num', String(Math.round(row[score.id] * 100) / 100));
+    if (row.best.includes(score.id)) td.classList.add('is-best');
+    tr.append(td);
+  }
+  const via = el('td', 'menu-via');
+  const label = row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+  const pick = button('link', label, `Switch the plan to ${label}`,
+                      () => setPlan({ ...plan, sources: [...row.via[0]] }));
+  via.append(pick);
+  if (row.via.length > 1) {
+    via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
+  }
+  if (row.best.length) {
+    via.append(el('div', 'menu-best',
+      `best on ${listed(row.best.map((id) => SCORES.find((s) => s.id === id).label))}`));
+  }
+  tr.append(via);
+  table.append(tr);
+}
+
+function renderMenu() {
+  const key = askedFor ? questionKey(askedFor) : null;
+  // A sweep for a question nobody is asking any more. Dropping it is not
+  // tidiness: `turn` reschedules itself, so without this it would go on
+  // solving the old question thirty times over behind a menu that will never
+  // be shown.
+  if (sweep && sweep.key !== key) { sweepToken++; sweep = null; }
+
+  const box = $('#plan-menu');
+  const show = plan.fresh && plan.targets.length > 0;
+  box.hidden = !show;
+  if (!show) return;
+
+  const run = $('#plan-menu-run');
+  const status = $('#plan-menu-status');
+  const body = $('#plan-menu-body');
+  const mine = sweep && sweep.key === key;
+  const running = mine && sweep.queue !== null;
+
+  run.textContent = running ? 'Stop' : (mine ? 'Compare again' : 'Compare options');
+  run.disabled = false;
+
+  if (!mine) {
+    body.textContent = '';
+    status.textContent = 'Thirty-one ways to answer this, scored side by side. It takes a moment.';
+    return;
+  }
+
+  const { menu, distinct, barren } = digest(sweep.entries, menuTools());
+  const done = sweep.entries.length;
+  status.textContent = running
+    ? `${done} of 31 tried…`
+    : `${distinct} different answer${distinct === 1 ? '' : 's'} from 31 ways of asking` +
+      (barren.length ? `; ${barren.length} found no route at all` : '');
+
+  body.textContent = '';
+  if (!menu.length) {
+    body.append(el('p', 'menu-none', running ? 'Working…' : 'No combination of sources can answer this.'));
+    return;
+  }
+  const table = el('table', 'menu-table');
+  const head = el('tr');
+  for (const score of SCORES) {
+    const th = el('th', 'menu-num', score.short);
+    th.title = score.hint;
+    head.append(th);
+  }
+  head.append(el('th', 'menu-via', 'may fetch'));
+  table.append(head);
+  for (const row of menu) menuRow(row, table);
+  body.append(table);
+  body.append(el('p', 'menu-note',
+    'Each row is the best answer at something, and nothing here beats anything else ' +
+    'outright. Numbers are per unit of what you asked for.'));
+}
+
 export function render() {
   const empty = isEmptyPlan(plan);
   $('#plan-empty').hidden = !empty;
@@ -1208,6 +1342,7 @@ export function render() {
   // The fresh solver answers the same question a different way; it fills in
   // enough of the same shape for everything below to render it.
   const ask = { ...question, targets: shownTargets, sources: plan.sources };
+  askedFor = ask;
   if (plan.fresh) {
     // It says null when it cannot answer, and says why if asked. The page has
     // to render something either way, so an empty plan carries the reason.
@@ -1226,6 +1361,7 @@ export function render() {
   if (plan.targets.length || plan.include.length) renderSteps();
   if (!plan.targets.length) renderUses();
   renderSide();
+  renderMenu();
 }
 
 /** The solved plan, for the console and the tests. */
@@ -1235,6 +1371,15 @@ export const lastSolved = () => solved;
 
 export function initPlan(context) {
   ctx = context;
+
+  $('#plan-menu-run').addEventListener('click', () => {
+    const running = sweep && askedFor && sweep.key === questionKey(askedFor) && sweep.queue !== null;
+    // Stopping keeps what has come back so far: half a menu is still a menu,
+    // and the rows that arrive first are the cheap ones.
+    if (running) { sweep.queue = null; renderMenu(); return; }
+    startSweep(askedFor);
+    renderMenu();
+  });
 
   $('#plan-want').append(picker({
     placeholder: 'A material to make',

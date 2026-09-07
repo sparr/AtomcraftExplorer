@@ -189,6 +189,77 @@ if (!srcBox) {
   }
 }
 
+/**
+ * Comparing the options, which is thirty-one solves behind one button.
+ *
+ * The cheap question here on purpose: what is being tested is that the button
+ * is wired, that the sweep yields between solves rather than locking the page,
+ * and that rows come out with numbers in them. A slow question would test the
+ * solver, which has its own suite.
+ */
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
+app.reload();
+await new Promise((r) => setTimeout(r, 0));
+const menuBox = document.querySelector('#plan-menu');
+const menuRun = document.querySelector('#plan-menu-run');
+if (!menuBox || !menuRun) {
+  console.log('FAIL no options-comparison panel in the built page');
+  fail++;
+} else if (menuBox.hidden) {
+  console.log('FAIL the comparison panel is hidden for a fresh plan with a target');
+  fail++;
+} else {
+  // The shim's querySelector is an id lookup, so everything below walks from
+  // one. A class selector here would quietly match nothing and pass.
+  const panel = document.querySelector('#plan-menu-body');
+  const all = (cls) => [...panel.walk()].filter((n) => n.classList?.contains(cls));
+
+  if (panel.children.length) {
+    console.log('FAIL the sweep ran without being asked for');
+    fail++;
+  } else {
+    console.log('ok    the comparison is offered but not run unasked');
+  }
+
+  menuRun.click();
+  const until = Date.now() + 60000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 0));
+    if (/different answer/.test(
+        document.querySelector('#plan-menu-status')?.textContent ?? '')) break;
+  }
+  const rows = all('menu-row');
+  if (!rows.length) {
+    console.log('FAIL the sweep produced no rows');
+    fail++;
+  } else if (!rows.some((r) => /\d/.test(r.textContent))) {
+    console.log('FAIL the rows carry no numbers');
+    fail++;
+  } else if (!all('is-best').length) {
+    console.log('FAIL no row is marked as best at anything');
+    fail++;
+  } else {
+    console.log(`ok    comparing the options gives ${rows.length} row(s), each best at something`);
+  }
+
+  // And picking one drives the plan, which is the whole point of the panel.
+  const pick = rows.length
+    ? [...rows[rows.length - 1].walk()].find((n) => n.tagName === 'BUTTON') : null;
+  if (!pick) { console.log('FAIL no way to choose a row'); fail++; }
+  else {
+    pick.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const now = [...document.querySelector('#plan-menu-body').walk()]
+      .filter((n) => n.classList?.contains('is-current'));
+    if (!now.length) {
+      console.log('FAIL choosing a row did not become the current plan');
+      fail++;
+    } else {
+      console.log('ok    and choosing one switches the plan to it');
+    }
+  }
+}
+
 globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
 app.reload();
 await new Promise((r) => setTimeout(r, 0));

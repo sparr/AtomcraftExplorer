@@ -955,6 +955,35 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
    heading, since there are 69 of them. */
 .filtered-from { font-size: 13px; line-height: 1.7; }
 
+/* ------------------------------------------------------- comparing options */
+
+.plan-menu {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.plan-menu-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.plan-menu-status { color: var(--fg-dim); font-size: 12px; }
+.menu-none { color: var(--fg-dim); margin: 8px 0 0; }
+.menu-table { border-collapse: collapse; margin: 10px 0 0; width: 100%; }
+.menu-table th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--fg-faint); font-weight: 500; text-align: right;
+  padding: 2px 8px; border-bottom: 1px solid var(--line-soft);
+}
+.menu-table th.menu-via { text-align: left; }
+.menu-num { text-align: right; font-family: var(--mono); padding: 3px 8px; white-space: nowrap; }
+/* The point of the table: what each row is the best answer to. */
+td.menu-num.is-best { color: var(--ok); font-weight: 600; }
+.menu-via { padding: 3px 8px 3px 16px; }
+.menu-also { color: var(--fg-faint); font-size: 12px; }
+.menu-best { color: var(--fg-dim); font-size: 12px; }
+.menu-row.is-current { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.menu-row.is-current .menu-via { border-left: 2px solid var(--accent-dim); }
+.menu-note { color: var(--fg-faint); font-size: 12px; margin: 8px 0 0; max-width: 78ch; }
+
 </style>
 </head>
 <body>
@@ -1070,6 +1099,13 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
         <span id="goal-have-add" class="goal-add"></span>
       </div>
     </div>
+    <section id="plan-menu" class="plan-menu" hidden>
+      <div class="plan-menu-head">
+        <button id="plan-menu-run" class="ghost">Compare options</button>
+        <span id="plan-menu-status" class="plan-menu-status"></span>
+      </div>
+      <div id="plan-menu-body"></div>
+    </section>
     <div class="plan-columns">
       <div id="plan-steps" class="plan-steps"></div>
       <aside id="plan-side" class="plan-side"></aside>
@@ -10790,6 +10826,150 @@ function reachableFrom(graph, rawSpec) {
 return { DEFAULT_WEIGHTS, processCost, shareRatio, competitionOf, normalizeSpec, solveCosts, extract, topoOrder, amounts, batchScale, solvePlan, balanceTargets, routesFor, usesFor, reachableFrom, rat, R0, radd, rsub, rmul, rdiv, rcmp, rmax, rmin, rnum, rzero, rstr };
 })();
 
+const __mod_plan_menu = (() => {
+/**
+ * The same question asked several ways, and the answers worth keeping.
+ *
+ * A plan is not one thing. Told it may buy manufactured goods, the Columbite
+ * question comes back with sixteen atoms and thirteen reactors; told it may
+ * only mine, it comes back with forty-four atoms in a single purchase -- twelve
+ * Lepidolite and nothing else to carry. Neither is the right answer. One is for
+ * a player who wants a short shopping list and the other is for a player who
+ * wants to move less rock, and the planner has no way of knowing which.
+ *
+ * So it answers all of them, and this works out which answers are worth
+ * showing. Two rules do nearly all of it:
+ *
+ *   Dedupe by *outcome*, not by the options that produced it. Twelve of the
+ *   thirty-one source sets give the identical Lepidolite plan. Listing twelve
+ *   rows would bury the two real choices.
+ *
+ *   Then keep only what nothing else beats. "Minimal on some score" is the
+ *   obvious rule and it is too loose: on Lepidolite five plans tie at half an
+ *   atom, so all five are minimal on atoms and all five make the list, even
+ *   though one of them is better on reactors and steps with every other column
+ *   equal. Pareto -- drop a row if another is at least as good everywhere and
+ *   better somewhere -- cuts those five to one and leaves genuine trade-offs
+ *   alone.
+ *
+ * Nothing here solves anything. The caller does the solving, one option set at
+ * a time, because in the page that has to happen without locking the tab up.
+ */
+
+/** Scores, and which way is better. Everything is per unit of what was asked. */
+const SCORES = [
+  { id: 'atoms', short: 'atoms', label: 'atoms fetched', dir: 1,
+    hint: 'How much matter you have to go and get' },
+  { id: 'units', short: 'items', label: 'things bought', dir: 1,
+    hint: 'How many items, whatever their size' },
+  { id: 'shop', short: 'list', label: 'shopping list', dir: 1,
+    hint: 'How many different materials to source' },
+  { id: 'reactors', short: 'react', label: 'reactors', dir: 1,
+    hint: 'Machines to build; a step run twice still costs one' },
+  { id: 'steps', short: 'steps', label: 'steps', dir: 1,
+    hint: 'Reactors plus the phase changes, which are free' },
+  { id: 'left', short: 'left', label: 'leftovers', dir: -1,
+    hint: 'Matter left over, which is yours to keep -- more is better' },
+];
+
+/** Every non-empty combination of the categories, smallest first. */
+function optionSets(categories) {
+  const out = [];
+  for (let mask = 1; mask < (1 << categories.length); mask++) {
+    out.push(categories.filter((_, i) => mask & (1 << i)));
+  }
+  return out.sort((a, b) => a.length - b.length);
+}
+
+/**
+ * One solved plan, scored.
+ *
+ * Per unit of target, because the batch size is not a choice anyone made: it
+ * is the lowest common multiple of whatever denominators the steps landed on,
+ * so one answer is quoted for four tantalum and the next for six. Dividing
+ * through is the only way two rows mean the same thing.
+ */
+function measure(plan, { matter, toNumber }) {
+  if (!plan || !plan.steps || !plan.steps.length) return null;
+  const batch = (plan.spec && plan.spec.targets && plan.spec.targets[0] &&
+                 plan.spec.targets[0].amount) || 1;
+  let units = 0;
+  let atoms = 0;
+  for (const f of plan.frontier) {
+    const n = toNumber(f.amount);
+    units += n;
+    atoms += n * matter(f.name);
+  }
+  let left = 0;
+  for (const b of plan.byproducts) left += toNumber(b.amount) * matter(b.name);
+  return {
+    atoms: atoms / batch,
+    units: units / batch,
+    shop: plan.frontier.length,
+    reactors: plan.steps.filter((s) => s.process.kind !== 'phase').length,
+    steps: plan.steps.length,
+    left: left / batch,
+  };
+}
+
+const SAME = 1e-9;
+const signature = (row) => SCORES.map((s) => row[s.id].toFixed(6)).join('|');
+
+/** At least as good everywhere, and better somewhere. */
+function beats(a, b) {
+  let strictly = false;
+  for (const s of SCORES) {
+    const mine = s.dir * a[s.id];
+    const theirs = s.dir * b[s.id];
+    if (mine > theirs + SAME) return false;
+    if (mine < theirs - SAME) strictly = true;
+  }
+  return strictly;
+}
+
+/**
+ * The menu: distinct outcomes that nothing else beats, each labelled with what
+ * it is best at.
+ *
+ * `entries` are `{ options, plan }`, where a null plan means that combination
+ * could not answer -- kept and returned separately, because "farming alone
+ * cannot make tantalum" is worth saying rather than quietly dropping.
+ */
+function digest(entries, tools) {
+  const scored = [];
+  const barren = [];
+  for (const e of entries) {
+    const row = e.plan ? measure(e.plan, tools) : null;
+    if (row) scored.push({ ...row, options: e.options, plan: e.plan });
+    else barren.push(e.options);
+  }
+
+  const byOutcome = new Map();
+  for (const row of scored) {
+    const key = signature(row);
+    if (!byOutcome.has(key)) byOutcome.set(key, { ...row, via: [] });
+    byOutcome.get(key).via.push(row.options);
+  }
+  const distinct = [...byOutcome.values()];
+  // The shortest option set first, so a row is offered by the least the player
+  // has to switch on to reach it.
+  for (const row of distinct) row.via.sort((a, b) => a.length - b.length);
+
+  const menu = distinct.filter((row) =>
+    !distinct.some((other) => other !== row && beats(other, row)));
+  for (const row of menu) {
+    row.best = SCORES.filter((s) => {
+      const mine = s.dir * row[s.id];
+      return !menu.some((other) => s.dir * other[s.id] < mine - SAME);
+    }).map((s) => s.id);
+  }
+  menu.sort((a, b) => a.atoms - b.atoms || a.reactors - b.reactors || a.units - b.units);
+  return { menu, distinct: distinct.length, scored: scored.length, barren };
+}
+
+return { SCORES, optionSets, measure, digest };
+})();
+
 const __mod_plan_view = (() => {
 /**
  * The plan mode's pane: goals at the top, the steps as a table, and everything
@@ -10806,7 +10986,9 @@ const __mod_plan_view = (() => {
  */
 const {search} = __mod_search;
 const {solvePlan, balanceTargets, routesFor, usesFor, rat, rmul, rsub, rstr, rcmp, R0} = __mod_plan_solve;
-const {solveFresh, blankFresh, SOURCE_KINDS} = __mod_plan_fresh;
+const {solveFresh, blankFresh, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
+const {SCORES, optionSets, digest} = __mod_plan_menu;
+const {rnum} = __mod_rational;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
 const {AMBIENT, formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
 const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, toggleSource, setOption, selectMaterial, includeProcess, isFedBack, toggleFedBack, primeInstead, makeInstead, keepOutput, isKept, useUp, isUsedUp, useSpare, isUsingSpare, setOption: setPlanOption, hasPlenty, togglePlenty} = __mod_plan_state;
@@ -11962,6 +12144,138 @@ function targetsFor(spec) {
 
 /* ------------------------------------------------------------------ render */
 
+/* ------------------------------------------------------------------- menu */
+
+/**
+ * The same question asked every way the sources allow, side by side.
+ *
+ * Not run unless asked for. Thirty-one solves is forty-five seconds on the
+ * Columbite question, which is a very long time to hold a tab still, so this
+ * does one per turn of the event loop and redraws as each lands. The rows
+ * appear cheapest-first and settle as the slow combinations come in.
+ *
+ * Kept against the *question* rather than the plan, because picking a row
+ * changes the sources and nothing else: the sweep that produced the menu is
+ * still the right sweep, and re-running it because the player took one of its
+ * own suggestions would be absurd.
+ */
+let sweep = null;
+let sweepToken = 0;
+let askedFor = null;
+
+const questionKey = (ask) => JSON.stringify({
+  targets: ask.targets, have: ask.have, plenty: ask.plenty, consume: ask.consume,
+  kinds: ask.kinds, include: ask.include, pins: ask.pins, runs: ask.runs,
+  excludeProcesses: ask.excludeProcesses, excludeMaterials: ask.excludeMaterials,
+  takeCharges: ask.takeCharges, avoidSideEffects: ask.avoidSideEffects,
+  feedBackAll: ask.feedBackAll, noFeedBack: ask.noFeedBack,
+});
+
+const menuTools = () => ({
+  matter: (name) => ctx.graph.db.byName.get(name)?.matter ?? 1,
+  toNumber: rnum,
+});
+
+function startSweep(ask) {
+  const token = ++sweepToken;
+  sweep = { key: questionKey(ask), ask, entries: [], queue: optionSets([...SOURCES]), token };
+  const turn = () => {
+    if (!sweep || sweep.token !== token) return;      // a newer question won
+    const options = sweep.queue.shift();
+    if (!options) { sweep.queue = null; renderMenu(); return; }
+    let answer = null;
+    try {
+      answer = solveFresh(ctx.graph, { ...ask, sources: options });
+    } catch { answer = null; }                        // a combination that cannot: a row of its own
+    sweep.entries.push({ options, plan: answer });
+    renderMenu();
+    setTimeout(turn, 0);
+  };
+  setTimeout(turn, 0);
+}
+
+const sameSources = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+
+function menuRow(row, table) {
+  const tr = el('tr', 'menu-row');
+  if (sameSources(row.via[0], plan.sources)) tr.classList.add('is-current');
+  for (const score of SCORES) {
+    const td = el('td', 'menu-num', String(Math.round(row[score.id] * 100) / 100));
+    if (row.best.includes(score.id)) td.classList.add('is-best');
+    tr.append(td);
+  }
+  const via = el('td', 'menu-via');
+  const label = row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+  const pick = button('link', label, `Switch the plan to ${label}`,
+                      () => setPlan({ ...plan, sources: [...row.via[0]] }));
+  via.append(pick);
+  if (row.via.length > 1) {
+    via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
+  }
+  if (row.best.length) {
+    via.append(el('div', 'menu-best',
+      `best on ${listed(row.best.map((id) => SCORES.find((s) => s.id === id).label))}`));
+  }
+  tr.append(via);
+  table.append(tr);
+}
+
+function renderMenu() {
+  const key = askedFor ? questionKey(askedFor) : null;
+  // A sweep for a question nobody is asking any more. Dropping it is not
+  // tidiness: `turn` reschedules itself, so without this it would go on
+  // solving the old question thirty times over behind a menu that will never
+  // be shown.
+  if (sweep && sweep.key !== key) { sweepToken++; sweep = null; }
+
+  const box = $('#plan-menu');
+  const show = plan.fresh && plan.targets.length > 0;
+  box.hidden = !show;
+  if (!show) return;
+
+  const run = $('#plan-menu-run');
+  const status = $('#plan-menu-status');
+  const body = $('#plan-menu-body');
+  const mine = sweep && sweep.key === key;
+  const running = mine && sweep.queue !== null;
+
+  run.textContent = running ? 'Stop' : (mine ? 'Compare again' : 'Compare options');
+  run.disabled = false;
+
+  if (!mine) {
+    body.textContent = '';
+    status.textContent = 'Thirty-one ways to answer this, scored side by side. It takes a moment.';
+    return;
+  }
+
+  const { menu, distinct, barren } = digest(sweep.entries, menuTools());
+  const done = sweep.entries.length;
+  status.textContent = running
+    ? `${done} of 31 tried…`
+    : `${distinct} different answer${distinct === 1 ? '' : 's'} from 31 ways of asking` +
+      (barren.length ? `; ${barren.length} found no route at all` : '');
+
+  body.textContent = '';
+  if (!menu.length) {
+    body.append(el('p', 'menu-none', running ? 'Working…' : 'No combination of sources can answer this.'));
+    return;
+  }
+  const table = el('table', 'menu-table');
+  const head = el('tr');
+  for (const score of SCORES) {
+    const th = el('th', 'menu-num', score.short);
+    th.title = score.hint;
+    head.append(th);
+  }
+  head.append(el('th', 'menu-via', 'may fetch'));
+  table.append(head);
+  for (const row of menu) menuRow(row, table);
+  body.append(table);
+  body.append(el('p', 'menu-note',
+    'Each row is the best answer at something, and nothing here beats anything else ' +
+    'outright. Numbers are per unit of what you asked for.'));
+}
+
 function render() {
   const empty = isEmptyPlan(plan);
   $('#plan-empty').hidden = !empty;
@@ -11994,6 +12308,7 @@ function render() {
   // The fresh solver answers the same question a different way; it fills in
   // enough of the same shape for everything below to render it.
   const ask = { ...question, targets: shownTargets, sources: plan.sources };
+  askedFor = ask;
   if (plan.fresh) {
     // It says null when it cannot answer, and says why if asked. The page has
     // to render something either way, so an empty plan carries the reason.
@@ -12012,6 +12327,7 @@ function render() {
   if (plan.targets.length || plan.include.length) renderSteps();
   if (!plan.targets.length) renderUses();
   renderSide();
+  renderMenu();
 }
 
 /** The solved plan, for the console and the tests. */
@@ -12021,6 +12337,15 @@ const lastSolved = () => solved;
 
 function initPlan(context) {
   ctx = context;
+
+  $('#plan-menu-run').addEventListener('click', () => {
+    const running = sweep && askedFor && sweep.key === questionKey(askedFor) && sweep.queue !== null;
+    // Stopping keeps what has come back so far: half a menu is still a menu,
+    // and the rows that arrive first are the cheap ones.
+    if (running) { sweep.queue = null; renderMenu(); return; }
+    startSweep(askedFor);
+    renderMenu();
+  });
 
   $('#plan-want').append(picker({
     placeholder: 'A material to make',
