@@ -782,9 +782,28 @@ export function subgraph(graph, spec) {
      * for anything the plan makes that carries carbon, oxygen or hydrogen,
      * every way of consuming it is offered, and the simplex decides.
      */
+    /**
+     * And a phase change is offered for anything at all, composition aside.
+     *
+     * The filter above asks whether a material carries carbon, oxygen or
+     * hydrogen, which is the right question about a reaction and the wrong one
+     * about cooling something down. Electrolysing Molten Potassium Hydroxide
+     * gives Potassium Gas, and Potassium Gas is potassium: no carbon, no
+     * oxygen, no hydrogen, so the pass would not follow it, `cond:Potassium
+     * Gas` never came in, and Molten Potassium had nothing at all that made
+     * it. The electrolysis was then a step into a dead end, and columbite
+     * bought its potassium by the unit and its carbon besides, because the
+     * loop that would have returned both had a hole in it one cooling wide.
+     *
+     * The pricing already says this -- cooling something is not a route to it,
+     * it is the thing at a different temperature -- and the walk has to agree
+     * or it will keep severing loops at their phase changes.
+     */
+    const recycles = new Set(recyclable);
     let added = 0;
-    for (const name of recyclable) {
-      const eaters = graph.consumers(name).filter(usable).filter(reachable);
+    for (const name of made) {
+      const all = graph.consumers(name).filter(usable).filter(reachable);
+      const eaters = recycles.has(name) ? all : all.filter((p) => p.kind === 'phase');
       for (const p of eaters) {
         if (chosen.has(p.id)) continue;
         take(p);
