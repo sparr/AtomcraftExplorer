@@ -316,9 +316,24 @@ for (const c of WANTED) {
     console.log(`\n!!! ${c.id}: THE PLAN DOES NOT DELIVER -- ` +
       plan.shortfall.map((x) => `${x.name}: asked ${x.asked}, made ${rstr(x.made)}`).join('; '));
   }
+  /**
+   * Reactors, which is what the step count is really asking about.
+   *
+   * Sparr: a step is a reactor you have to build, and once built it runs as
+   * many times as you like -- so how often a step fires does not matter, only
+   * how many distinct ones there are. Phase changes are not among them.
+   * Cooling happens in the open air, and the heating happens inside whichever
+   * reactor wants the hot form, so neither needs a vessel of its own. Filters
+   * do: no heat and no current, but materials still have to be carried to a
+   * place and different ones carried out.
+   *
+   * The raw step count is printed beside it because the plan below lists every
+   * step, phase changes included, and the two numbers should be reconcilable.
+   */
+  const reactors = (plan?.steps || []).filter((s) => s.process.kind !== 'phase').length;
   console.log(`\n--- ${c.id}: ${sub.processes.length} considered, ` +
     `${short ? short.processes.length : 'no'} shortlisted, ` +
-    `${plan ? plan.steps.length : 'no'} run`);
+    `${plan ? `${reactors} reactors in ${plan.steps.length} steps` : 'no plan'}`);
   // The channel carries both "why there is no plan" and running commentary
   // from a plan that came out fine, so it must not label the second as the
   // first: "gave up: spoils: 34 -> 34 atoms" is a plan, not a failure.

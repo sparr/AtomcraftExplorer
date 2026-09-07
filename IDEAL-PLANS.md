@@ -451,10 +451,11 @@ still nothing to buy.
   Steam as case 6
 
 **These two are worth keeping as a pair.** They stand on the same thirteen
-steps and those thirteen should run the same number of times in both; anything
-that moves in one and not the other is either the deoxidation or a bug. It was
-running them together that turned up the paratungstate disagreement, both
-plans leaving the same impossible steam.
+steps, and it should be the same thirteen in both -- not the same number of
+firings, which is nobody's cost. Anything that appears in one and not the
+other is either the deoxidation or a bug. It was running them together that
+turned up the paratungstate disagreement, both plans leaving the same
+impossible steam.
 
 ---
 
@@ -477,6 +478,37 @@ and at the moment the planner only knows how to be asked one of them.
 
 ---
 
+## What a step costs
+
+A step is a reactor you have to build, and once it is built it runs as many
+times as you like. So **how often a step fires does not matter** -- only how
+many distinct ones there are. A plan that runs one reaction ninety times is
+cheaper to stand up than one that runs three reactions twice each. (Sparr)
+
+Phase changes are not reactors. Cooling happens in the open air -- molten
+tantalum wants to be under 3289 K and the world obliges -- and the heating
+happens inside whichever reactor wants the hot form, so melting something on
+the way in needs no vessel of its own. Filters *are* reactors: no heat and no
+current, but materials still have to be carried to a place and different ones
+carried out. (Sparr)
+
+So the counts to compare are reactors, not steps:
+
+| case | reactors | steps |
+|---|---|---|
+| co2-to-carbon | 4 | 4 |
+| co-to-carbon | 4 | 4 |
+| lepidolite | 14 | 22 |
+| columbite | 17 | 21 |
+| combined | 21 | 31 |
+| Iron(II) Tungstate | 20 | 21 |
+| Manganese(II) Tungstate | 15 | 16 |
+
+Where the step counts in the cases above differ from these, they are counting
+reactions, which is the same thing wherever no phase change is involved.
+
+---
+
 ## What to check a solver against
 
 1. Does it pick the **Boudouard equilibrium at 500-725K** rather than venting
@@ -490,9 +522,9 @@ and at the moment the planner only knows how to be asked one of them.
    spending more ore to avoid the shopping list?
 5. Do the two tungstates come out as **one Tungsten and one metal per ore,
    buying nothing**, and do they agree with each other -- the same thirteen
-   steps, each run the same number of times, differing only in how the leftover
-   oxide is reduced? They are a pair on purpose: what moves in one and not the
-   other is either the deoxidation or a bug.
+   steps, differing only in how the leftover oxide is reduced? They are a pair
+   on purpose: what appears in one and not the other is either the deoxidation
+   or a bug.
 6. Does it leave the ore's oxygen alone rather than contriving to dispose of
    it? Leavings from a plan that buys nothing are free product, and the only
    reason two plans off the same ore differ in what they leave is that
