@@ -228,8 +228,10 @@ for (const c of WANTED) {
   console.log(`\n--- ${c.id}: ${sub.processes.length} considered, ` +
     `${short ? short.processes.length : 'no'} shortlisted, ` +
     `${plan ? plan.steps.length : 'no'} run`);
-  // Why there is no plan, when there is no plan.
-  for (const n of notes) console.log(`      gave up: ${n}`);
+  // The channel carries both "why there is no plan" and running commentary
+  // from a plan that came out fine, so it must not label the second as the
+  // first: "gave up: tidy(atoms): left 34 -> 34" is a plan, not a failure.
+  for (const n of notes) console.log(`      ${plan ? 'note' : 'gave up'}: ${n}`);
 
   if (plan) {
     // Per order, since a plan may fill the order several times over.
