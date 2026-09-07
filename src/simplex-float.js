@@ -148,12 +148,24 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
      * pivot, because whether a column can be pivoted on is a fact about the
      * tableau and the tableau has just moved.
      */
-    const dead = new Set();
+    /**
+     * Flags in an array, not membership in a Set.
+     *
+     * These are read once per column per pivot, which on a tableau this size
+     * is millions of times, and a profile put eleven per cent of the whole run
+     * inside `FindOrderedHashSetEntry` -- looking things up in a Set of small
+     * integers. An array of bytes answers the same question by indexing.
+     */
+    const dead = new Uint8Array(width);
+    let anyDead = false;
+    const open = new Uint8Array(width);
+    for (let j = 0; j < width; j++) open[j] = allowed(j) ? 1 : 0;
+
     for (let step = 0; step < budget; step++) {
       let enter = -1;
       let best = -EPS;
       for (let j = 0; j < width; j++) {
-        if (!allowed(j) || dead.has(j)) continue;
+        if (!open[j] || dead[j]) continue;
         if (dual[j] < best) { best = dual[j]; enter = j; }
       }
       if (enter < 0) return true;
@@ -197,19 +209,21 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
        * a verdict, so when it gives up the caller falls back to asking the
        * exact solver about everything -- slow, and right.
        */
-      if (leave < 0) { dead.add(enter); continue; }
+      if (leave < 0) { dead[enter] = 1; anyDead = true; continue; }
       pivot(leave, enter);
       carry(leave, enter);
-      if (dead.size) dead.clear();
+      if (anyDead) { dead.fill(0); anyDead = false; }
     }
     return false;
   };
 
   if (artificial.length) {
     const art = new Set(artificial);
+    const isArt = new Uint8Array(width);
+    for (const j of artificial) isArt[j] = 1;
     // An artificial is scaffolding: it is there to give the basis somewhere to
     // start, and once it has left there is never a reason to let it back.
-    if (!run((j) => (art.has(j) ? 1 : 0), barred ? (j) => !art.has(j) : () => true)) return null;
+    if (!run((j) => isArt[j], barred ? (j) => !isArt[j] : () => true)) return null;
     let total = 0;
     for (let i = 0; i < height; i++) if (art.has(basis[i])) total += table[i * stride + width];
 
@@ -238,7 +252,7 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
       }
       if (swap >= 0) pivot(i, swap);
     }
-    const live = (j) => !art.has(j);
+    const live = (j) => !isArt[j];
     if (!run((j) => cost.get(j) || 0, live)) return null;
   } else if (!run((j) => cost.get(j) || 0, () => true)) {
     return null;

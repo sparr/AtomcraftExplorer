@@ -89,6 +89,7 @@ const WANTED = [
     // and an order is three ore.
     buys: [], carbon: true,
     budget: 1,
+    idealAtoms: 1,   // one Carbon
     leaves: ['Steam', 'Water', 'Hydrofluoric Acid Gas', 'Hydrofluoric Acid',
              'Oxygen Gas', 'Liquid Oxygen', 'Hydrogen Gas'],
   },
@@ -106,6 +107,9 @@ const WANTED = [
     // Four fluorine and four potassium, in whatever carries them, and a water.
     buys: ['Water'], carries: ['F', 'K'],
     budget: 9,
+    // Four Hydrofluoric Acid, four Potassium Hydroxide and a Water is nine
+    // units; as atoms that is 4x2 + 4x3 + 3 = 23.
+    idealAtoms: 23,
     leaves: ['Iron(II) Fluoride', 'Potassium Fluoride', 'Water', 'Steam',
              'Oxygen Gas', 'Liquid Oxygen'],
   },
@@ -126,6 +130,7 @@ const WANTED = [
     // Six Lepidolite to a Columbite, and two carbon. Nothing else at all.
     buys: [], carbon: true,
     budget: 2,
+    idealAtoms: 2,   // two Carbon
     leaves: ['Iron(II) Fluoride', 'Potassium Fluoride', 'Hydrofluoric Acid Gas',
              'Hydrofluoric Acid', 'Water', 'Steam', 'Oxygen Gas', 'Liquid Oxygen'],
   },
@@ -163,6 +168,34 @@ const carbonish = (name) =>
  * what anyone meant. Thirty-one others spell it `F`. Worth fixing at the
  * source; until then, reading it here.
  */
+/**
+ * How many atoms a unit of the stuff is, where the formula can be counted.
+ *
+ * A shopping list measured in units flatters whatever is densest -- one
+ * Silicon Tetrafluoride against four Hydrofluoric Acid -- and measured in
+ * atoms it does not. Neither is the truth on its own: units are what you carry
+ * and atoms are what you are actually buying, so both are printed and the gap
+ * between them says how concentrated the purchase is.
+ */
+function atomsOf(graph, name) {
+  const ast = graph.db.byName.get(name)?.formula?.ast;
+  if (!ast) return null;
+  let total = 0;
+  let ok = true;
+  const walk = (items, times) => {
+    for (const node of items) {
+      if (!ok) return;
+      if (node.k === 'el') total += node.n * times;
+      else if (node.k === 'group') {
+        if (node.branches.length !== 1) { ok = false; return; }
+        walk(node.branches[0], times * node.n);
+      } else if (node.k === 'unknown') { ok = false; return; }
+    }
+  };
+  walk(ast, 1);
+  return ok ? total : null;
+}
+
 const SPELT = { F: ['F', 'Fl'] };
 const carries = (c, name) => (c.carries || []).some((el) =>
   (SPELT[el] || [el]).some((sym) => table.get(name)?.elements?.has(sym) ?? false));
@@ -203,6 +236,16 @@ for (const c of WANTED) {
     const stray = plan.frontier.filter((f) => !allowed(c, f.name));
     console.log(`      fills the order ${orders}x | shopping list: ` +
       (plan.frontier.map((f) => `${f.name}×${rstr(f.amount)}`).join(', ') || 'nothing'));
+    let atoms = 0;
+    let unknown = 0;
+    for (const f of plan.frontier) {
+      const each = atomsOf(graph, f.name);
+      if (each === null) unknown += rnum(f.amount);
+      else atoms += each * rnum(f.amount);
+    }
+    console.log(`      in atoms: ${(atoms / (orders || 1)).toFixed(2)} an order` +
+      (unknown ? ` (plus ${(unknown / (orders || 1)).toFixed(2)} units nothing can count)` : '') +
+      (c.idealAtoms ? `  -- the ideal is ${c.idealAtoms}` : ''));
     console.log(`      ideal buys ${c.budget} per order` +
       (c.buys.length ? ` of: ${c.buys.join(', ')}` : c.carbon ? ' of anything that is carbon' : ', of nothing at all') +
       ` -- this buys ${(bought / (orders || 1)).toFixed(2)}`);
