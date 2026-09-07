@@ -49,6 +49,42 @@ export const CASES = [
     ],
   },
   {
+    /**
+     * The same ore with every source switched on, which is where the carbon
+     * loop came apart: eight Carbon bought and eight Carbon Dioxide vented.
+     * Kept as its own case because the default source set does not reach it --
+     * the wasteful route only becomes affordable once everything is buyable.
+     */
+    id: 'columbite-anything',
+    url: '#mode=plan&t=Tantalum~Niobium&h=Columbite&fr=1&sr=world~weather~air~made',
+    plan: { targets: ['Tantalum', 'Niobium'], have: ['Columbite'],
+            sources: ['world', 'weather', 'air', 'made'] },
+    about: 'The same two metals, allowed to buy anything at all.',
+    /**
+     * Not fixed, and named here so the suite stays honest about it.
+     *
+     * The closed answer is feasible at the same price -- pin the Carbon column
+     * to zero and the model still solves, at the same fetch count and the same
+     * total draw -- so this is a tie broken the wrong way rather than a route
+     * the solver cannot see. The repair pass that fixes the plain columbite
+     * case does not reach this one: it closes the loops on hydrofluoric acid,
+     * molten potassium and potassium oxide, and by then the carbon is bought
+     * somewhere it does not look.
+     *
+     * Listed rather than deleted because the invariant is right and the plan
+     * is wrong. If this ever starts passing, the entry fails as stale and
+     * wants removing.
+     */
+    knownBroken: {
+      'and never buys carbon while it is throwing carbon away':
+        'a tie the repair pass does not reach; see the note above',
+    },
+    want: [
+      ['closes its carbon rather than buying some and venting the rest',
+       (p, { carries }) => !p.frontier.some((f) => carries(f.name, 'C'))],
+    ],
+  },
+  {
     id: 'co2-to-carbon',
     url: '#mode=plan&t=Carbon&h=Carbon+Dioxide',
     plan: { targets: ['Carbon'], have: ['Carbon Dioxide'] },
@@ -134,6 +170,24 @@ export const NEVER = [
    * lays in, which the Lepidolite plan did -- eleven Carbon against eighteen
    * spent -- while quietly running dry on the third batch.
    */
+  /**
+   * Sparr: when a plan both consumes and produces carbon, something is wrong.
+   *
+   * Asked for Tantalum and Niobium with every source switched on, the plan
+   * bought eight Carbon and vented eight Carbon Dioxide -- paying for the
+   * element at the door and throwing the same element out of the back. The
+   * carbon loop closes at the same price, and the model says so: pin the
+   * Carbon column to zero and it is still feasible at the identical fetch
+   * total. It was a tie, and the tie went the wrong way.
+   *
+   * Stated for carbon because that is where the loops are and where it has bit
+   * twice. Oxygen would be the wrong test -- half the game's reactions help
+   * themselves to it and vent the rest, on purpose.
+   */
+  ['and never buys carbon while it is throwing carbon away', (p, { carries }) =>
+    !carries ||
+    !(p.frontier.some((f) => carries(f.name, 'C')) &&
+      p.byproducts.some((b) => carries(b.name, 'C')))],
   ['and never lets a charge stand in for what it never makes enough of',
    (p, { rnum }) =>
      p.priming.every((x) => rnum(p.madeOf(x.name)) >= rnum(p.amountOf(x.name)) ||

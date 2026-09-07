@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
 import { solvePlan, balanceTargets, rstr, rnum, rzero } from '../src/plan-solve.js';
+import { composition } from '../src/composition.js';
 import { CASES, NEVER } from './cases.mjs';
 
 globalThis.fetch = async () => ({
@@ -19,7 +20,10 @@ globalThis.fetch = async () => ({
 
 const db = await loadData();
 const graph = buildProcessGraph(db);
-const kit = { rnum, rzero, rstr };
+// Which elements a material carries, so an invariant can ask.
+const table = composition(graph);
+const carries = (name, el) => table.get(name)?.elements?.has(el) ?? false;
+const kit = { rnum, rzero, rstr, carries };
 
 let fail = 0;
 const ok = (msg) => console.log(`ok    ${msg}`);

@@ -11,6 +11,7 @@ import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
 import { solveFresh } from '../src/plan-fresh.js';
 import { rnum, rzero, rstr } from '../src/rational.js';
+import { composition } from '../src/composition.js';
 import { CASES, NEVER } from './cases.mjs';
 
 globalThis.fetch = async () => ({
@@ -19,7 +20,10 @@ globalThis.fetch = async () => ({
 });
 
 const graph = buildProcessGraph(await loadData());
-const helpers = { rnum, rzero, rstr };
+// Which elements a material carries, so an invariant can ask.
+const table = composition(graph);
+const carries = (name, el) => table.get(name)?.elements?.has(el) ?? false;
+const helpers = { rnum, rzero, rstr, carries };
 const budget = Number(process.env.FRESH_BUDGET || 240000);
 
 let met = 0, missed = 0, broke = 0;
@@ -30,7 +34,8 @@ for (const c of CASES) {
   let plan = null, err = null;
   try {
     plan = solveFresh(graph, { targets: c.plan.targets.map((t) => ({ name: t, amount: 1 })),
-                               have: c.plan.have || [] });
+                               have: c.plan.have || [],
+                               ...(c.plan.sources ? { sources: c.plan.sources } : {}) });
   } catch (e) { err = e; }
   const took = Date.now() - started;
   if (err) { console.log(`      threw after ${took}ms: ${err.message}`); broke++; continue; }
@@ -43,11 +48,44 @@ for (const c of CASES) {
     ` | feed ${plan.feed.map((f) => `${f.name}×${rstr(f.amount)}`).join(', ') || '-'}` +
     ` | over ${plan.byproducts.map((b) => `${b.name}×${rstr(b.amount)}`).join(', ') || '-'}`);
 
-  for (const [label, test] of [...c.want, ...NEVER]) {
+  /**
+   * What the case hopes for is scored; what must never happen is enforced.
+   *
+   * This file was written as an instrument rather than a suite -- how much of
+   * what the reader wants falls out on its own -- and that is still what
+   * `want` is for. The NEVER list is a different thing: those are not
+   * aspirations, and a plan that breaks one is wrong however well it scores,
+   * so the run fails on them and only on them.
+   */
+  for (const [label, test] of c.want) {
     let ok = false;
     try { ok = !!test(plan, helpers); } catch { ok = false; }
     console.log(`      ${ok ? 'MET  ' : 'MISS '} ${label}`);
     if (ok) met++; else missed++;
   }
+  /**
+   * A known break is named in the case and does not fail the run -- but it has
+   * to still be broken. One that starts passing is a note nobody removed, and
+   * a stale note is worse than none, so that fails instead.
+   */
+  for (const [label, test] of NEVER) {
+    const known = c.knownBroken?.[label];
+    let ok = false;
+    try { ok = !!test(plan, helpers); } catch (e) {
+      if (known) { console.log(`      KNOWN ${label} -- ${known}`); continue; }
+      console.log(`      BROKE ${label} -- threw: ${e.message}`);
+      broke++; continue;
+    }
+    if (ok && known) {
+      console.log(`      STALE ${label} -- holds now; drop it from knownBroken`);
+      broke++;
+    } else if (!ok && known) {
+      console.log(`      KNOWN ${label} -- ${known}`);
+    } else if (!ok) {
+      console.log(`      BROKE ${label}`);
+      broke++;
+    }
+  }
 }
-console.log(`\n${met} met, ${missed} missed, ${broke} cases without a plan`);
+console.log(`\n${met} met, ${missed} missed, ${broke} broken`);
+process.exit(broke ? 1 : 0);

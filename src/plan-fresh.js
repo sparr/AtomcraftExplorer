@@ -1843,6 +1843,93 @@ function planOnce(graph, rawSpec) {
     return n;
   };
 
+  /**
+   * Do not pay at the door for what is going out of the back.
+   *
+   * Sparr: when a plan both consumes and produces carbon, something is wrong.
+   * Asked for tantalum and niobium with every source switched on, it bought
+   * eight Carbon and vented eight Carbon Dioxide -- and the closed answer
+   * costs exactly the same, which is the trouble. Pin the Carbon column to
+   * zero and the model is still feasible at the identical fetch total, so this
+   * was never a judgement the objective could make. It was a tie, and ties go
+   * wherever the simplex happened to be standing.
+   *
+   * So it is asked again, once per suspect: for each thing bought that shares
+   * an element with something the plan throws away, try the same plan without
+   * buying it at all. Where that works at the same price the closed answer
+   * wins, and where it does not the purchase was real and stands.
+   *
+   * Carbon is the case this was written for, but the rule is not about carbon
+   * -- buying anything you are simultaneously discarding is the same mistake.
+   * Oxygen is excluded because it is not a mistake there: air is not modelled,
+   * so half the reactions help themselves and vent the rest on purpose.
+   */
+  /**
+   * Kept for the rest of the solve, not just for this pass.
+   *
+   * The step-elimination re-solves from scratch each time it drops a step, and
+   * it was free to buy the carbon straight back -- which it did, so the repair
+   * showed in the notes and never in the answer.
+   */
+  const shut = [];
+  {
+    const table = composition(graph);
+    const elementsOfName = (name) => table.get(name)?.elements;
+    const surplus = () => {
+      const out = new Set();
+      for (const row of rows) {
+        let net = R0;
+        for (const [i, a] of row.coeffs) net = radd(net, rmul(a, base.x[i]));
+        if (rcmp(rsub(net, row.rhs), R0) > 0) out.add(row.name);
+      }
+      return out;
+    };
+    const shares = (a, b) => {
+      const ea = elementsOfName(a); const eb = elementsOfName(b);
+      if (!ea || !eb) return false;
+      for (const el of ea) if (el !== 'O' && eb.has(el)) return true;
+      return false;
+    };
+    // Kept, not re-asked. Pinning one column at a time and starting over let
+    // the solver buy the other one instead, and the pass spent its rounds
+    // swapping Carbon for Hydrofluoric Acid and back.
+    const closedOff = new Set();
+    for (let round = 0; round < 10; round++) {
+      const spare = surplus();
+      // The biggest offender first, not whichever comes first in the map. Taken
+      // in map order it spent its rounds on a Hydrofluoric Acid here and a
+      // Potassium Oxide there and never reached the forty-five Carbon, which
+      // was the whole complaint.
+      const [guilty] = [...supply]
+        .filter(([name, i]) => bought(name) && !closedOff.has(name) && !rzero(base.x[i]) &&
+                               [...spare].some((s) => shares(name, s)))
+        .sort((a, b) => rcmp(base.x[b[1]], base.x[a[1]]) || a[0].localeCompare(b[0]));
+      if (!guilty) break;
+      const shutToo = { coeffs: new Map([[guilty[1], rat(1)]]), op: '=', rhs: R0 };
+      // The draw is capped, not pinned: closing a loop runs more steps on the
+      // same feed and can draw a little less, and an equality there refused
+      // every closed answer on offer.
+      /**
+       * Both capped, neither pinned.
+       *
+       * `pinnedFetch` is an equality on the number of things bought, which is
+       * the right tool for holding an optimum while asking a second question
+       * and the wrong one here: the closed answer buys strictly fewer things,
+       * so an equality refused every one of them. What this pass must not do
+       * is spend more; buying less is the whole point.
+       */
+      const closed = attempt(new Set(),
+        [{ coeffs: sumOf(bought), op: '<=', rhs: base.total },
+         { coeffs: sumOf(() => true), op: '<=', rhs: base.drawn },
+         ...shut, shutToo], inputCost);
+      closedOff.add(guilty[0]);
+      if (!closed) continue;
+      shut.push(shutToo);
+      if (notes) notes.push(`closed the loop on ${guilty[0]} rather than buying it`);
+      base = closed;
+    }
+  }
+
   const demands = [];
 
   /**
@@ -1925,7 +2012,7 @@ function planOnce(graph, rawSpec) {
     // The screen decides which to try; the numbers still come from the exact
     // solver, and the loop needs a solution to read its next candidates from.
     const settled = attempt(banned,
-      [pinnedFetch(base.total), pinnedInput(base.drawn), ...demands], inputCost);
+      [pinnedFetch(base.total), pinnedInput(base.drawn), ...shut, ...demands], inputCost);
     if (!settled) { banned.delete([...banned].pop()); break; }
     best = settled;
   }
