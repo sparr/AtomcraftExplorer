@@ -224,6 +224,15 @@ Counting the shopping list in units rather than in fluorine and potassium is
 what made a plan buying one Silicon Tetrafluoride look four times better than
 one buying four Hydrofluoric Acid, when they are the same purchase.
 
+**In atoms this order costs 35, not 23.** Worth writing down because it is easy
+to get wrong by hand, and I did: `Hydrofluoric Acid` in this game is `HF+H2O`,
+the aqueous acid, so a unit of it is five atoms and not the two the bare
+molecule would be. Four of them are twenty, four Potassium Hydroxide are
+twelve, the Water is three. A plan measured against 23 looks nine over when it
+is under, which is what the scorecard was reporting until the yardstick was
+fixed. Twenty-six of the fifty-three aqueous materials carry their water this
+way.
+
 - **charge:** 20 Molten Potassium and 10 Water, for the carbon loop and the
   water circuit inside it. Neither appears above because both come back.
 
