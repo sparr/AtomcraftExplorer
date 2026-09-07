@@ -60,6 +60,33 @@ const LEPIDOLITE_CHAIN = [
   'rx:Molten Alumina Reduction',
 ];
 
+/**
+ * The four steps that get the tungsten out, and the reagents that come back.
+ *
+ * Both tungstate ores run these thirteen and should run them the same number
+ * of times; what differs between the two cases is only how the leftover metal
+ * oxide is reduced. Keeping them as a pair is the point -- anything that moves
+ * in one and not the other is either the deoxidation or a bug, which is how
+ * the paratungstate disagreement turned up.
+ */
+const TUNGSTEN_CHAIN = [
+  'rx:Sodium Tungstate to APT',
+  'rx:Ammonium Paratungstate Roasting',
+  'rx:Tungsten Trioxide Reduction',
+  // sodium: carbonate -> tungstate -> seawater -> lye -> carbonate
+  'rx:Electrolysis of Seawater',
+  'rx:Carbonic Acid',
+  'rx:Carbonic Acid + Lye',
+  // ammonium and chloride, round to the APT step and back on the seawater
+  'rx:Chlorine Gas + Hydrogen Gas',
+  'evap:Hydrochloric Acid',
+  'rx:HCl Gas + Ammonia Gas',
+  'rx:Aqueous Ammonium Chloride',
+  // hydrogen for the reduction, and the roast's dioxide back to monoxide
+  'rx:Electrolysis of Water',
+  'rx:Electrolysis of Carbon Dioxide',
+];
+
 const WANTED = [
   {
     id: 'co2-to-carbon',
@@ -141,6 +168,46 @@ const WANTED = [
     idealAtoms: 2,   // two Carbon
     leaves: ['Iron(II) Fluoride', 'Potassium Fluoride', 'Hydrofluoric Acid Gas',
              'Hydrofluoric Acid', 'Water', 'Steam', 'Oxygen Gas', 'Liquid Oxygen'],
+  },
+  {
+    id: 'wolframite-iron',
+    targets: [{ name: 'Tungsten', amount: 2 }, { name: 'Iron', amount: 2 }],
+    have: ['Iron(II) Tungstate'],
+    // The chain wants sodium carbonate and ammonium chloride, and both are
+    // manufactured, so this is one of the cases that has to be allowed to buy
+    // them -- it does not, in the end, but it cannot plan without the offer.
+    sources: ['weather', 'air', 'made'],
+    edges: [...TUNGSTEN_CHAIN,
+            'rx:Iron(II) Tungstate + Sodium Carbonate',
+            // No reduction of Iron Oxide exists, so the iron comes out wet:
+            // dissolve, cement with zinc, and put the zinc back.
+            'rx:Sulfuric Acid + Iron Oxide',
+            'rx:Aqueous Iron(II) Sulfate',
+            'rx:Aqueous Iron(II) Sulfate + Zinc',
+            'rx:Aqueous Zinc Sulfate Evaporation',
+            'rx:Zinc Sulfate Decomposition',
+            'rx:Zinc Oxide Reduction 2',
+            'rx:Sulfur Trioxide Gas + Steam'],
+    // FeWO4 holds one of each metal, so two ore make the order and nothing is
+    // bought at all.
+    buys: [], budget: 0, idealAtoms: 0,
+    // The ore's oxygen, and the water the paratungstate disagreement mints --
+    // recorded in FORMULA-ODDITIES.md and allowed rather than scored against.
+    leaves: ['Oxygen Gas', 'Liquid Oxygen', 'Steam', 'Water'],
+  },
+  {
+    id: 'wolframite-manganese',
+    targets: [{ name: 'Tungsten', amount: 2 }, { name: 'Manganese', amount: 2 }],
+    have: ['Manganese(II) Tungstate'],
+    sources: ['weather', 'air', 'made'],
+    edges: [...TUNGSTEN_CHAIN,
+            'rx:Manganese(II) Tungstate + Sodium Carbonate',
+            // Two steps where the iron takes seven, because this reduction
+            // exists and `Iron(II) Oxide Reduction` does not.
+            'rx:Manganese(II) Oxide Reduction',
+            'rx:Boudouard Equilibrium 500-725K'],
+    buys: [], budget: 0, idealAtoms: 0,
+    leaves: ['Oxygen Gas', 'Liquid Oxygen', 'Steam', 'Water'],
   },
 ];
 

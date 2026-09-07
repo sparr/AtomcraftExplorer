@@ -312,6 +312,102 @@ potassium in the carbon loop.
 
 ---
 
+## 6. Iron(II) Tungstate → Tungsten and Iron
+
+`#mode=plan&t=Tungsten~Iron&h=Iron(II)+Tungstate`
+
+**Ideal: 1 Tungsten and 1 Iron per Iron(II) Tungstate** (derived -- wants review)
+
+Mined from Wolframite, which drops this and the manganese tungstate both, and
+from Ferberite, which drops only this. FeWO4 holds one of each metal, so the
+ore count is the order count and there is nothing to argue about there.
+
+The tungsten comes off in four steps:
+
+```
+1 Iron(II) Tungstate + 1 Sodium Carbonate
+      -> 1 Sodium Tungstate + 1 Iron Oxide + 1 Carbon Dioxide
+1 Sodium Tungstate + 1 Aqueous Ammonium Chloride + 1 Hydrochloric Acid
+      -> 1 Ammonium Paratungstate + 2 Seawater
+1 Ammonium Paratungstate -> 1 Tungsten Trioxide + 1 Ammonia Gas + 1 Steam
+1 Tungsten Trioxide + 3 Hydrogen Gas -> 1 Tungsten + 3 Water
+```
+
+and the iron off the oxide the first step leaves, in three:
+
+```
+1 Iron Oxide + 1 Sulfuric Acid -> 1 Iron(II) Sulfate + 1 Water
+1 Iron(II) Sulfate + 1 Water   -> 1 Aqueous Iron(II) Sulfate
+1 Aqueous Iron(II) Sulfate + 1 Zinc -> 1 Aqueous Zinc Sulfate + 1 Iron
+```
+
+**Nothing is bought.** Four reagents go round and come back:
+
+- **sodium**: carbonate into the roast, out as tungstate, out again as the two
+  seawater the APT step makes, electrolysed to lye, and carbonic acid puts the
+  carbonate back together.
+- **ammonium and chloride**: chlorine and hydrogen make the acid, the acid and
+  the ammonia off the roasting make the chloride, the chloride goes into the
+  APT step and the seawater brings the chlorine back.
+- **zinc**: spent cementing the iron out, recovered as sulfate, decomposed to
+  the oxide, reduced by carbon monoxide. The sulfur comes back with it --
+  trioxide and steam remake the sulfuric acid.
+- **hydrogen and carbon**: water electrolysed for the reduction, and the
+  carbon dioxide from the roast electrolysed to monoxide for the zinc.
+
+**Why iron takes the wet route and manganese does not.** There is no reduction
+of Iron Oxide in the game. It is consumed by two reactions and both are acid
+dissolutions, where `Manganese(II) Oxide Reduction` exists and does the job in
+one step -- and the game has `Iron Reduction` for *ferric* oxide, and two more
+for the manganese oxides, so FeO looks like the gap rather than the rule. If
+one is ever added this plan should collapse onto case 7's shape.
+
+- **fetch:** nothing
+- **charge:** the reagents above, laid in once, since all of them return
+- **leaves:** the ore's oxygen, 2 Oxygen Gas per ore
+
+**The steam is not ours.** Each order also sheds a Steam, and that one is
+minted: ammonium paratungstate has no formula and its two reactions imply
+different ones, a water apart (see FORMULA-ODDITIES.md). Eight oxygen go in
+per two ore and ten come out. Sparr: the game breaks conservation on purpose
+in places and a plan is not wrong for using it, so this is recorded and
+allowed rather than scored against.
+
+---
+
+## 7. Manganese(II) Tungstate → Tungsten and Manganese
+
+`#mode=plan&t=Tungsten~Manganese&h=Manganese(II)+Tungstate`
+
+**Ideal: 1 Tungsten and 1 Manganese per Manganese(II) Tungstate** (derived --
+wants review)
+
+Mined from Wolframite alongside the iron one, and from Hubnerite alone. The
+same four tungsten steps as case 6, and three of its four reagent loops --
+sodium, ammonium and chloride, hydrogen and carbon. The zinc and its sulfur
+are case 6's alone, wanted only because the iron has to come out wet. Only the
+deoxidation differs here, and it is two steps against seven:
+
+```
+1 Manganese(II) Oxide + 1 Carbon -> 1 Manganese + 1 Carbon Monoxide
+2 Carbon Monoxide -> 1 Carbon Dioxide + 1 Carbon
+```
+
+The Boudouard hands the carbon back, so the carbon is closed too and there is
+still nothing to buy.
+
+- **fetch:** nothing
+- **leaves:** the ore's oxygen, 2 Oxygen Gas per ore, and the same minted
+  Steam as case 6
+
+**These two are worth keeping as a pair.** They stand on the same thirteen
+steps and those thirteen should run the same number of times in both; anything
+that moves in one and not the other is either the deoxidation or a bug. It was
+running them together that turned up the paratungstate disagreement, both
+plans leaving the same impossible steam.
+
+---
+
 ## A toggle we are going to want
 
 Case 4 buys Hydrofluoric Acid and Potassium Hydroxide. Case 5 buys none of
@@ -342,3 +438,12 @@ and at the moment the planner only knows how to be asked one of them.
    with `rx:Hydrogen Combustion` and `cond:Steam` rather than venting hydrogen?
 4. Does it come out at **3 Lepidolite and 1 carbon** per order, rather than
    spending more ore to avoid the shopping list?
+5. Do the two tungstates come out as **one Tungsten and one metal per ore,
+   buying nothing**, and do they agree with each other -- the same thirteen
+   steps, each run the same number of times, differing only in how the leftover
+   oxide is reduced? They are a pair on purpose: what moves in one and not the
+   other is either the deoxidation or a bug.
+6. Does it leave the ore's oxygen alone rather than contriving to dispose of
+   it? Leavings from a plan that buys nothing are free product, and the only
+   reason two plans off the same ore differ in what they leave is that
+   something between them is not conserving.
