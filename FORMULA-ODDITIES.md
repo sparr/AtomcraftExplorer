@@ -82,6 +82,18 @@ It is not merely cosmetic, because a reaction bridges the two:
 Two fluorine atoms go in and two flerovium atoms come out. Run in a loop, that
 recipe is a superheavy-element generator.
 
+It also put a hole in the planner. Asked to stop buying fluorine, the solver
+shut hydrofluoric acid, calcium fluoride and silicon tetrafluoride, bought
+Magnesium Fluoride instead -- which the composition table did not think was
+fluorine -- and went on venting the same potassium fluoride as before. The
+measurement that came out of that said closing fluorine on the Columbite plan
+cost one extra fetch. With the fourth door shut it is not one fetch, it is
+impossible: the fluorine leaves as potassium fluoride and iron(II) fluoride,
+and no reaction in the game consumes either.
+
+`composition.js` now mends this one formula by name, in `MISWRITTEN`. Not by
+rewriting `Fl` wherever it appears -- seven of the eight mean it.
+
 ### Potash is two different substances
 
     Aqueous Potash + Slaked Lime      -> 2 Aqueous Potassium Hydroxide + Limestone Gravel

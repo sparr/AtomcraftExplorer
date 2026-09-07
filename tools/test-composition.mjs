@@ -93,6 +93,20 @@ const asked = elementsOf(graph, ['Tantalum', 'Niobium']);
 check(asked.has('Ta') && asked.has('Nb') && asked.size === 2,
       'and what was asked for reduces to Ta and Nb');
 
+console.log('\n--- one typo, corrected by name ---');
+// The game writes Magnesium Fluoride as MgFl2, and Fl is flerovium. Seven
+// other formulas say Fl and all seven mean it, so the mend has to be this
+// narrow. Asserted on the answer, not on where the answer came from.
+check(contains(graph, 'Magnesium Fluoride', 'F'),
+      'Magnesium Fluoride is made of fluorine');
+check(!contains(graph, 'Magnesium Fluoride', 'Fl'),
+      'and not of a superheavy that lasts two seconds');
+check(contains(graph, 'Magnesium Fluoride', 'Mg'), 'its magnesium survives the mend');
+check(contains(graph, 'Flerovium', 'Fl') && !contains(graph, 'Flerovium', 'F'),
+      'while flerovium itself is left alone');
+check(elementsOf(graph, ['Magnesium Fluoride', 'Hydrofluoric Acid']).has('F'),
+      'so a question about fluorine reaches both ways of buying it');
+
 console.log('\n--- coverage, and knowing when to say nothing ---');
 const by = { formula: 0, phase: 0, voted: 0 };
 for (const v of table.values()) by[v.source]++;
