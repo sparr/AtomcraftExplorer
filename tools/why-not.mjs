@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, DEFAULT_KINDS } from '../src/plan-graph.js';
-import { solveFresh, subgraph, shortlist, model, normalizeFresh, fetchable, sourceOf, DEFAULT_SOURCES, unprovenBugs }
+import { solveFresh, subgraph, shortlist, model, normalizeFresh, withElements, fetchable, sourceOf, DEFAULT_SOURCES, unprovenBugs }
   from '../src/plan-fresh.js';
 import { rnum, rstr } from '../src/rational.js';
 import { composition } from '../src/composition.js';
@@ -213,8 +213,11 @@ for (const bug of unprovenBugs(graph)) {
 
 for (const c of WANTED) {
   if (only && c.id !== only) continue;
-  const ask = { targets: c.targets, have: c.have, sources: c.sources };
-  const spec = normalizeFresh(ask);
+  const notes = [];
+  const ask = { targets: c.targets, have: c.have, sources: c.sources, notes };
+  // The same spec the solver builds. Without the element sets this walked a
+  // different graph and shortlisted a different set, and then reported on it.
+  const spec = withElements(graph, normalizeFresh(ask));
   const sub = subgraph(graph, spec);
   const inSub = new Set(sub.processes.map((p) => p.id));
 
@@ -231,6 +234,8 @@ for (const c of WANTED) {
   console.log(`\n--- ${c.id}: ${sub.processes.length} considered, ` +
     `${short ? short.processes.length : 'no'} shortlisted, ` +
     `${plan ? plan.steps.length : 'no'} run`);
+  // Why there is no plan, when there is no plan.
+  for (const n of notes) console.log(`      gave up: ${n}`);
 
   if (plan) {
     // Per order, since a plan may fill the order several times over.
@@ -285,9 +290,11 @@ for (const c of WANTED) {
     else if (!spec.kinds.has(p.kind)) verdict = `kind "${p.kind}" is switched off`;
     else if (!inSub.has(id)) verdict = 'NEVER OFFERED -- the candidate walk did not keep it';
     else if (!short) verdict = 'offered, but the shortlist pass failed outright';
+    // Ran beats every other reading of events. Asked last, a step the plan runs
+    // was being reported as one the shortlist never picked.
+    else if (ran.has(id)) verdict = `RUN ${rstr(ran.get(id))}x`;
     else if (!inShort.has(id)) verdict = 'offered and NOT CHOSEN -- the simplex saw it and said no';
-    else if (!ran.has(id)) verdict = 'shortlisted but dropped by the step-elimination';
-    else verdict = `RUN ${rstr(ran.get(id))}x`;
+    else verdict = 'shortlisted but dropped by the step-elimination';
     const mark = verdict.startsWith('RUN') ? 'ok  ' : '    ';
     console.log(`  ${mark}${id.padEnd(52)} ${verdict}`);
   }

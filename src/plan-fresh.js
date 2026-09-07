@@ -542,6 +542,27 @@ export function subgraph(graph, spec) {
    * fewest inputs, every one of them starting from something nothing here
    * could make.
    */
+  /**
+   * Where a chain is allowed to stop.
+   *
+   * Not "can this be fetched" but "will the model actually sell it", and the
+   * two came apart. Turning `made` on makes Silicon fetchable, so the backward
+   * walk stopped there and never went looking for what produces it -- while
+   * `model` refused it a supply column, Silicon being made of the very element
+   * the plan was asked for. Nothing made it and nothing could buy it, so the
+   * combined factory had no plan at all, and said so as "the doubles could not
+   * settle" eight hundred processes later.
+   *
+   * The rules that decide the shopping list therefore have to decide where a
+   * chain bottoms out too, or the walk removes the ground from under a route
+   * the model was counting on. This is the safe direction: everything buyable
+   * is fetchable, so consulting it here only ever keeps the walk going.
+   */
+  const bottomsOut = (name) =>
+    fetchable(graph, name, kinds, spec.sources, spec) &&
+    !holdsATarget(graph, name, spec.wanted) &&
+    !alreadyInHand(graph, name, spec.held);
+
   const depth = new Map();
   for (const name of spec.have) depth.set(name, 0);
   for (const p of allowed) for (const i of inputsOf(p)) {
@@ -633,7 +654,7 @@ export function subgraph(graph, spec) {
     for (const name of front) {
       if (seenBack.has(name)) continue;
       seenBack.add(name);
-      if (spec.have.has(name) || fetchable(graph, name, kinds, spec.sources, spec)) continue;
+      if (spec.have.has(name) || bottomsOut(name)) continue;
       for (const p of pick(graph.producers(name).filter(usable), d === 0)) {
         take(p);
         for (const i of inputsOf(p)) next.push(i.name);
@@ -722,7 +743,7 @@ export function subgraph(graph, spec) {
         added++;
         // What that one needs, so it can actually run.
         for (const i of inputsOf(p)) {
-          if (spec.have.has(i.name) || fetchable(graph, i.name, kinds, spec.sources, spec)) continue;
+          if (spec.have.has(i.name) || bottomsOut(i.name)) continue;
           for (const q of pick(graph.producers(i.name).filter(usable), false)) take(q);
         }
       }
@@ -1152,7 +1173,16 @@ export function fetchPrices(graph, kinds) {
 }
 
 /** The element sets the two composition rules compare against. */
-function withElements(graph, spec) {
+/**
+ * The element sets the composition rules are asked about.
+ *
+ * Exported so a diagnostic can reproduce what the solver actually searched.
+ * `why-not.mjs` built its own subgraph and shortlist without these and was
+ * describing a different search: it reported twelve shortlisted where the plan
+ * ran twenty-seven, and called a step the plan runs twenty-four times "offered
+ * and NOT CHOSEN".
+ */
+export function withElements(graph, spec) {
   const table = composition(graph);
   const setsOf = (names) => names
     .map((n) => elementsIn(graph, n))
@@ -1200,7 +1230,13 @@ export function solveFresh(graph, rawSpec) {
   let best = null;
   for (let round = 0; round < 8; round++) {
     const plan = planOnce(graph, { ...rawSpec, excludeProcesses: [...barred] });
-    if (!plan) return best;
+    if (!plan) {
+      if (rawSpec.notes && round) {
+        rawSpec.notes.push(`...after ${round} round${round === 1 ? '' : 's'} of ` +
+          `barring a free-turning wheel${best ? ', keeping an earlier answer' : ''}`);
+      }
+      return best;
+    }
     /**
      * Handed back, not thrown away. Sparr: do not silently discard a bad plan,
      * surface it. A plan that does not deliver is evidence of a bug somewhere
@@ -1218,9 +1254,23 @@ export function solveFresh(graph, rawSpec) {
 }
 
 function planOnce(graph, rawSpec) {
+  /**
+   * Why there is no plan, when there is no plan.
+   *
+   * Sparr: do not silently discard a bad plan. A missing one is the same
+   * complaint -- five ways out of here return the same bare null, and telling
+   * "the shortlist came back empty" from "the model would not build" from "the
+   * simplex says infeasible" is the whole of knowing where to look. Callers
+   * that want to know pass `notes`; callers that do not are unaffected.
+   */
+  const notes = rawSpec.notes;
+  const giveUp = (why) => { if (notes) notes.push(why); return null; };
+
   const spec = withElements(graph, normalizeFresh(rawSpec));
   const whole = subgraph(graph, spec);
-  if (!whole.processes.length) return null;
+  if (!whole.processes.length) {
+    return giveUp('the candidate walk found no process at all');
+  }
 
   const build = (procs, materials) => model(graph, spec, procs, materials);
   const narrow = shortlist(graph, spec, whole, build);
@@ -1238,14 +1288,20 @@ function planOnce(graph, rawSpec) {
    * a solver that appears to be thinking.
    */
   const TOO_BIG_TO_GRIND = 400;
-  if (!narrow && whole.processes.length > TOO_BIG_TO_GRIND) return null;
+  if (!narrow && whole.processes.length > TOO_BIG_TO_GRIND) {
+    return giveUp(`the doubles could not settle and the whole candidate set is ` +
+      `${whole.processes.length}, past the ${TOO_BIG_TO_GRIND} an exact solve finishes`);
+  }
 
   const sub = narrow || whole;
   const procs = sub.processes;
-  if (!procs.length) return null;
+  if (!procs.length) return giveUp('the shortlist came back empty');
 
   const built = model(graph, spec, procs, sub.materials);
-  if (!built) return null;
+  if (!built) {
+    return giveUp(`no model over ${procs.length} processes -- a target nothing ` +
+      `in the shortlist touches, or no row to constrain it`);
+  }
   const { index, supply, vars, rows, fetchCost, bought } = built;
 
   /** Run the whole thing with some processes forbidden, and say what it cost. */
@@ -1301,7 +1357,10 @@ function planOnce(graph, rawSpec) {
   const pinnedInput = (t) => ({ coeffs: sumOf(() => true), op: '=', rhs: t });
 
   let base = attempt(new Set());
-  if (!base) return null;
+  if (!base) {
+    return giveUp(`the simplex says infeasible over ${procs.length} processes ` +
+      `and ${rows.length} rows -- the shortlist cannot fill the order at all`);
+  }
 
   /**
    * Then as little as possible in at the door, with the till pinned.
