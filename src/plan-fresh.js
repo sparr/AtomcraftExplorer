@@ -989,6 +989,57 @@ export function normalizeFresh(spec) {
  * you like, and everything else costs one a unit, which is the whole of what
  * "fetch total" means.
  */
+/** How coarse a chamber's split may be rounded, and how far off it may land. */
+const SHARE_PARTS = 10;
+const SHARE_SLACK = 0.05;
+
+/**
+ * The gates as small whole numbers.
+ *
+ * Sparr: 52:50:51 should be 1:1:1, and five per cent is an acceptable margin.
+ *
+ * The exact split is a fact about the game's dice and a nuisance about
+ * everything else: three branches at 52, 50 and 51 in 153 mean the chamber has
+ * to turn a hundred and fifty-three times before every count is whole, so a
+ * plan for two metals came back offering fifty. Nobody wants a hundred and
+ * fifty-three of anything to answer a question about two. Rounded to 1:1:1 the
+ * same plan needs three turns.
+ *
+ * The rounding is a search rather than a formula, because the best small ratio
+ * is not the one you get by rounding each share on its own: it is whichever
+ * whole numbers, none bigger than ten, land every branch inside the margin.
+ * Smallest total wins the ties, so 1:1 is preferred to 2:2.
+ *
+ * Returns null when nothing that coarse will do -- two of the composting
+ * chambers fire one time in ten thousand, and there is no ratio in tenths that
+ * says so. Those are left untied rather than rounded into a lie.
+ */
+function simplifyShares(chances) {
+  const n = chances.length;
+  if (n < 2 || n > 4) return null;               // the search is parts^n
+  let best = null;
+  const parts = new Array(n);
+  const walk = (at) => {
+    if (at === n) {
+      let sum = 0;
+      for (const v of parts) sum += v;
+      let worst = 0;
+      for (let i = 0; i < n; i++) {
+        worst = Math.max(worst, Math.abs(parts[i] / sum - chances[i]) / chances[i]);
+      }
+      if (!best || worst < best.worst - 1e-12 ||
+          (Math.abs(worst - best.worst) < 1e-12 && sum < best.sum)) {
+        best = { parts: [...parts], worst, sum };
+      }
+      return;
+    }
+    for (let v = 1; v <= SHARE_PARTS; v++) { parts[at] = v; walk(at + 1); }
+  };
+  walk(0);
+  if (!best || best.worst > SHARE_SLACK) return null;
+  return best.parts.map((v) => rat(BigInt(v), BigInt(best.sum)));
+}
+
 const rivalCache = new WeakMap();
 
 /**
@@ -1054,14 +1105,56 @@ export function rivalGroups(graph) {
      * function's to make: a nought is left untied and goes on being treated
      * the way it always was.
      */
-    const live = members
-      .map((m, i) => [m.id, rdiv(fires[i], total)])
-      .filter(([, chance]) => !rzero(chance));
-    if (live.length < 2) continue;
-    groups.push({ ids: live.map(([id]) => id), chances: live.map(([, c]) => c) });
+    groups.push({
+      ids: members.map((m) => m.id),
+      chances: fires.map((f) => rdiv(f, total)),
+    });
   }
   rivalCache.set(graph, groups);
   return groups;
+}
+
+/** A branch this rare is not a route; it is a rounding error with a label. */
+const NEVER_FIRES = 1 / 100;
+
+/**
+ * What a chamber does, once you know what the plan is for.
+ *
+ * Sparr: anything one in a hundred or less is nought, unless the rare thing is
+ * what you asked for.
+ *
+ * Two rules, and the second is why the first is safe. A branch that fires once
+ * in ten thousand -- the composting chambers -- is not a route anyone can
+ * plan on, and rounding it to a tenth would be a worse lie than dropping it,
+ * so it is pinned to no runs at all. But `Silica Reduction` sits behind an
+ * ungated rival and comes out at nought, and it is the only way from molten
+ * silica to molten silicon: pin that and a plan asked for silicon out of
+ * Lepidolite has no answer, which is not a fact about the game. So a rare
+ * branch that makes something the plan was asked for is exempt, and goes on
+ * being free the way it always was.
+ *
+ * What is left over -- the branches that really do share the chamber -- is
+ * tied at the small whole numbers `simplifyShares` finds.
+ */
+export function chamberShares(graph, id, wanted) {
+  const group = rivalGroups(graph).find((g) => g.ids.includes(id));
+  if (!group) return null;
+  const tiedIds = [];
+  const tiedChances = [];
+  const zeroed = [];
+  for (let i = 0; i < group.ids.length; i++) {
+    const chance = group.chances[i];
+    if (rnum(chance) > NEVER_FIRES) { tiedIds.push(group.ids[i]); tiedChances.push(chance); continue; }
+    const makesAWant = (graph.byId.get(group.ids[i])?.produces || [])
+      .some((o) => holdsATarget(graph, o.name, wanted));
+    if (!makesAWant) zeroed.push(group.ids[i]);
+  }
+  const shares = tiedIds.length > 1 ? simplifyShares(tiedChances.map(rnum)) : null;
+  return {
+    ids: shares ? tiedIds : [],
+    chances: shares || [],
+    zeroed,
+  };
 }
 
 /** Which chamber a reaction shares, if it shares one. */
@@ -1174,10 +1267,18 @@ export function model(graph, spec, procs, materials) {
    * earlier ungated rival takes every tick.
    */
   for (const g of rivalGroups(graph)) {
+    const shared = chamberShares(graph, g.ids[0], spec.wanted);
+    if (!shared) continue;
+    // A branch too rare to plan on, and not the thing being asked for.
+    for (const id of shared.zeroed) {
+      const at = index.get(id);
+      if (at === undefined) continue;
+      rows.push({ name: `chamber:${g.ids[0]}`, coeffs: new Map([[at, rat(1)]]), op: '=', rhs: R0 });
+    }
     const here = [];
-    for (let k = 0; k < g.ids.length; k++) {
-      const at = index.get(g.ids[k]);
-      if (at !== undefined) here.push([at, g.chances[k]]);
+    for (let k = 0; k < shared.ids.length; k++) {
+      const at = index.get(shared.ids[k]);
+      if (at !== undefined) here.push([at, shared.chances[k]]);
     }
     if (here.length < 2) continue;
     const [first, firstChance] = here[0];

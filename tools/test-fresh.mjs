@@ -9,7 +9,8 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
-import { solveFresh, phaseGroup, rivalsOf } from '../src/plan-fresh.js';
+import { solveFresh, phaseGroup, chamberShares, withElements,
+         normalizeFresh } from '../src/plan-fresh.js';
 import { rnum, rzero, rstr } from '../src/rational.js';
 import { composition } from '../src/composition.js';
 import { CASES, NEVER } from './cases.mjs';
@@ -39,12 +40,51 @@ const holdsAWant = (p, name) => {
     return want && want.size && [...want].every((el) => has.has(el));
   });
 };
-// The chamber a reaction shares, if it shares one, with the exact split.
-const chamber = (id) => rivalsOf(graph, id);
+// The chamber a reaction shares, as the planner sees it for this plan: the
+// branches tied to each other, at the rounded split, with the too-rare ones
+// left out.
+const chamber = (p, id) => chamberShares(graph, id, p.spec.wanted);
 const helpers = { rnum, rzero, rstr, carries, sameStuff, holdsAWant, chamber };
 const budget = Number(process.env.FRESH_BUDGET || 240000);
 
 let met = 0, missed = 0, broke = 0;
+
+/**
+ * The chambers, before any plan is solved.
+ *
+ * Sparr: 52:50:51 should be 1:1:1 at a five per cent margin, and anything one
+ * in a hundred or less is nought unless the rare thing is what you asked for.
+ * Both halves are checked here because both are claims about the game rather
+ * than about any one question put to it.
+ */
+console.log('--- chambers');
+const shownAs = (id, wanted) => {
+  const c = chamberShares(graph, id, wanted);
+  return c ? `${c.ids.map((x, i) => rstr(c.chances[i])).join(':') || '-'}` : 'none';
+};
+const wantedFor = (names) => withElements(graph, normalizeFresh({
+  targets: names.map((n) => ({ name: n, amount: 1 })), have: ['Lepidolite'] })).wanted;
+const wantSi = wantedFor(['Silicon']);
+const wantTa = wantedFor(['Tantalum']);
+const chamberChecks = [
+  ['the three Lepidolite branches round 52:50:51 to even thirds',
+   shownAs('rx:Lepidolite Decomposition - Potassium', wantSi) === '1/3:1/3:1/3'],
+  ['and a genuinely lopsided chamber keeps its shape',
+   shownAs('rx:Calcium Sulfide Roasting to Calcium Sulfate', wantSi) === '8/13:5/13'],
+  ['a branch that fires once in ten thousand is pinned to none',
+   chamberShares(graph, 'rx:Compost from Fallen Leaves', wantSi)
+     .zeroed.includes('rx:Compost from Fallen Leaves')],
+  ['a branch that never fires is pinned too, when nobody wants what it makes',
+   chamberShares(graph, 'rx:Silica Reduction', wantTa).zeroed.includes('rx:Silica Reduction')],
+  ['but not when it is the only way to the thing being asked for',
+   !chamberShares(graph, 'rx:Silica Reduction', wantSi).zeroed.length],
+];
+for (const [what, ok] of chamberChecks) {
+  console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+  if (ok) met++; else broke++;
+}
+console.log('');
+
 for (const c of CASES) {
   console.log(`\n--- ${c.id}: ${c.about}`);
   console.log(`      ${c.url}`);

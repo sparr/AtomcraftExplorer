@@ -144,15 +144,14 @@ export const CASES = [
         p.frontier.reduce((a, f) => a + rnum(f.amount), 0) /
           (rnum(p.madeOf('Potassium')) / 2) < 5],
       /**
-       * Three was the bound while the plan could run one branch of the
-       * decomposition on its own. It cannot: the chamber fires its three
-       * branches 52, 50 and 51 times in 153, so the potassium branch is fifty
-       * ticks in a hundred and fifty-three and the ore per potassium cannot
-       * come below 153/50. The old number was not a tighter standard, it was
-       * the measure of a plan that was not possible.
+       * Three, and now for a reason rather than by observation: the chamber
+       * fires its three branches evenly, so a potassium branch costs three
+       * turns of it, and no plan can do better. It briefly read 153/50 while
+       * the gates were being modelled at their exact 52:50:51 -- true then,
+       * and an artefact of the arithmetic rather than of the game.
        */
       ['and no more ore per order than the chamber allows', (p, { rnum }) =>
-        rnum(p.amountOf('Lepidolite')) / (rnum(p.madeOf('Potassium')) / 2) <= 153 / 50],
+        rnum(p.amountOf('Lepidolite')) / (rnum(p.madeOf('Potassium')) / 2) <= 3],
     ],
   },
 ];
@@ -236,9 +235,12 @@ export const NEVER = [
    */
   ['and never runs one branch of a chamber without its rivals', (p, { chamber, rnum }) =>
     !chamber || p.steps.every((step) => {
-      const shared = chamber(step.process.id);
+      const shared = chamber(p, step.process.id);
       if (!shared) return true;
+      // Too rare to plan on and not what was asked for: it may not run at all.
+      if (shared.zeroed.includes(step.process.id)) return false;
       const mineAt = shared.ids.indexOf(step.process.id);
+      if (mineAt < 0) return true;              // exempt, and free as it always was
       const mine = rnum(step.runs) / rnum(shared.chances[mineAt]);
       return shared.ids.every((id, i) => {
         const mate = p.steps.find((other) => other.process.id === id);
