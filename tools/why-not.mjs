@@ -34,6 +34,27 @@ globalThis.fetch = async () => ({
  * Keep this in step with the file. The file is the argument; this is the
  * assertion.
  */
+/**
+ * Closing the carbon on hydrogen, which is what cases 2 and 3 now ask for.
+ *
+ * Reduce the dioxide to monoxide, let the Boudouard split that into carbon and
+ * dioxide, and split the water the reduction made to get the hydrogen back.
+ * Four steps and a charge of one hydrogen.
+ */
+const HYDROGEN_LOOP = [
+  'rx:Boudouard Equilibrium 500-725K',
+  'rx:Electrolysis of Carbon Dioxide',
+  'rx:Electrolysis of Water',
+  'rx:Expansion of Hydrogen Gas x2',
+];
+
+/**
+ * Closing it on potassium instead: five steps and a charge of four potassium,
+ * so it loses to the hydrogen route on its own. Kept because cases 1, 4 and 5
+ * turn the potassium circuit for their own reasons, and where its steps are
+ * already paid for, closing the carbon on it costs one reaction rather than
+ * four. See the note under case 2 in IDEAL-PLANS.md.
+ */
 const CARBON_LOOP = [
   'rx:Molten Potassium + Carbon Dioxide',
   'rx:Potassium Oxide + Water',
@@ -91,7 +112,7 @@ const WANTED = [
   {
     id: 'co2-to-carbon',
     targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Dioxide'],
-    edges: CARBON_LOOP,
+    edges: HYDROGEN_LOOP,
     // One Carbon Dioxide into one Carbon and one Oxygen Gas, and that is all.
     buys: [], budget: 0,
     // The oxygen it came in with, and nothing else.
@@ -100,7 +121,7 @@ const WANTED = [
   {
     id: 'co-to-carbon',
     targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Monoxide'],
-    edges: ['rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
+    edges: HYDROGEN_LOOP,
     // Two carbon monoxide are two carbon, not one and a leftover. Venting the
     // Carbon Dioxide is keeping half the carbon and calling it done.
     buys: [], budget: 0,

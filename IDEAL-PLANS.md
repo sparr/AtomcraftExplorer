@@ -75,18 +75,17 @@ The two metals that are simply in the ore:
 Per Carbon Dioxide:
 
 ```
-1x  4 Molten Potassium + 1 Carbon Dioxide -> 2 Potassium Oxide + 1 Carbon
-2x  1 Potassium Oxide + 1 Water -> 2 Potassium Hydroxide
-2x  2 Molten Potassium Hydroxide -> 2 Potassium Gas + 1 Hydrogen Gas + 1 Oxygen Gas
-1x  2 Hydrogen Gas + 1 Oxygen Gas -> 2 Steam
-2x  1 Steam -> 1 Water
+2x  1 Carbon Dioxide + 1 Hydrogen Gas -> 1 Carbon Monoxide + 1 Water
+1x  2 Carbon Monoxide -> 1 Carbon Dioxide + 1 Carbon    (Boudouard, 500-725K)
+1x  2 Water -> 1 Oxygen Gas + 1 Hydrogen Gas x2
+1x  1 Hydrogen Gas x2 -> 2 Hydrogen Gas
 ```
 
-**The water is a closed loop and the hydrogen does not leave.** (Sparr) Two
-Potassium Oxide take two Water to become four Potassium Hydroxide; electrolysing
-those gives back two Hydrogen Gas and two Oxygen Gas; the hydrogen burns with
-one of those two oxygen into two Steam, which condense to the two Water the
-loop began with. Nothing is consumed by that circuit and nothing is left by it.
+**The hydrogen and the water are a closed loop.** Two dioxide are reduced to
+monoxide, which the Boudouard turns into one carbon and one dioxide back, so
+one dioxide is spent for one carbon. The two water that reduction made are
+split for the two hydrogen it wanted, and the oxygen they were holding is the
+oxygen the carbon dioxide came in with.
 
 So the whole thing comes to what it ought to on the face of it:
 
@@ -94,14 +93,36 @@ So the whole thing comes to what it ought to on the face of it:
 1 Carbon Dioxide -> 1 Carbon + 1 Oxygen Gas
 ```
 
-with four Molten Potassium turning round inside it, and the water and hydrogen
-turning round inside that. Both want laying in once and never buying.
-
 - **fetch:** nothing
-- **charge:** see below -- it depends where you cut the wheel
+- **charge:** one hydrogen, to start the wheel; it comes back every turn
 - **leaves:** 1 Oxygen Gas per Carbon Dioxide, and nothing else
 
-The solver currently answers this correctly. (Sparr)
+### The potassium route, which used to be the ideal here
+
+This case originally named a different circuit, and it is kept because it may
+matter again:
+
+```
+1x  4 Molten Potassium + 1 Carbon Dioxide -> 2 Potassium Oxide + 1 Carbon
+2x  1 Potassium Oxide + 1 Water -> 2 Potassium Hydroxide
+2x  2 Molten Potassium Hydroxide -> 2 Potassium Gas + 1 Hydrogen Gas + 1 Oxygen Gas
+1x  2 Hydrogen Gas + 1 Oxygen Gas -> 2 Steam
+2x  1 Steam -> 1 Water
+```
+
+It reaches the same `1 Carbon Dioxide -> 1 Carbon + 1 Oxygen Gas`, with four
+Molten Potassium turning round inside it and the water and hydrogen turning
+round inside that. Both want laying in once and never buying. (Sparr)
+
+Five steps against four, and a charge of four potassium against one hydrogen,
+so the hydrogen route is the better answer as things stand and the solver
+finds it. What would bring the potassium back is a plan that wants the
+potassium circuit anyway -- cases 1, 4 and 5 all turn it for their own reasons
+-- because then its steps are already paid for and closing the carbon on it
+costs one reaction rather than four. Worth re-checking whenever the carbon
+loop shows up inside a larger plan.
+
+The solver answers this correctly, by the hydrogen route.
 
 ### Where to cut the wheel
 
@@ -136,16 +157,24 @@ know which the reader would rather be told to go and get.
 **Ideal: two carbon out of two carbon monoxide, nothing fetched.** (derived)
 
 ```
-2 Carbon Monoxide -> 1 Carbon Dioxide + 1 Carbon      (Boudouard, 500-725K)
-then the carbon dioxide by the chain in case 2        -> 1 more Carbon
+2x  2 Carbon Monoxide -> 1 Carbon Dioxide + 1 Carbon    (Boudouard, 500-725K)
+2x  1 Carbon Dioxide + 1 Hydrogen Gas -> 1 Carbon Monoxide + 1 Water
+1x  2 Water -> 1 Oxygen Gas + 1 Hydrogen Gas x2
+1x  1 Hydrogen Gas x2 -> 2 Hydrogen Gas
 ```
 
-Both carbons come out. Stopping after the first step and leaving the carbon
-dioxide on the floor — which is what the solver does now — is half an answer.
+Four monoxide into the Boudouard give two carbon and two dioxide; reducing
+those dioxide hands two monoxide back, so two monoxide are spent for two
+carbon. **One carbon monoxide per carbon, which is the whole of it** -- both
+carbons come out. Stopping after the Boudouard and leaving the dioxide on the
+floor is half an answer.
 
 - **fetch:** nothing
-- **charge:** the potassium loop
+- **charge:** one hydrogen, as in case 2
 - **leaves:** oxygen
+
+The potassium route in case 2 works here too and costs a step more; the note
+there applies.
 
 ---
 
