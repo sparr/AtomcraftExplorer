@@ -569,9 +569,58 @@ export function unprovenBugs(graph) { return knownBugs(graph).unproven; }
 export function subgraph(graph, spec) {
   const kinds = spec.kinds;
   const buggy = knownBugs(graph).live;
+  /**
+   * A reaction that eats something static is a reaction done on the spot.
+   *
+   * Sparr: we are not dissolving unmined rocks or the walls of machines. A
+   * static material is one that sits where it was put -- a deposit in the
+   * ground, a placed wall, a growing plant -- and you cannot carry it to the
+   * apparatus, so a recipe that consumes one is not a step in a factory. It is
+   * something you go and do to the landscape, and what it hands back is the
+   * only part that travels.
+   *
+   * `placed` already refused the machinery, being static and not worldly. This
+   * refuses the rest of it: nineteen deposit decompositions that duplicate the
+   * ordinary reaction on the mined ore, and the rock and plant ones besides.
+   *
+   * Reactions only. Melting is not a reaction and Ice is static, so a blanket
+   * rule would take Ice to Water with it; growth eats a standing plant by
+   * definition; and mining a deposit is the one thing you are supposed to do
+   * to a deposit.
+   */
+  /**
+   * Unless it melts into something you can carry.
+   *
+   * Sparr: make an exception for anything with a phase change to a non-static
+   * material. Being static is only a reason to leave it where it is if it
+   * stays that way -- heat a static thing that melts and the melt pours, so
+   * the reaction is on a substance the plan can actually hold rather than on
+   * the landscape. Ice is the everyday case and the ores that go straight to a
+   * melt are the rest of it.
+   *
+   * Thirteen deposits and four terrains come back this way, and about a
+   * hundred machines and sixty projectiles would too -- an oscillator melts
+   * into Molten Copper -- except that `placed` refuses those a line further
+   * down and goes on refusing them. Melting the machinery is still not a
+   * recipe. What stays out is what is truly fixed: sixty-three deposits, the
+   * standing plants, and the growing things.
+   */
+  const meltsOut = (name) => {
+    const raw = graph.db.byName.get(name)?.raw;
+    for (const field of ['Evaporation', 'Condensation']) {
+      const to = raw?.[field]?.TargetMaterialName;
+      if (to && graph.stateOf(to) !== 'Static') return true;
+    }
+    return false;
+  };
+
+  const staticFeed = (p) => p.kind === 'reaction' &&
+    inputsOf(p).some((i) => graph.stateOf(i.name) === 'Static' && !meltsOut(i.name));
+
   const usable = (p) => kinds.has(p.kind) &&
     !buggy.has(p.id) &&
     !spec.excludeProcesses.has(p.id) &&
+    !staticFeed(p) &&
     !inputsOf(p).some((i) => spec.excludeMaterials.has(i.name) || placed(graph, i.name)) &&
     !p.produces.some((o) => spec.excludeMaterials.has(o.name));
   const allowed = graph.processes.filter(usable);
