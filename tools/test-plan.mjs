@@ -1617,5 +1617,34 @@ console.log('\n--- determinism ---');
   check(sig(a) === sig(b), 'the same question gets the same answer');
 }
 
+/**
+ * Balancing asks whichever solver is answering the question.
+ *
+ * Sparr: choosing a row of the scoreboard changed what the plan could fetch,
+ * and the amounts at the top did not move. They could not -- this balanced
+ * every plan with `solvePlan`, which has no notion of source categories, so
+ * the newer solver's questions were being weighed by a solver that could not
+ * read half of them. The amounts came back the same because the thing working
+ * them out never saw the difference.
+ */
+console.log('\n--- balancing uses the solver it is handed ---');
+{
+  let asked = 0;
+  const stub = (g, spec) => { asked++; return null; };
+  const amounts = balanceTargets(graph, {
+    targets: [{ name: 'Carbon', amount: 1 }],
+    have: ['Carbon Dioxide'], balance: true,
+  }, stub);
+  check(asked > 0, 'the solver passed in is the one that gets asked');
+  check(amounts.length === 1 && amounts[0].name === 'Carbon',
+        'and a solver that answers nothing leaves the amounts as they were typed');
+
+  const byDefault = balanceTargets(graph, {
+    targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Dioxide'],
+  });
+  check(Array.isArray(byDefault) && byDefault.length === 1,
+        'while handing it nothing still balances with the older solver');
+}
+
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

@@ -2314,15 +2314,24 @@ function solveOnce(graph, spec) {
  * twelve Lepidolite, and filling those gives 8/2/2/12 rather than the 2/2/2/3
  * that three would have got.
  */
-export function balanceTargets(graph, rawSpec) {
+export function balanceTargets(graph, rawSpec, solveWith = solvePlan) {
   const names = (rawSpec.targets || []).map((t) => (typeof t === 'string' ? t : t.name));
   const typed = (rawSpec.targets || []).map((t) => (typeof t === 'string' ? 1 : t.amount || 1));
   if (!names.length) return [];
 
   /** Solves are the cost here, so they are counted and capped. */
   let budget = 60;
+  /**
+   * Whichever solver is answering the question, not always the older one.
+   *
+   * Sparr: choosing a row of the scoreboard changes what the plan is allowed
+   * to fetch, and the amounts at the top did not move with it. They could not:
+   * this balanced every plan with `solvePlan`, which has no notion of source
+   * categories at all, so the newer solver's questions were being weighed by a
+   * solver that could not read half of them.
+   */
   const solve = (a) => (budget-- > 0
-    ? solvePlan(graph, { ...rawSpec, targets: names.map((n, i) => ({ name: n, amount: a[i] })) })
+    ? solveWith(graph, { ...rawSpec, targets: names.map((n, i) => ({ name: n, amount: a[i] })) })
     : null);
 
   /**
@@ -2336,7 +2345,8 @@ export function balanceTargets(graph, rawSpec) {
   const feedOf = (p) => {
     const feed = new Map();
     for (const n of p.spec.have) {
-      if (p.spec.plenty.has(n)) continue;
+      // The newer solver's spec has no `plenty`; everything it holds is finite.
+      if (p.spec.plenty?.has(n)) continue;
       const net = rsub(p.amountOf(n), p.madeOf(n));
       if (rcmp(net, R0) > 0) feed.set(n, net);
     }

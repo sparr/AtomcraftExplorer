@@ -1171,7 +1171,8 @@ function targetsFor(spec) {
   ]);
   if (key !== balancedFor) {
     balancedFor = key;
-    balancedTo = balanceTargets(ctx.graph, { ...spec, targets: plan.targets });
+    balancedTo = balanceTargets(ctx.graph, { ...spec, targets: plan.targets },
+                                spec.fresh ? solveFresh : undefined);
   }
   return balancedTo;
 }
@@ -1314,8 +1315,9 @@ function renderMenu() {
   for (const row of menu) menuRow(row, table);
   body.append(table);
   body.append(el('p', 'menu-note',
-    'Each row is the best answer at something, and nothing here beats anything else ' +
-    'outright. Numbers are per unit of what you asked for.'));
+    'Nothing here beats anything else outright: every row is better than every ' +
+    'other at something. Most are the best answer at something too, and say so. ' +
+    'Numbers are per unit of what you asked for.'));
 }
 
 export function render() {
@@ -1344,6 +1346,9 @@ export function render() {
     fresh: plan.fresh,
     avoidSideEffects: plan.avoidSideEffects,
     takeCharges: plan.takeCharges,
+    // In the question, not bolted on after: the amounts are balanced from this
+    // object, and a key built from it could not see a change of sources.
+    sources: plan.sources,
   };
   shownTargets = targetsFor(question);
 
