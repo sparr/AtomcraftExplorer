@@ -187,6 +187,24 @@ export const NEVER = [
     !carries ||
     !(p.frontier.some((f) => carries(f.name, 'C')) &&
       p.byproducts.some((b) => carries(b.name, 'C')))],
+  /**
+   * Sparr: asked for Niobium and Tantalum from Columbite, it wanted priming
+   * with a list including both metals, molten, and the acids they pass through.
+   *
+   * Two faults under it. The charge was chosen by giving up on the ordering:
+   * it laid in four Molten Niobium to run the step that freezes them, and two
+   * charges later laid in the carbon to run the reduction that makes Molten
+   * Niobium -- paying for what it was about to produce. And a step was treated
+   * as all-or-nothing, so twenty turns of the Boudouard equilibrium wanted
+   * forty carbon monoxide before it would turn once, which is not how a loop
+   * starts.
+   *
+   * A charge seeds a wheel. Being asked to start with the thing you are trying
+   * to make is the plainest sign that it is doing something else.
+   */
+  ['and never asks to be primed with the thing it is making', (p, { sameStuff }) =>
+    !sameStuff ||
+    p.priming.every((x) => !p.spec.targets.some((t) => sameStuff(x.name, t.name)))],
   ['and never lets a charge stand in for what it never makes enough of',
    (p, { rnum }) =>
      p.priming.every((x) => rnum(p.madeOf(x.name)) >= rnum(p.amountOf(x.name)) ||

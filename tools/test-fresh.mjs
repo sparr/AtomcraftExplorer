@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
-import { solveFresh } from '../src/plan-fresh.js';
+import { solveFresh, phaseGroup } from '../src/plan-fresh.js';
 import { rnum, rzero, rstr } from '../src/rational.js';
 import { composition } from '../src/composition.js';
 import { CASES, NEVER } from './cases.mjs';
@@ -23,7 +23,10 @@ const graph = buildProcessGraph(await loadData());
 // Which elements a material carries, so an invariant can ask.
 const table = composition(graph);
 const carries = (name, el) => table.get(name)?.elements?.has(el) ?? false;
-const helpers = { rnum, rzero, rstr, carries };
+// Whether two materials are the same substance in different states, so an
+// invariant can say "do not ask me to start with the thing I am making".
+const sameStuff = (a, b) => phaseGroup(graph, a) === phaseGroup(graph, b);
+const helpers = { rnum, rzero, rstr, carries, sameStuff };
 const budget = Number(process.env.FRESH_BUDGET || 240000);
 
 let met = 0, missed = 0, broke = 0;

@@ -7715,17 +7715,44 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
     const unlimited = (name) => spec.have.has(name) || drawn.has(name);
     const stock = new Map();
     const held = (name) => stock.get(name) || R0;
-    const left = new Set(steps);
     const charge = new Map();
+    /**
+     * Runs still owed, not steps still to do.
+     *
+     * The first version of this treated a step as all-or-nothing: twenty runs
+     * of the Boudouard equilibrium wanted forty carbon monoxide in the chamber
+     * before it would turn at all. That is not how a loop starts. It wants
+     * enough for one turn, and then it feeds itself -- and asking for the whole
+     * batch up front both invented deadlocks that were not there and, where
+     * one really was, charged twenty times what it takes to break it.
+     */
+    const owed = new Map(steps.map((step) => [step, step.runs]));
+    const floorR = (v) => (rcmp(v, R0) <= 0 ? R0 : rat(v.n / v.d));
 
+    /** How many more times this could run right now, whole times only. */
+    const affordable = (step) => {
+      // Apparatus has to be there, but is not spent.
+      for (const r of step.process.requires) {
+        if (unlimited(r.name)) continue;
+        if (rcmp(held(r.name), rat(r.count)) < 0) return R0;
+      }
+      let times = owed.get(step);
+      for (const i of step.process.consumes) {
+        if (unlimited(i.name) || !i.count) continue;
+        const can = rdiv(held(i.name), rat(i.count));
+        if (rcmp(can, times) < 0) times = can;
+      }
+      return floorR(times);
+    };
+
+    /** What one more turn of it would want that is not to hand. */
     const missing = (step) => {
       const short = [];
       for (const i of step.process.consumes) {
         if (unlimited(i.name)) continue;
-        const want = rmul(step.runs, rat(i.count));
+        const want = rat(i.count);
         if (rcmp(held(i.name), want) < 0) short.push([i.name, rsub(want, held(i.name))]);
       }
-      // Apparatus has to be there, but is not spent.
       for (const r of step.process.requires) {
         if (unlimited(r.name)) continue;
         if (rcmp(held(r.name), rat(r.count)) < 0) {
@@ -7734,29 +7761,86 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
       }
       return short;
     };
-    const run = (step) => {
+
+    const fire = (step, times) => {
       for (const i of step.process.consumes) {
         if (unlimited(i.name)) continue;
-        stock.set(i.name, rsub(held(i.name), rmul(step.runs, rat(i.count))));
+        stock.set(i.name, rsub(held(i.name), rmul(times, rat(i.count))));
       }
       for (const o of step.process.produces) {
-        stock.set(o.name, radd(held(o.name), rmul(step.runs, rat(o.count))));
+        stock.set(o.name, radd(held(o.name), rmul(times, rat(o.count))));
       }
-      left.delete(step);
+      owed.set(step, rsub(owed.get(step), times));
     };
 
     const fetched = new Set(frontier.map((f) => f.name));
-    let guard = steps.length + 1;
-    while (left.size && guard-- > 0) {
-      const ready = [...left].find((step) => !missing(step).length);
-      if (ready) { run(ready); continue; }
+    const stillOwed = () => steps.filter((step) => rcmp(owed.get(step), R0) > 0);
+
+    // Every pass either turns something or lays something in, and a charge is
+    // always enough to turn the thing it was laid in for, so this ends.
+    let guard = steps.length * 64 + 64;
+    for (;;) {
+      const left = stillOwed();
+      if (!left.length || guard-- <= 0) break;
+
+      let moved = false;
+      for (const step of left) {
+        const times = affordable(step);
+        if (rcmp(times, R0) > 0) { fire(step, times); moved = true; }
+      }
+      if (moved) continue;
+
+      /**
+       * Only a wheel needs a push.
+       *
+       * Nothing can turn, so at least one of what is left is in a loop: follow
+       * a blocked step back through whatever it waits for and you either reach
+       * something runnable, which contradicts being stuck, or you arrive back
+       * where you started. A step that is *not* in a loop is therefore never
+       * the one to charge -- it is waiting its turn, and running its producer
+       * first would have done.
+       *
+       * Without this the Columbite plan laid in four Molten Niobium to run the
+       * step that freezes them, and then, two charges later, laid in the carbon
+       * to run the reduction that makes Molten Niobium. It was paying for the
+       * thing it was about to make, having given up on the ordering early.
+       */
+      const producersOf = new Map();
+      for (const step of left) {
+        for (const o of step.process.produces) {
+          if (!producersOf.has(o.name)) producersOf.set(o.name, []);
+          producersOf.get(o.name).push(step);
+        }
+      }
+      const waitsOn = (step) => {
+        const out = [];
+        for (const [name] of missing(step)) out.push(...(producersOf.get(name) || []));
+        return out;
+      };
+      const inLoop = (start) => {
+        const seen = new Set();
+        const stack = [...waitsOn(start)];
+        while (stack.length) {
+          const step = stack.pop();
+          if (step === start) return true;
+          if (seen.has(step)) continue;
+          seen.add(step);
+          stack.push(...waitsOn(step));
+        }
+        return false;
+      };
+      const wheels = left.filter(inLoop);
+      // If nothing is in a loop this is a deadlock it does not understand, and
+      // charging something still beats handing back a plan that cannot start.
+      const candidates = wheels.length ? wheels : left;
+
       const pending = new Set();
       for (const step of left) for (const o of step.process.produces) pending.add(o.name);
       /**
        * And a charge has to be something you could turn up holding.
        *
        * Priced by the shopping list alone, Molten Tantalum costs one and Water
-       * costs three, so breaking the deadlock by laying in four Molten Tantalum
+       * costs three, so breaking the deadlock by laying in Molten Tantalum
        * looked like the bargain -- for a plan whose whole purpose is to make
        * tantalum, and which is barred from buying any precisely because it is
        * the thing being asked for. Anything the shopping list would refuse is
@@ -7769,7 +7853,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
          !alreadyInHand(graph, name, spec.held));
       const OUT_OF_REACH = 1e6;
       let best = null;
-      for (const step of left) {
+      for (const step of candidates) {
         const short = missing(step);
         const price = short.reduce((a, [name, amount]) =>
           a + (gettable(name) ? (prices.get(name) ?? 1) : OUT_OF_REACH) * rnum(amount), 0);
@@ -7778,11 +7862,11 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
           best = { step, short, price, outside };
         }
       }
+      if (!best || !best.short.length) break;
       for (const [name, amount] of best.short) {
         charge.set(name, radd(charge.get(name) || R0, amount));
         stock.set(name, radd(held(name), amount));
       }
-      run(best.step);
     }
     for (const [name, amount] of charge) {
       if (rcmp(amount, R0) > 0) priming.push({ name, amount });
@@ -7828,7 +7912,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
   return plan;
 }
 
-return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, model, shortlist, fetchPrices, withElements, blankFresh, solveFresh };
+return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, solveFresh };
 })();
 
 const __mod_plan_state = (() => {
