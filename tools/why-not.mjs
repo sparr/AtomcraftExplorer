@@ -113,8 +113,11 @@ const WANTED = [
     buys: ['Water'], carries: ['F', 'K'],
     budget: 9,
     // Four Hydrofluoric Acid, four Potassium Hydroxide and a Water is nine
-    // units; as atoms that is 4x2 + 4x3 + 3 = 23.
-    idealAtoms: 23,
+    // units. As atoms it is 35, not the 23 this said before: the game's
+    // Hydrofluoric Acid is `HF+H2O` and so five atoms a unit, not the two the
+    // bare molecule would be. Counting it at two made every columbite plan
+    // look further over its ideal than it was.
+    idealAtoms: 35,
     leaves: ['Iron(II) Fluoride', 'Potassium Fluoride', 'Water', 'Steam',
              'Oxygen Gas', 'Liquid Oxygen'],
   },

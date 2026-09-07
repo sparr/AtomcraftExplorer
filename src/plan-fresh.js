@@ -1166,13 +1166,33 @@ export function fetchPrices(graph, kinds) {
    * and Potash -- so it costs both, which is slightly worse than buying the
    * two, and it should be.
    */
+  /**
+   * What going and getting one costs, before any recipe is considered.
+   *
+   * Not one. Everything the world hands over used to cost a unit however much
+   * of it a unit was, so Carbon at one atom cost the same as Aqueous Potassium
+   * Hydroxide at six, and a plan minimising its shopping list learnt to carry
+   * its fluorine home dissolved in as much else as possible. Columbite bought
+   * sixty-eight Hydrofluoric Acid and sixty Potassium Oxide and came out four
+   * atoms over its ideal while its unit count looked fine.
+   *
+   * A unit's matter is what you are actually carrying, so that is the price.
+   * One where nothing in the phase group has a formula to anchor with, which
+   * is the old behaviour and the most that can be said about it.
+   */
+  const carrying = (name) => graph.db.byName.get(name)?.matter ?? 1;
+
   const price = (name) => {
     if (table.has(name)) return table.get(name);
     if (busy.has(name)) return Infinity;
-    if (sourceOf(graph, name) !== 'made') { table.set(name, 1); return 1; }
+    if (sourceOf(graph, name) !== 'made') {
+      const each = carrying(name);
+      table.set(name, each);
+      return each;
+    }
 
     const makers = graph.producers(name).filter((p) => kinds.has(p.kind));
-    if (!makers.length) { table.set(name, 1); return 1; }
+    if (!makers.length) { const each = carrying(name); table.set(name, each); return each; }
 
     /**
      * Phase changes are not alternatives to each other.
@@ -1203,7 +1223,7 @@ export function fetchPrices(graph, kinds) {
         if (sum / out < best) best = sum / out;
       }
       busy.delete(name);
-      const answer = Number.isFinite(best) ? Math.max(best, 1) : 1;
+      const answer = Number.isFinite(best) ? Math.max(best, 1) : carrying(name);
       table.set(name, answer);
       return answer;
     }
@@ -1222,7 +1242,11 @@ export function fetchPrices(graph, kinds) {
         else shared.set(n, Math.min(per, here.get(n)));
       }
     }
-    if (!shared.size) { table.set(name, 1); return 1; }
+    // Nothing shared between the routes, so the recipe says nothing about what
+    // it costs -- but a unit of it is still a unit of something, and that much
+    // is known. Sparr's rule is that the flexibility is worth keeping out of;
+    // it is not that the stuff is free.
+    if (!shared.size) { const each = carrying(name); table.set(name, each); return each; }
 
     busy.add(name);
     let sum = STEP_PRICE;
@@ -1233,7 +1257,7 @@ export function fetchPrices(graph, kinds) {
     }
     busy.delete(name);
 
-    const answer = Number.isFinite(sum) ? Math.max(sum, 1) : 1;
+    const answer = Number.isFinite(sum) ? Math.max(sum, 1) : carrying(name);
     table.set(name, answer);
     return answer;
   };

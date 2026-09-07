@@ -225,6 +225,17 @@ in `KLi3Al4O10(OH,F)2`. This one is realistic rather than wrong: lepidolite is
 the principal ore of rubidium. It does mean the drop table knows something the
 formula does not.
 
+### Hydrofluoric acid is five atoms, not two
+
+`Hydrofluoric Acid` is written `HF+H2O`: it is the aqueous acid, and a unit of
+it carries a water. Which is correct, and easy to forget when counting by
+hand -- the columbite ideal was recorded as costing 23 atoms on the reading
+that HF is two, where the recipe it names actually costs 35.
+
+Twenty-six of the fifty-three aqueous materials carry their water this way.
+Anything counting atoms off a name rather than a formula will be wrong about
+all of them.
+
 ### A unit of liquid hydrogen is four units of gas
 
 21 of the 657 phase transitions are not 1:1. Hydrogen gas condenses **4 to 1**
