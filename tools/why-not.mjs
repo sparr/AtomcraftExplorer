@@ -84,6 +84,11 @@ const WANTED = [
     targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
               { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
     have: ['Lepidolite'],
+    // Sparr: let it buy manufactured goods. Carbon is a `made` resource, so
+    // with this off the ideal was unsatisfiable -- the best carbon it could
+    // legally buy was Limestone at five atoms where the ideal asks for one.
+    // (Still want this faster; it is the slowest of the five.)
+    sources: ['weather', 'air', 'made'],
     edges: [...LEPIDOLITE_CHAIN, 'rx:Boudouard Equilibrium 500-725K', ...CARBON_LOOP],
     // Nine carbon in and eight back, so one thing that is carbon per three ore,
     // and an order is three ore.

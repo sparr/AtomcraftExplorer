@@ -812,6 +812,12 @@ export function subgraph(graph, spec) {
 
 export const FRESH_DEFAULTS = { ways: 3, reach: 9, loops: 3, eaters: 30 };
 
+/**
+ * How hard to try not to leave things on the floor: 'off', 'units' or 'atoms'.
+ * Ranked above step count, so it is asked before anything is dropped.
+ */
+export const TIDY_DEFAULT = 'off';
+
 export function normalizeFresh(spec) {
   return {
     targets: (spec.targets || []).map((t) =>
@@ -826,6 +832,8 @@ export function normalizeFresh(spec) {
     loops: spec.loops ?? FRESH_DEFAULTS.loops,
     eaters: spec.eaters ?? FRESH_DEFAULTS.eaters,
     reach: spec.reach ?? FRESH_DEFAULTS.reach,
+    /** 'off', 'units' or 'atoms' -- see TIDY_DEFAULT. */
+    tidy: spec.tidy ?? TIDY_DEFAULT,
   };
 }
 
@@ -909,7 +917,9 @@ export function model(graph, spec, procs, materials) {
     const coeffs = net.get(name);
     if (!coeffs || !coeffs.size) continue;
     constrained.add(name);
-    rows.push({ coeffs, op: '>=', rhs: demand.get(name) || R0 });
+    // The name rides along so a later pass can weigh this row's slack -- which
+    // is exactly the leftover of this material -- by what a unit of it is.
+    rows.push({ name, coeffs, op: '>=', rhs: demand.get(name) || R0 });
   }
   if (!rows.length) return null;
 
@@ -1443,6 +1453,66 @@ function planOnce(graph, rawSpec) {
    * where requiring it costs nothing at the till -- a stock that cannot be
    * used without buying more is a stock the plan is right to leave alone.
    */
+  /**
+   * Then as little left on the floor, with both tills pinned.
+   *
+   * Sparr: minimising leftovers outranks minimising steps. A row's slack is
+   * that material's leftover -- it is what the plan makes and neither uses nor
+   * was asked for -- so the sum of the slacks is linear and the simplex can be
+   * asked for it directly, no counting required.
+   *
+   * `units` counts a leftover Magnesium Oxide the same as a leftover Oxygen
+   * Gas; `atoms` counts what is actually being thrown away, and is the reason
+   * to prefer a one-atom carrier over a five-atom one. Where a material has no
+   * countable formula a unit is worth one, which is the most that can be said.
+   */
+  const leftoverCost = (weigh) => {
+    const c = new Map();
+    for (const row of rows) {
+      const w = weigh(row.name);
+      if (!w) continue;
+      const each = rat(Math.round(w * 64), 64n);
+      for (const [i, a] of row.coeffs) c.set(i, radd(c.get(i) || R0, rmul(a, each)));
+    }
+    return c;
+  };
+  const perUnit = () => 1;
+  const perAtom = (name) => {
+    const counts = graph.db.byName.get(name)?.atoms;
+    if (!counts) return 1;
+    let n = 0;
+    for (const v of counts.values()) n += v;
+    return n || 1;
+  };
+  const tidiness = spec.tidy;
+  const tidyCost = tidiness === 'off' ? null
+    : leftoverCost(tidiness === 'atoms' ? perAtom : perUnit);
+  const leftIn = (x) => {
+    let n = R0;
+    if (tidyCost) for (const [i, a] of tidyCost) n = radd(n, rmul(a, x[i]));
+    return n;
+  };
+  let leftTotal = R0;
+  if (tidyCost) {
+    const tidy = attempt(new Set(), [pinnedFetch(base.total), pinnedInput(base.drawn)], tidyCost);
+    if (notes) {
+      notes.push(`tidy(${tidiness}): ` + (tidy
+        ? `left ${rstr(leftIn(base.x))} -> ${rstr(leftIn(tidy.x))}`
+        : 'INFEASIBLE with both tills pinned'));
+    }
+    if (tidy) base = tidy;
+    leftTotal = leftIn(base.x);
+  }
+  /**
+   * Held where it was, like the two tills before it.
+   *
+   * Without this the whole stage was wasted work: the exact pass at the end of
+   * the step-elimination re-minimised the input cost and picked whatever
+   * vertex it liked, so a plan that had just been tidied came back untidy and
+   * every case scored the same with the setting on as with it off.
+   */
+  const pinnedLeft = (t) => ({ coeffs: tidyCost, op: '=', rhs: t });
+
   const demands = [];
 
   /**
@@ -1475,8 +1545,11 @@ function planOnce(graph, rawSpec) {
     op: row.op,
     rhs: rnum(row.rhs),
   }));
-  const floatCost = new Map([...inputCost].map(([i, a]) => [i, rnum(a)]));
-  const ceiling = { fetch: rnum(base.total) + 1e-6, drawn: rnum(base.drawn) + 1e-6 };
+  // With tidiness on it is the question that outranks step count, so it is the
+  // one the screen should be heading toward.
+  const floatCost = new Map([...(tidyCost || inputCost)].map(([i, a]) => [i, rnum(a)]));
+  const ceiling = { fetch: rnum(base.total) + 1e-6, drawn: rnum(base.drawn) + 1e-6,
+                    left: rnum(leftTotal) + 1e-6 };
 
   const screen = (banned) => {
     const caps = [];
@@ -1491,7 +1564,11 @@ function planOnce(graph, rawSpec) {
       if (bought(name)) fetched += answer.x[i];
       drawn += answer.x[i];
     }
-    return fetched <= ceiling.fetch && drawn <= ceiling.drawn;
+    if (fetched > ceiling.fetch || drawn > ceiling.drawn) return false;
+    if (!tidyCost) return true;
+    let left = 0;
+    for (const [i, a] of tidyCost) left += rnum(a) * answer.x[i];
+    return left <= ceiling.left;
   };
 
   const banned = new Set();
@@ -1525,7 +1602,9 @@ function planOnce(graph, rawSpec) {
     // The screen decides which to try; the numbers still come from the exact
     // solver, and the loop needs a solution to read its next candidates from.
     const settled = attempt(banned,
-      [pinnedFetch(base.total), pinnedInput(base.drawn), ...demands], inputCost);
+      [pinnedFetch(base.total), pinnedInput(base.drawn),
+       ...(tidyCost ? [pinnedLeft(leftTotal)] : []), ...demands],
+      tidyCost || inputCost);
     if (!settled) { banned.delete([...banned].pop()); break; }
     best = settled;
   }
