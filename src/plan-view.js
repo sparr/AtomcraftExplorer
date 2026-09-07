@@ -14,6 +14,7 @@
 import { search } from './search.js';
 import { solvePlan, balanceTargets, routesFor, usesFor,
          rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
+import { solveFresh } from './plan-fresh.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
 import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
@@ -1099,6 +1100,7 @@ function renderOptions() {
   $('#plan-avoid').checked = plan.avoidSideEffects;
   $('#plan-feedback').checked = plan.feedBackAll;
   $('#plan-charges').checked = plan.takeCharges;
+  $('#plan-fresh').checked = plan.fresh;
 }
 
 /* --------------------------------------------------------------- balancing */
@@ -1171,15 +1173,16 @@ export function render() {
     feedBackAll: plan.feedBackAll,
     noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,
+    fresh: plan.fresh,
     avoidSideEffects: plan.avoidSideEffects,
     takeCharges: plan.takeCharges,
   };
   shownTargets = targetsFor(question);
 
-  solved = solvePlan(ctx.graph, {
-    ...question,
-    targets: shownTargets,
-  });
+  // The fresh solver answers the same question a different way; it fills in
+  // enough of the same shape for everything below to render it.
+  const ask = { ...question, targets: shownTargets };
+  solved = plan.fresh ? solveFresh(ctx.graph, ask) : solvePlan(ctx.graph, ask);
 
   renderGoals();
   // With nothing named to make, the question is "what can I do with this?" --
@@ -1236,6 +1239,8 @@ export function initPlan(context) {
     edit(setOption, 'feedBackAll', e.target.checked));
   $('#plan-charges').addEventListener('change', (e) =>
     edit(setOption, 'takeCharges', e.target.checked));
+  $('#plan-fresh').addEventListener('change', (e) =>
+    edit(setOption, 'fresh', e.target.checked));
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;

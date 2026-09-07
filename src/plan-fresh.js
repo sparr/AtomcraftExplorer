@@ -18,6 +18,7 @@
  */
 import { DEFAULT_KINDS } from './plan-graph.js';
 import { composition, elementsOf } from './composition.js';
+import { heatingNeed, coolingNeed } from './units.js';
 import { solveLP } from './simplex.js';
 import { solveLPFloat } from './simplex-float.js';
 import { rat, R0, radd, rsub, rmul, rdiv, rcmp, rnum, rzero, rstr, lcm }
@@ -917,6 +918,12 @@ export function normalizeFresh(spec) {
     sources: new Set(spec.sources || DEFAULT_SOURCES),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
+    /**
+     * Not used to solve anything -- this solver has no notion of spending a
+     * byproduct on purpose -- but the page reads it off the plan to mark which
+     * steps are running on something spare, so it has to be here to be empty.
+     */
+    alsoUse: new Set(spec.alsoUse || []),
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
     loops: spec.loops ?? FRESH_DEFAULTS.loops,
     eaters: spec.eaters ?? FRESH_DEFAULTS.eaters,
@@ -1959,8 +1966,22 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
     else if (rcmp(short, R0) < 0) spare.set(name, rsub(R0, short));
   }
 
-  const steps = [...runs].map(([id, n]) => ({ process: graph.byId.get(id), runs: n }))
-    .sort((a, b) => a.process.id.localeCompare(b.process.id));
+  /**
+   * Each step's temperature range, as stated rather than as negotiated.
+   *
+   * The older solver trims a step's window to one that sets nothing else off
+   * and records what it dodged; this reports the floor and ceiling the recipe
+   * names and nothing more. `avoided` and `unavoidable` are empty because no
+   * such trimming was attempted -- not because a step is known to be clear of
+   * side effects. The page draws the range from these three either way.
+   */
+  const steps = [...runs].map(([id, n]) => {
+    const p = graph.byId.get(id);
+    const c = p.conditions || {};
+    return { process: p, runs: n,
+             window: { lo: c.temperature ?? 0, hi: c.maxTemperature ?? null,
+                       avoided: [], unavoidable: [], narrowed: false } };
+  }).sort((a, b) => a.process.id.localeCompare(b.process.id));
 
   const frontier = [];
   const feed = [];
@@ -1972,6 +1993,81 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
   const byproducts = [...spare]
     .filter(([name]) => !asked.has(name))
     .map(([name, amount]) => ({ name, amount, holds: [] }));
+
+  /**
+   * Enough of the older solver's shape for the page to render this one.
+   *
+   * `plan-view` reads a plan through a wider hole than this solver was built
+   * to fill: a dag to link materials to the step that makes them, a scale, and
+   * an apparatus summary. None of it changes what the plan *is* -- it is the
+   * same steps and the same shopping list -- but without it the view throws on
+   * the first byproduct it tries to link.
+   *
+   * What is honestly absent stays absent and says so: there are no pins here,
+   * no cycles left open, and nothing was narrowed to dodge a side effect.
+   */
+  const nodes = new Map(steps.map((s) => [s.process.id, s.process]));
+  const materials = new Map();
+  const node = (name) => {
+    let m = materials.get(name);
+    if (!m) materials.set(name, (m = { producer: null, consumers: [], byproductOf: [],
+                                       reason: spec.have.has(name) ? 'have' : 'make' }));
+    return m;
+  };
+  for (const { process: p } of steps) {
+    for (const o of p.produces) {
+      const m = node(o.name);
+      if (m.producer === null) m.producer = p.id; else m.byproductOf.push(p.id);
+    }
+    for (const i of inputsOf(p)) node(i.name).consumers.push(p.id);
+  }
+  for (const f of frontier) node(f.name).reason = 'acquire';
+
+  /**
+   * The kit, read off what the steps state rather than off a narrowed window.
+   *
+   * The older solver works out a temperature range per step, trimmed to avoid
+   * setting anything else off, and reports the extremes of that. This has no
+   * such range, so it reports the floors and ceilings as written. That is the
+   * same answer wherever nothing was trimmed, and an understatement where
+   * something was -- so `narrowedBySideEffects` is false because no narrowing
+   * was attempted, not because none was wanted.
+   */
+  const apparatus = { hottestFloor: 0, lowestCeiling: null,
+                      hottestStep: null, coolestStep: null,
+                      hottestShared: 0, coolestShared: 0,
+                      heating: 'none', cooling: 'none',
+                      electrolysis: false, spark: false, byHand: false,
+                      catalysts: new Map(), kinds: new Set(), slowest: null,
+                      narrowedBySideEffects: false, sideEffects: false,
+                      stochastic: false };
+  for (const { process: p } of steps) {
+    apparatus.kinds.add(p.kind);
+    const c = p.conditions || {};
+    if (c.temperature > apparatus.hottestFloor) {
+      apparatus.hottestFloor = c.temperature;
+      apparatus.hottestStep = p;
+      apparatus.hottestShared = 1;
+    } else if (c.temperature && c.temperature === apparatus.hottestFloor) {
+      apparatus.hottestShared++;
+    }
+    if (c.maxTemperature != null) {
+      if (c.maxTemperature < (apparatus.lowestCeiling ?? Infinity)) {
+        apparatus.lowestCeiling = c.maxTemperature;
+        apparatus.coolestStep = p;
+        apparatus.coolestShared = 1;
+      } else if (c.maxTemperature === apparatus.lowestCeiling) {
+        apparatus.coolestShared++;
+      }
+    }
+    if (c.electrolysis) apparatus.electrolysis = true;
+    for (const { name, count } of c.catalysts || []) {
+      apparatus.catalysts.set(name, Math.max(apparatus.catalysts.get(name) || 0, count));
+    }
+    if (c.probability > (apparatus.slowest?.conditions?.probability ?? 0)) apparatus.slowest = p;
+  }
+  apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
+  apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
 
   const plan = {
     spec: { ...spec, targets: spec.targets.map((t) => ({ ...t, amount: t.amount * Number(mul) })) },
@@ -1986,6 +2082,16 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
     madeOf: (name) => made.get(name) || R0,
     amountOf: (name) => used.get(name) || R0,
     otherSupplyOf: () => R0,
+    // --- what the page reads, beyond what this solver needs for itself ---
+    dag: { processes: nodes, materials, groups: new Map(), forced: new Map(), cycles: [] },
+    scale,
+    apparatus,
+    cycles: [],
+    sharedPins: new Map(),
+    converged: true,
+    unreachable: spec.targets
+      .filter((t) => rcmp(made.get(t.name) || R0, rmul(rat(t.amount), scale)) < 0)
+      .map((t) => t.name),
   };
 
   const want = elementsOf(graph, spec.targets.map((t) => t.name));

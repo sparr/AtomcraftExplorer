@@ -109,6 +109,45 @@ if (/is not a function|Failed to load/.test(document.body.textContent)) {
   console.log(`ok    plan mode solves and renders (${planSteps.length} chars)`);
 }
 
+/**
+ * The other solver, which is only reachable through the page by a checkbox.
+ *
+ * It is a separate module and a separate render path, so it can break in the
+ * bundle exactly the way plan mode once did while everything above still
+ * reports all clear. It fills in a plan shape the view was not written for --
+ * a dag, a scale, an apparatus, a window on every step -- and a missing field
+ * there surfaces as a bare TypeError out of the render.
+ */
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
+let freshSteps = '';
+try {
+  app.reload();
+  await new Promise((r) => setTimeout(r, 0));
+  freshSteps = document.querySelector('#plan-steps')?.textContent ?? '';
+} catch (err) {
+  console.log(`FAIL the fresh solver threw in the bundle: ${err.message}`);
+  fail++;
+}
+if (/is not a function|Cannot read propert/.test(document.body.textContent)) {
+  console.log('FAIL the page reports an error with the fresh solver: ' +
+    `${document.body.textContent.match(/[^.]*(?:is not a function|Cannot read propert)[^.]*/)?.[0]}`);
+  fail++;
+} else if (!/Carbon/.test(freshSteps) || freshSteps.length < 40) {
+  console.log(`FAIL the fresh solver rendered nothing: ${freshSteps.slice(0, 60)}`);
+  fail++;
+} else {
+  console.log(`ok    the fresh solver solves and renders (${freshSteps.length} chars)`);
+}
+if (freshSteps === planSteps) {
+  console.log('FAIL the checkbox changed nothing -- both solvers rendered the same');
+  fail++;
+} else {
+  console.log('ok    and answers differently from the older one, so the switch is live');
+}
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
+app.reload();
+await new Promise((r) => setTimeout(r, 0));
+
 // And the arithmetic really did come across, rather than being quietly absent:
 // amounts are rendered through the rationals, so a plan with none is a plan
 // whose numbers never arrived.

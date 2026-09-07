@@ -84,6 +84,17 @@ export function emptyPlan() {
     feedBackAll: true,
     noFeedBack: [],
     /**
+     * Which solver answers the question.
+     *
+     * Off by default: the fresh solver decides what to make and how much of
+     * it, and it does that better -- it will not buy what it can recycle -- but
+     * it has no notion of a temperature window, so it reports the floors and
+     * ceilings the steps state rather than a range trimmed to avoid setting
+     * something else off. Nor does it honour a pin. Until it does, the older
+     * one stays the default and this is how you ask for the other.
+     */
+    fresh: false,
+    /**
      * Whether to lay a charge in rather than add a step that runs for ever.
      *
      * Off, because a step is the standing bargain and a charge is the price,
@@ -144,6 +155,7 @@ export function readPlan(params) {
   plan.consume = list(params.get('cu'));
   plan.noFeedBack = list(params.get('nf'));
   if (params.get('fb') === '0') plan.feedBackAll = false;
+  if (params.get('fr') === '1') plan.fresh = true;
   if (params.get('ch') === '1') plan.takeCharges = true;
 
   for (const entry of list(params.get('pin'))) {
@@ -187,6 +199,7 @@ export function writePlan(plan, params) {
   put('cu', plan.consume.join(SEP));
   put('nf', plan.noFeedBack.join(SEP));
   if (!plan.feedBackAll) params.set('fb', '0');
+  if (plan.fresh) params.set('fr', '1');
   if (plan.takeCharges) params.set('ch', '1');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
