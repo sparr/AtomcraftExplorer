@@ -1209,6 +1209,57 @@ function tally(items, mult, out, alternates) {
   }
 }
 
+/**
+ * Element counts for arithmetic, where `counts` is for search.
+ *
+ * `tally` counts every branch of an alternate site at full weight, because a
+ * search for niobium should find `Fe(Ta,Nb)2O6`. That is the wrong answer for
+ * anything that has to add atoms up: read literally, columbite carries two
+ * tantalum *and* two niobium, and a plan built on it mints metal.
+ *
+ * Here each branch instead takes an equal share of the site, which is the only
+ * assumption available without knowing the deposit -- and for columbite it is
+ * the one the chemistry agrees with, since dissolving it yields tantalic and
+ * niobic acid one for one. Shares can be fractional: `(Cs,Na)AlSi2O6` holds
+ * half a caesium.
+ */
+function share(items, mult, out) {
+  let pending = mult;
+  for (const node of items) {
+    switch (node.k) {
+      case 'coeff':
+        pending = mult * node.n;
+        break;
+      case 'el':
+        out.set(node.sym, (out.get(node.sym) || 0) + node.n * pending);
+        break;
+      case 'group':
+        for (const branch of node.branches) {
+          share(branch, (node.n * pending) / node.branches.length, out);
+        }
+        break;
+      case 'sep':
+        if (SEGMENT_BREAKS.has(node.text)) pending = mult;
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+/**
+ * What one unit of a material is made of, as an element -> count map, with
+ * alternate sites split evenly. Returns `counts` unchanged when there is no
+ * such site, so the common case costs nothing.
+ */
+function expectedCounts(parsed) {
+  if (!parsed || !parsed.counts.size) return null;
+  if (!parsed.alternates.size) return parsed.counts;
+  const out = new Map();
+  share(parsed.ast, 1, out);
+  return out;
+}
+
 const cache = new Map();
 
 /**
@@ -1288,7 +1339,7 @@ function querySymbols(text, symbols) {
   return parsed;
 }
 
-return { parseFormula, formulaHtml, querySymbols };
+return { expectedCounts, parseFormula, formulaHtml, querySymbols };
 })();
 
 const __mod_formulas = (() => {
@@ -1595,7 +1646,7 @@ const __mod_data = (() => {
  *
  * Everything here is derived once at start-up; the search path only reads.
  */
-const {parseFormula} = __mod_formula;
+const {parseFormula, expectedCounts} = __mod_formula;
 const {derivedFormula} = __mod_formulas;
 
 /**
@@ -1739,6 +1790,11 @@ async function loadData(url = './data/atomcraft.json') {
       base: baseName(raw.Name),
       formula,
       formulaDerived: !!derived,
+      // What to count when adding atoms up. Differs from `formula.counts`
+      // only for the fourteen minerals whose formula names a site that holds
+      // one of several elements: search wants every candidate, arithmetic
+      // wants one site's worth. Null when there is no formula to count.
+      atoms: expectedCounts(formula),
       state: states[raw.State ?? 0] || String(raw.State),
       color: cssColor(raw.Color, raw.Alpha),
       description: raw.Description || '',

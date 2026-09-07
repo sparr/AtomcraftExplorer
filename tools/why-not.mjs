@@ -163,9 +163,12 @@ const carbonish = (name) =>
 /**
  * Anything that carries one of the elements the ideal actually asks for.
  *
- * `Fl` counts as fluorine because eight of the game's formulas write it that
+ * `Fl` counts as fluorine because one of the game's formulas writes it that
  * way -- Magnesium Fluoride is `MgFl2` -- and `Fl` is Flerovium, which is not
- * what anyone meant. Thirty-one others spell it `F`. Worth fixing at the
+ * what anyone meant. Exactly one: the seven other formulas containing `Fl` are
+ * genuine Flerovium isotopes, so this is a single typo and not a convention.
+ * It is not only cosmetic either, since `Beryllium Fluoride + Magnesium
+ * Liquid` bridges the two and comes out off by `F-2 Fl2`. Worth fixing at the
  * source; until then, reading it here.
  */
 /**

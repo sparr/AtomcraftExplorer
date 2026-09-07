@@ -141,20 +141,89 @@ We treat every aqueous form as `X + H2O`. It is the reading the majority of
 the data uses, and it is what the filter recipes do when they split one back
 into its parts.
 
-### Thirteen formulas the atom counter cannot read
+### Thirteen formulas the atom counter could not read
 
-These use an alternate-site notation for a mineral, which is right for a
-mineral and unusable for counting:
+These use an alternate-site notation, which is right for a mineral and
+unusable for counting:
 
     Columbite            Fe(Ta,Nb)2O6        Topaz        Al2SiO4(F,OH)2
     Lepidolite Deposit   KLi3Al4O10(OH,F)2   Pollucite    (Cs,Na)AlSi2O6·H2O
     Braggite (Pt,Pd,Ni)S, Laurite (Ru,Os,Ir)S2, Bowieite, Irarsite, Kotulskite
 
-**Columbite and Lepidolite Deposit are on that list**, which is worth knowing
-given that both sit at the centre of every one of the five ideal plans. The
-composition module handles them correctly for questions about which elements
-are *present*; it is only the atom counts that are unavailable. `Garnet`
-(`X3Y2(SiO4)3`) is a fourteenth case, with literal placeholders.
+Counted the way search counts, columbite holds two tantalum *and* two niobium,
+and a plan built on that reading mints metal. `expectedCounts` in
+`src/formula.js` gives each branch an equal share of its site instead, exposed
+on every material as `m.atoms`; shares may be fractional, so pollucite holds
+half a caesium. `Garnet` (`X3Y2(SiO4)3`) stays unreliable — its placeholders
+are not elements at all.
+
+**Columbite and Lepidolite Deposit are both on that list**, which matters given
+that they sit at the centre of every one of the five ideal plans.
+
+### What the reactions say columbite and lepidolite are
+
+An even split is only an assumption. For these two the reactions can be asked
+directly, and they answer.
+
+**Columbite** has one reaction, and it corroborates the split exactly:
+
+    1 Columbite + 6 Hydrofluoric Acid
+      -> 1 Heptafluorotantalic Acid + 1 Heptafluoroniobic Acid + 2 FeF2 + 3 H2O
+
+One tantalum acid and one niobium acid, so the site is half and half:
+**FeTaNbO6**. (The iron still doubles, as above.)
+
+**Lepidolite** decomposes three ways, and the three differ in exactly one slot:
+
+    Lepidolite Decomposition               1 in 50   -> Molten Alumina        + SiO2 + H2O + HF
+    Lepidolite Decomposition - Lithium     1 in 51   -> Molten Lithium Oxide  + SiO2 + H2O + HF
+    Lepidolite Decomposition - Potassium   1 in 52   -> Molten Potassium Oxide+ SiO2 + H2O + HF
+
+`Probability` is a divisor, so those fire at 34.0%, 33.3% and 32.7% — a third
+each, near enough. Written as a site, the reactions describe lepidolite as
+
+    (Al2O3, Li2O, K2O) SiO2 · H2O · HF
+
+which is the shape it looked like it should have. Three of them come to
+**2 Al + 2 Li + 2 K + 3 Si** (2.04, 2.00, 1.96 weighted exactly), which is
+where "three lepidolite makes two potassium" comes from.
+
+That does **not** agree with the stated formula. Per one lepidolite:
+
+    source                          K    Li   Al   Si   F
+    stated  KLi2Si3Al4O10F2         1    2    4    3    2
+    sulfuric acid dissolution       1    2    1    1    0.5
+    the three decompositions      0.65 0.67 0.68   1    1
+
+Three sources, three answers. The acid route agrees with the formula on
+potassium and lithium and on nothing else; the decompositions agree with
+neither, and throw away roughly two thirds of the silicon and five sixths of
+the aluminium. Nothing here is a rounding error.
+
+We have not overridden the stated formula with any of this. It is recorded
+because a plan's yield is governed by the reactions and not by the formula, and
+the two disagree by a factor of three to six.
+
+### Lepidolite is entered twice, and the two disagree
+
+    Lepidolite           KLi2Si3Al4O10F2
+    Lepidolite Deposit   KLi3Al4O10(OH,F)2
+
+Same mineral, different substance: the deposit has an extra lithium, no
+silicon at all, and hydroxyl where the other has fluorine — yet mining it
+yields the other, and both decompose by the same six reactions into silica.
+The real mineral is K(Li,Al)3(Al,Si)4O10(F,OH)2, so it is the deposit that has
+lost its silicon.
+
+### Mining lepidolite yields rubidium that is in no formula
+
+    Lepidolite Deposit  DropRates  { Lepidolite: 100, Rubidium: 10 }
+
+A lepidolite deposit drops one lepidolite every time and a rubidium one time in
+ten, so its expected composition carries about 0.1 Rb — which appears nowhere
+in `KLi3Al4O10(OH,F)2`. This one is realistic rather than wrong: lepidolite is
+the principal ore of rubidium. It does mean the drop table knows something the
+formula does not.
 
 ### A unit of liquid hydrogen is four units of gas
 

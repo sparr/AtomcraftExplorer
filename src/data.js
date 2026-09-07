@@ -3,7 +3,7 @@
  *
  * Everything here is derived once at start-up; the search path only reads.
  */
-import { parseFormula } from './formula.js';
+import { parseFormula, expectedCounts } from './formula.js';
 import { derivedFormula } from './formulas.js';
 
 /**
@@ -147,6 +147,11 @@ export async function loadData(url = './data/atomcraft.json') {
       base: baseName(raw.Name),
       formula,
       formulaDerived: !!derived,
+      // What to count when adding atoms up. Differs from `formula.counts`
+      // only for the fourteen minerals whose formula names a site that holds
+      // one of several elements: search wants every candidate, arithmetic
+      // wants one site's worth. Null when there is no formula to count.
+      atoms: expectedCounts(formula),
       state: states[raw.State ?? 0] || String(raw.State),
       color: cssColor(raw.Color, raw.Alpha),
       description: raw.Description || '',

@@ -1,6 +1,6 @@
 /** Exercises the formula parser against every formula in the baked bundle. */
 import { readFileSync } from 'node:fs';
-import { parseFormula, formulaHtml, querySymbols } from '../src/formula.js';
+import { parseFormula, formulaHtml, querySymbols, expectedCounts } from '../src/formula.js';
 
 const bundle = JSON.parse(readFileSync(new URL('../data/atomcraft.json', import.meta.url)));
 const symbols = new Set(bundle.elements.map((e) => e.sym));
@@ -61,6 +61,39 @@ for (const m of bundle.materials) {
     roundtripFail++;
   }
 }
+// --- one site's worth, for arithmetic rather than search ----------------------
+{
+  const atoms = (f) => {
+    const e = expectedCounts(parseFormula(f, symbols));
+    return Object.fromEntries([...e].sort()
+      .map(([s, n]) => [s, Number.isInteger(n) ? n : +n.toFixed(4)]));
+  };
+  // Counted for search, columbite holds two tantalum AND two niobium. It holds
+  // two atoms on that site in total, and dissolving one yields tantalic and
+  // niobic acid one for one, so an even split is what the chemistry says too.
+  check('columbite for search', counts('Fe(Ta,Nb)2O6'),
+        { Fe: 1, Nb: 2, O: 6, Ta: 2 });
+  check('columbite for arithmetic', atoms('Fe(Ta,Nb)2O6'),
+        { Fe: 1, Nb: 1, O: 6, Ta: 1 });
+  // A site can hold a fraction of an atom; nothing rounds it away.
+  check('pollucite caesium site', atoms('(Cs,Na)AlSi2O6·H2O'),
+        { Al: 1, Cs: 0.5, H: 2, Na: 0.5, O: 7, Si: 2 });
+  check('lepidolite deposit hydroxyl/fluorine site', atoms('KLi3Al4O10(OH,F)2'),
+        { Al: 4, F: 1, H: 1, K: 1, Li: 3, O: 11 });
+  // Lepidolite's three decompositions differ in one slot -- alumina, lithia or
+  // potash -- and run at one chance in 50, 51 and 52, so near enough a third
+  // each. Written as a site, the reactions say a lepidolite is this, and three
+  // of them yield two aluminium, two lithium, two potassium and three silicon.
+  const lep = expectedCounts(parseFormula('(Al2O3,Li2O,K2O)SiO2·H2O·HF', symbols));
+  check('lepidolite as its reactions describe it',
+        Object.fromEntries([...lep].sort().map(([s, n]) => [s, +(n * 3).toFixed(4)])),
+        { Al: 2, F: 3, H: 9, K: 2, Li: 2, O: 14, Si: 3 });
+  // No alternate site means no work and the very same map back.
+  const plain = parseFormula('H2O', symbols);
+  check('a formula without a choice is returned as it stands',
+        expectedCounts(plain) === plain.counts, true);
+}
+
 console.log(`\nswept ${seen.size} distinct formulas`);
 console.log(`  parsed to zero elements: ${empty}`);
 console.log(`  round-trip mismatches:   ${roundtripFail}`);
