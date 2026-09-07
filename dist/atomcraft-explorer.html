@@ -6574,11 +6574,46 @@ function freeLunch(graph, spec, plan) {
     for (const [i, v] of coeffs) made += v * answer.x[i];
     if (made <= 1e-6) continue;
 
+    /**
+     * The busiest step that actually makes atoms, not the busiest step.
+     *
+     * A wheel turns for free because at least one of its reactions does not
+     * conserve, and the game has plenty that do not, on purpose. Barring any
+     * member stops the wheel, so the old rule -- whichever ran most in the
+     * witness -- always worked, and that is why it lasted. What it does not do
+     * is remove the reason. It barred `Electrolysis of Carbon Dioxide` on the
+     * Columbite plan: a reaction that balances, sitting at the bound because
+     * the simplex reports a ray and the size of a coefficient in a ray is an
+     * artefact of how the recipes are written. That step is also the only way
+     * back from carbon dioxide to carbon, so with it gone the plan bought
+     * carbon at the door and vented the same carbon out of the back.
+     *
+     * So: among the members that gain matter, the busiest. Both halves earn
+     * their place. Ignoring the gain barred an innocent step; ignoring the
+     * runs and taking whichever gained most barred a load-bearing one instead,
+     * and cost the plain Columbite plan thirteen extra reactors. Where nothing
+     * in the wheel gains -- the packing chains, where a unit is a container and
+     * not an amount -- there is no culprit to find and the old rule answers.
+     */
+    const perUnit = (name) => graph.db.byName.get(name)?.matter ?? 1;
+    const minted = (p) => {
+      let out = 0;
+      for (const o of p.produces) out += o.count * perUnit(o.name);
+      for (const c of inputsOf(p)) out -= c.count * perUnit(c.name);
+      return out;
+    };
     let biggest = 0;
     let blame = null;
     for (const p of procs) {
       const runs = answer.x[index.get(p.id)];
-      if (runs > biggest) { biggest = runs; blame = p.id; }
+      if (minted(p) <= 1e-9 || runs <= biggest) continue;
+      biggest = runs; blame = p.id;
+    }
+    if (!blame) {
+      for (const p of procs) {
+        const runs = answer.x[index.get(p.id)];
+        if (runs > biggest) { biggest = runs; blame = p.id; }
+      }
     }
     if (blame) return blame;
   }
@@ -7202,28 +7237,47 @@ function planOnce(graph, rawSpec) {
       }
       return out;
     };
-    const shares = (a, b) => {
-      const ea = elementsOfName(a); const eb = elementsOfName(b);
-      if (!ea || !eb) return false;
-      for (const el of ea) if (el !== 'O' && eb.has(el)) return true;
-      return false;
-    };
-    // Kept, not re-asked. Pinning one column at a time and starting over let
-    // the solver buy the other one instead, and the pass spent its rounds
-    // swapping Carbon for Hydrofluoric Acid and back.
+    /**
+     * By element, not by material.
+     *
+     * Pinning one column at a time and starting over let the solver buy the
+     * other one instead, and the pass spent its rounds swapping Carbon for
+     * Hydrofluoric Acid and back -- so the pins are kept. But keeping them was
+     * not enough either: told it may not buy Carbon, the Columbite plan bought
+     * five Carbon Monoxide and vented the carbon just the same. The complaint
+     * was never about a material. It is that an element is being paid for at
+     * the door and thrown out of the back, so every door it could come in by
+     * has to shut at once.
+     */
     const closedOff = new Set();
     for (let round = 0; round < 10; round++) {
       const spare = surplus();
+      const spareHas = (el) => {
+        for (const s of spare) { const e = elementsOfName(s); if (e && e.has(el)) return true; }
+        return false;
+      };
       // The biggest offender first, not whichever comes first in the map. Taken
       // in map order it spent its rounds on a Hydrofluoric Acid here and a
       // Potassium Oxide there and never reached the forty-five Carbon, which
       // was the whole complaint.
-      const [guilty] = [...supply]
-        .filter(([name, i]) => bought(name) && !closedOff.has(name) && !rzero(base.x[i]) &&
-                               [...spare].some((s) => shares(name, s)))
-        .sort((a, b) => rcmp(base.x[b[1]], base.x[a[1]]) || a[0].localeCompare(b[0]));
+      const weight = new Map();
+      const carriers = new Map();
+      for (const [name, i] of supply) {
+        if (!bought(name) || rzero(base.x[i])) continue;
+        const mine = elementsOfName(name);
+        if (!mine) continue;
+        for (const el of mine) {
+          if (el === 'O' || closedOff.has(el) || !spareHas(el)) continue;
+          weight.set(el, radd(weight.get(el) || R0, base.x[i]));
+          if (!carriers.has(el)) carriers.set(el, []);
+          carriers.get(el).push([name, i]);
+        }
+      }
+      const [guilty] = [...weight].sort((a, b) => rcmp(b[1], a[1]) || a[0].localeCompare(b[0]));
       if (!guilty) break;
-      const shutToo = { coeffs: new Map([[guilty[1], rat(1)]]), op: '=', rhs: R0 };
+      const [el] = guilty;
+      const shutToo = carriers.get(el).map(([, i]) =>
+        ({ coeffs: new Map([[i, rat(1)]]), op: '=', rhs: R0 }));
       // The draw is capped, not pinned: closing a loop runs more steps on the
       // same feed and can draw a little less, and an equality there refused
       // every closed answer on offer.
@@ -7239,11 +7293,14 @@ function planOnce(graph, rawSpec) {
       const closed = attempt(new Set(),
         [{ coeffs: sumOf(bought), op: '<=', rhs: base.total },
          { coeffs: sumOf(() => true), op: '<=', rhs: base.drawn },
-         ...shut, shutToo], inputCost);
-      closedOff.add(guilty[0]);
+         ...shut, ...shutToo], inputCost);
+      closedOff.add(el);
       if (!closed) continue;
-      shut.push(shutToo);
-      if (notes) notes.push(`closed the loop on ${guilty[0]} rather than buying it`);
+      shut.push(...shutToo);
+      if (notes) {
+        notes.push(`closed the ${el} loop rather than buying ` +
+                   carriers.get(el).map(([n]) => n).join(' or '));
+      }
       base = closed;
     }
   }

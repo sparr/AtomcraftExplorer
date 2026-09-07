@@ -499,13 +499,48 @@ So the counts to compare are reactors, not steps:
 | co2-to-carbon | 4 | 4 |
 | co-to-carbon | 4 | 4 |
 | lepidolite | 14 | 22 |
-| columbite | 17 | 21 |
+| columbite | 13 | 16 |
 | combined | 21 | 31 |
 | Iron(II) Tungstate | 20 | 21 |
 | Manganese(II) Tungstate | 15 | 16 |
 
 Where the step counts in the cases above differ from these, they are counting
 reactions, which is the same thing wherever no phase change is involved.
+
+Columbite was 17 reactors in 21 steps when this table was first written. It
+came down to 13 in 16 by teaching the free-lunch pass which member of a wheel
+to bar -- see *Wheels and who to blame* below.
+
+---
+
+## Wheels and who to blame
+
+Some of the game's reactions make atoms out of nothing, on purpose, and a few
+of them join up into a loop that can be turned for free. A planner has to spot
+those and shut one member, or it will happily run the loop a thousand times and
+report a factory that mines the air.
+
+Which member is the question. Barring any of them stops the wheel, so the
+obvious rule -- whichever ran most in the witness the simplex hands back --
+always appears to work. It is still wrong: the size of a coefficient in a ray
+says nothing about culpability, only about how the recipes happen to be
+written. On Columbite it barred `Electrolysis of Carbon Dioxide`, a reaction
+that balances exactly and the only route back from carbon dioxide to carbon.
+With it gone the plan bought carbon at the door and vented the same carbon out
+of the back, which is what Sparr saw: eight Carbon fetched, eight Carbon
+Dioxide left over.
+
+The rule that holds is **the busiest member that actually gains matter**. Both
+halves matter. Drop the gain test and an innocent step takes the blame; drop
+the runs and pick whichever gains most instead, and Columbite loses thirteen
+reactors to a worse route. Where no member gains anything -- the packing chains,
+where a unit is a container rather than an amount -- there is no culprit and
+the old rule is as good as any.
+
+The second half of the same bug: a repair pass that closes a loop rather than
+buying into it has to close it **by element**. Told it could not buy Carbon,
+the solver bought Carbon Monoxide and vented the carbon just the same. The
+complaint was never about a material.
 
 ---
 

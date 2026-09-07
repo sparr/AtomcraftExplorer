@@ -61,24 +61,23 @@ export const CASES = [
             sources: ['world', 'weather', 'air', 'made'] },
     about: 'The same two metals, allowed to buy anything at all.',
     /**
-     * Not fixed, and named here so the suite stays honest about it.
+     * Fixed, and by neither of the two things first written down here.
      *
-     * The closed answer is feasible at the same price -- pin the Carbon column
-     * to zero and the model still solves, at the same fetch count and the same
-     * total draw -- so this is a tie broken the wrong way rather than a route
-     * the solver cannot see. The repair pass that fixes the plain columbite
-     * case does not reach this one: it closes the loops on hydrofluoric acid,
-     * molten potassium and potassium oxide, and by then the carbon is bought
-     * somewhere it does not look.
+     * The note this replaces said the closed answer was free and a tie had
+     * gone the wrong way. It was not free and it was not a tie -- closing cost
+     * strictly more, which is why every attempt to break the tie differently
+     * left the plan exactly where it was.
      *
-     * Listed rather than deleted because the invariant is right and the plan
-     * is wrong. If this ever starts passing, the entry fails as stale and
-     * wants removing.
+     * Two real faults, one on top of the other. Asked to shut the Carbon
+     * column the solver bought five Carbon Monoxide and vented the carbon just
+     * the same: the repair pass was closing a material where the complaint is
+     * about an element. Underneath that, the free-lunch pass had barred
+     * `Electrolysis of Carbon Dioxide` -- a reaction that balances, and the
+     * only way back from carbon dioxide to carbon -- because it blamed
+     * whichever member of a wheel ran most rather than the busiest one
+     * actually making atoms. With the route gone, buying carbon was not a
+     * preference, it was the only answer left.
      */
-    knownBroken: {
-      'and never buys carbon while it is throwing carbon away':
-        'a tie the repair pass does not reach; see the note above',
-    },
     want: [
       ['closes its carbon rather than buying some and venting the rest',
        (p, { carries }) => !p.frontier.some((f) => carries(f.name, 'C'))],
