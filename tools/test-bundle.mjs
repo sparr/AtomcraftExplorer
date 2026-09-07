@@ -161,9 +161,43 @@ if (freshSteps === planSteps) {
 } else {
   console.log('ok    and answers differently from the older one, so the switch is live');
 }
+/**
+ * The source categories, which only the fresh solver reads.
+ *
+ * Hidden while the older one answers, shown when the newer does, and actually
+ * changing the answer -- a row of checkboxes that quietly does nothing is the
+ * failure worth catching here.
+ */
+const srcBox = document.querySelector('#plan-sources');
+if (!srcBox) {
+  console.log('FAIL no #plan-sources in the built page');
+  fail++;
+} else {
+  if (srcBox.hidden) { console.log('FAIL the source boxes are hidden for a fresh plan'); fail++; }
+  else console.log(`ok    the source categories are offered (${srcBox.children.length} of them)`);
+
+  globalThis.location.hash =
+    '#mode=plan&t=Tantalum~Niobium&h=Columbite&fr=1&sr=weather~air~made';
+  app.reload();
+  await new Promise((r) => setTimeout(r, 0));
+  const otherSide = document.querySelector('#plan-side')?.textContent ?? '';
+  if (otherSide === freshSide) {
+    console.log('FAIL changing the source categories changed nothing');
+    fail++;
+  } else {
+    console.log('ok    and changing them changes what the plan goes shopping for');
+  }
+}
+
 globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
 app.reload();
 await new Promise((r) => setTimeout(r, 0));
+if (!document.querySelector('#plan-sources').hidden) {
+  console.log('FAIL the source boxes are shown for a plan the older solver answered');
+  fail++;
+} else {
+  console.log('ok    and are put away again when the older solver answers');
+}
 
 // And the arithmetic really did come across, rather than being quietly absent:
 // amounts are rendered through the rationals, so a plan with none is a plan

@@ -11,6 +11,7 @@
  * it you were not looking at.
  */
 import { DEFAULT_KINDS, PROCESS_KINDS } from './plan-graph.js';
+import { SOURCES, DEFAULT_SOURCES as FRESH_SOURCES } from './plan-fresh.js';
 
 /**
  * List and pair separators.
@@ -105,6 +106,13 @@ export function emptyPlan() {
      */
     takeCharges: false,
     kinds: [...DEFAULT_KINDS],
+    /**
+     * Which sorts of thing the plan may go and get, for the newer solver.
+     *
+     * The older one has no notion of these and ignores the setting; the
+     * checkboxes are hidden while it is the one answering.
+     */
+    sources: [...FRESH_SOURCES],
     avoidSideEffects: true,
     /**
      * Hold the amounts in the proportion the feed actually comes out in.
@@ -176,6 +184,12 @@ export function readPlan(params) {
     const known = new Set(PROCESS_KINDS.map((k) => k.id));
     plan.kinds = list(kinds).filter((k) => known.has(k));
   }
+  const sources = params.get('sr');
+  if (sources === NO_KINDS) plan.sources = [];
+  else if (sources) {
+    const known = new Set(SOURCES);
+    plan.sources = list(sources).filter((k) => known.has(k));
+  }
   if (params.get('ss') === '0') plan.avoidSideEffects = false;
   if (params.get('b') === '0') plan.balance = false;
   plan.selected = params.get('pm') || null;
@@ -209,6 +223,9 @@ export function writePlan(plan, params) {
   // `-` rather than nothing, because an absent `k` means the usual set and
   // turning every kind off has to survive a reload as itself.
   if (!usual) params.set('k', plan.kinds.join(SEP) || NO_KINDS);
+  const usualSources = plan.sources.length === FRESH_SOURCES.length &&
+                       FRESH_SOURCES.every((k) => plan.sources.includes(k));
+  if (!usualSources) params.set('sr', plan.sources.join(SEP) || NO_KINDS);
   if (!plan.avoidSideEffects) params.set('ss', '0');
   if (!plan.balance) params.set('b', '0');
   put('pm', plan.selected);
@@ -391,6 +408,12 @@ export function toggle(plan, key, value) {
 export function toggleKind(plan, id) {
   const next = clone(plan);
   next.kinds = next.kinds.includes(id) ? drop(next.kinds, id) : [...next.kinds, id];
+  return next;
+}
+
+export function toggleSource(plan, id) {
+  const next = clone(plan);
+  next.sources = next.sources.includes(id) ? drop(next.sources, id) : [...next.sources, id];
   return next;
 }
 

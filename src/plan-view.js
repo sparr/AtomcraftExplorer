@@ -14,12 +14,12 @@
 import { search } from './search.js';
 import { solvePlan, balanceTargets, routesFor, usesFor,
          rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
-import { solveFresh } from './plan-fresh.js';
+import { solveFresh, blankFresh, SOURCE_KINDS } from './plan-fresh.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
 import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
-         removeHave, pin, toggle, toggleKind, setOption,
+         removeHave, pin, toggle, toggleKind, toggleSource, setOption,
          selectMaterial, includeProcess, isFedBack, toggleFedBack,
          primeInstead, makeInstead, keepOutput, isKept, useUp, isUsedUp,
          useSpare, isUsingSpare, setOption as setPlanOption,
@@ -362,7 +362,9 @@ function renderSteps() {
       if (i) warn.append(', ');
       warn.append(matLink(n));
     });
-    warn.append('. Try switching on another kind of process under Options.');
+    warn.append(solved.why
+      ? `. ${solved.why[0].toUpperCase()}${solved.why.slice(1)}.`
+      : '. Try switching on another kind of process under Options.');
     box.append(warn);
   }
   if (solved.cycles.length) {
@@ -1082,6 +1084,7 @@ function renderSide() {
 /** Built once, then only ticked and unticked. Kept by hand rather than found
  *  again in the DOM, so this works against the render test's shim too. */
 const kindBoxes = new Map();
+const sourceBoxes = new Map();
 
 function renderOptions() {
   const box = $('#plan-kinds');
@@ -1097,6 +1100,29 @@ function renderOptions() {
     }
   }
   for (const [id, cb] of kindBoxes) cb.checked = plan.kinds.includes(id);
+
+  /**
+   * And what it may go and fetch, which only the newer solver reads.
+   *
+   * Hidden while the older one is answering rather than shown greyed: a
+   * control that cannot do anything is worse than one that is not there, and
+   * the checkbox above says plainly enough which solver is in charge.
+   */
+  const srcBox = $('#plan-sources');
+  if (!sourceBoxes.size) {
+    for (const k of SOURCE_KINDS) {
+      const label = el('label', 'plan-kind');
+      label.title = k.hint;
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', () => edit(toggleSource, k.id));
+      label.append(cb, el('span', 'kind-glyph', k.glyph), el('span', null, k.label));
+      srcBox.append(label);
+      sourceBoxes.set(k.id, cb);
+    }
+  }
+  for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
+  srcBox.hidden = !plan.fresh;
   $('#plan-avoid').checked = plan.avoidSideEffects;
   $('#plan-feedback').checked = plan.feedBackAll;
   $('#plan-charges').checked = plan.takeCharges;
@@ -1181,8 +1207,16 @@ export function render() {
 
   // The fresh solver answers the same question a different way; it fills in
   // enough of the same shape for everything below to render it.
-  const ask = { ...question, targets: shownTargets };
-  solved = plan.fresh ? solveFresh(ctx.graph, ask) : solvePlan(ctx.graph, ask);
+  const ask = { ...question, targets: shownTargets, sources: plan.sources };
+  if (plan.fresh) {
+    // It says null when it cannot answer, and says why if asked. The page has
+    // to render something either way, so an empty plan carries the reason.
+    const notes = [];
+    solved = solveFresh(ctx.graph, { ...ask, notes })
+      || blankFresh(ctx.graph, ask, notes.find((n) => !n.startsWith('spoils')) || null);
+  } else {
+    solved = solvePlan(ctx.graph, ask);
+  }
 
   renderGoals();
   // With nothing named to make, the question is "what can I do with this?" --

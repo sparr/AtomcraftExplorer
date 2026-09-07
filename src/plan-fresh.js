@@ -53,6 +53,28 @@ const WORLDLY = new Set(['deposit', 'terrain', 'plant']);
 export const SOURCES = ['world', 'weather', 'air', 'farm', 'made'];
 
 /**
+ * The five, with something a reader can tick.
+ *
+ * Sparr's own division, in his words: what the world was made holding, what it
+ * keeps making, what a machine with no moving parts can condense, what can be
+ * grown or bred, and everything else -- which is most of the pure elements and
+ * their compounds, and the only one that is properly a cost.
+ */
+export const SOURCE_KINDS = [
+  { id: 'world', glyph: '\u26cf', label: 'Dug up',
+    hint: 'There when the world was made and no more of it: deposits, ores, standing stone.' },
+  { id: 'weather', glyph: '\u2614', label: 'Falls from the sky',
+    hint: 'Made again for ever: rain, snow, seawater off a source pixel.' },
+  { id: 'air', glyph: '\u{1f4a8}', label: 'Out of the air',
+    hint: 'Condensed from empty space by cooling it, so a box with no moving parts will do.' },
+  { id: 'farm', glyph: '\u{1f331}', label: 'Grown',
+    hint: 'Plant and animal products, which come back if you wait.' },
+  { id: 'made', glyph: '\u2699', label: 'Manufactured',
+    hint: 'Everything else, most pure elements among it. Turning this on lets the plan ' +
+          'buy a thing it could have built, which is sometimes the cheaper answer.' },
+];
+
+/**
  * What a plan will go and get unless told otherwise.
  *
  * What the world hands over, and nothing else. Sparr: growing things off by
@@ -1485,6 +1507,37 @@ function shortfallOf(plan) {
   return short.length ? short : null;
 }
 
+/**
+ * A plan-shaped nothing, for when there is no plan.
+ *
+ * `solveFresh` returns null when it cannot answer, which is the right thing to
+ * tell a caller that wants to know -- the diagnostics test for it. The page is
+ * not such a caller: it reads a plan and would throw on the first field. So it
+ * asks for this instead, which is empty everywhere and names the targets as
+ * unreachable, and carries the reason the solver gave for saying so.
+ */
+export function blankFresh(graph, rawSpec, why = null) {
+  const spec = normalizeFresh(rawSpec);
+  return {
+    spec, fresh: true, why,
+    steps: [], frontier: [], feed: [], byproducts: [],
+    priming: [], brokenLoops: [], cycles: [],
+    fetchTotal: 0, realSteps: 0, considered: 0,
+    runsOf: () => R0, madeOf: () => R0, amountOf: () => R0, otherSupplyOf: () => R0,
+    dag: { processes: new Map(), materials: new Map(),
+           groups: new Map(), forced: new Map(), cycles: [] },
+    scale: rat(1),
+    apparatus: { hottestFloor: 0, lowestCeiling: null, hottestStep: null, coolestStep: null,
+                 hottestShared: 0, coolestShared: 0, heating: 'none', cooling: 'none',
+                 electrolysis: false, spark: false, byHand: false,
+                 catalysts: new Map(), kinds: new Set(), slowest: null,
+                 narrowedBySideEffects: false, sideEffects: false, stochastic: false },
+    sharedPins: new Map(),
+    converged: true,
+    unreachable: spec.targets.map((t) => t.name),
+  };
+}
+
 export function solveFresh(graph, rawSpec) {
   const barred = new Set(rawSpec.excludeProcesses || []);
   /**
@@ -2000,6 +2053,18 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
   const frontier = [];
   const feed = [];
   const routesTo = (name) => graph.producers(name).filter((q) => spec.kinds.has(q.kind));
+  /**
+   * What a fetched thing goes into, named as the steps that eat it name it.
+   *
+   * These are immediate products and not ultimate ones, which is worth knowing
+   * when reading them: buying hydrogen sulfide reports "Tungsten Disulfide and
+   * Water", and the disulfide is not made in any useful sense -- it is roasted
+   * straight back to the trioxide it came from, with the water the actual
+   * point. Filtering out whatever nets to nothing was tried and is worse: in a
+   * plan that closes its loops properly almost everything nets to nothing, and
+   * the line becomes "for nothing that leaves". The charge below is where a
+   * circulating material gets explained, by asking to be laid in.
+   */
   const feedsOf = (name) => {
     const ends = new Set();
     for (const { process: p } of steps) {
@@ -2008,6 +2073,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
     }
     return [...ends].sort();
   };
+
   for (const [name, amount] of drawn) {
     if (spec.have.has(name)) { feed.push({ name, amount }); continue; }
     const routes = routesTo(name);
@@ -2097,11 +2163,114 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
   apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
   apparatus.cooling = coolingNeed(apparatus.lowestCeiling);
 
+  /**
+   * What has to be in the chamber before any of this can turn over.
+   *
+   * A loop that gives back everything it takes shows a net of nothing, and so
+   * appears on no list: asked for Tantalum and Niobium with everything
+   * switched on, the plan roasts Tungsten Disulfide to the trioxide and makes
+   * the disulfide back from it, buying hydrogen sulfide and getting water --
+   * a water factory with tungsten going round inside. Net tungsten zero, so
+   * neither the shopping list nor the leavings mentioned it, and nothing said
+   * you cannot start without owning some.
+   *
+   * So: run whatever can run, and only when nothing can does something have to
+   * be laid in. Which is a question about whether *some* order works, not
+   * about the order the steps happen to be printed in.
+   *
+   * Charging something a step still waiting would have produced is the
+   * ordering giving up early rather than a real charge -- unless everything is
+   * waiting on everything, which is the genuine deadlock a loop needs seeding
+   * out of. Being on the shopping list already settles it either way: you are
+   * going out for the stuff regardless, so laying some in is not a second
+   * errand.
+   */
+  const priming = [];
+  {
+    const prices = fetchPrices(graph, spec.kinds);
+    const unlimited = (name) => spec.have.has(name) || drawn.has(name);
+    const stock = new Map();
+    const held = (name) => stock.get(name) || R0;
+    const left = new Set(steps);
+    const charge = new Map();
+
+    const missing = (step) => {
+      const short = [];
+      for (const i of step.process.consumes) {
+        if (unlimited(i.name)) continue;
+        const want = rmul(step.runs, rat(i.count));
+        if (rcmp(held(i.name), want) < 0) short.push([i.name, rsub(want, held(i.name))]);
+      }
+      // Apparatus has to be there, but is not spent.
+      for (const r of step.process.requires) {
+        if (unlimited(r.name)) continue;
+        if (rcmp(held(r.name), rat(r.count)) < 0) {
+          short.push([r.name, rsub(rat(r.count), held(r.name))]);
+        }
+      }
+      return short;
+    };
+    const run = (step) => {
+      for (const i of step.process.consumes) {
+        if (unlimited(i.name)) continue;
+        stock.set(i.name, rsub(held(i.name), rmul(step.runs, rat(i.count))));
+      }
+      for (const o of step.process.produces) {
+        stock.set(o.name, radd(held(o.name), rmul(step.runs, rat(o.count))));
+      }
+      left.delete(step);
+    };
+
+    const fetched = new Set(frontier.map((f) => f.name));
+    let guard = steps.length + 1;
+    while (left.size && guard-- > 0) {
+      const ready = [...left].find((step) => !missing(step).length);
+      if (ready) { run(ready); continue; }
+      const pending = new Set();
+      for (const step of left) for (const o of step.process.produces) pending.add(o.name);
+      /**
+       * And a charge has to be something you could turn up holding.
+       *
+       * Priced by the shopping list alone, Molten Tantalum costs one and Water
+       * costs three, so breaking the deadlock by laying in four Molten Tantalum
+       * looked like the bargain -- for a plan whose whole purpose is to make
+       * tantalum, and which is barred from buying any precisely because it is
+       * the thing being asked for. Anything the shopping list would refuse is
+       * priced out of reach here too, so it is charged only if nothing else
+       * will do.
+       */
+      const gettable = (name) => spec.have.has(name) ||
+        (fetchable(graph, name, spec.kinds, spec.sources, spec) &&
+         !holdsATarget(graph, name, spec.wanted) &&
+         !alreadyInHand(graph, name, spec.held));
+      const OUT_OF_REACH = 1e6;
+      let best = null;
+      for (const step of left) {
+        const short = missing(step);
+        const price = short.reduce((a, [name, amount]) =>
+          a + (gettable(name) ? (prices.get(name) ?? 1) : OUT_OF_REACH) * rnum(amount), 0);
+        const outside = short.every(([name]) => fetched.has(name) || !pending.has(name));
+        if (!best || (outside !== best.outside ? outside : price < best.price)) {
+          best = { step, short, price, outside };
+        }
+      }
+      for (const [name, amount] of best.short) {
+        charge.set(name, radd(charge.get(name) || R0, amount));
+        stock.set(name, radd(held(name), amount));
+      }
+      run(best.step);
+    }
+    for (const [name, amount] of charge) {
+      if (rcmp(amount, R0) > 0) priming.push({ name, amount });
+    }
+    priming.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   const plan = {
     spec: { ...spec, targets: spec.targets.map((t) => ({ ...t, amount: t.amount * Number(mul) })) },
     fresh: true,
     steps, frontier, feed, byproducts,
-    priming: [],
+    priming,
     brokenLoops: [],
     fetchTotal: rnum(rmul(fetchTotal, scale)),
     realSteps: steps.filter((s) => s.process.kind !== 'phase').length,
