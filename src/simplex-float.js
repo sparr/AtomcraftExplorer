@@ -93,16 +93,37 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
   const height = prepared.length;
   const basis = prepared.map((row, r) => (artOf.has(r) ? artOf.get(r) : slackOf.get(r)));
 
+  /**
+   * The elimination walks the pivot row's non-zeros, not the whole width.
+   *
+   * Subtracting `f * 0` leaves a cell exactly as it was, so the columns where
+   * the pivot row is zero can be skipped without changing a single result --
+   * this is the same arithmetic, not an approximation of it. It is worth doing
+   * because the constraint matrix is mostly zeros: a process touches a handful
+   * of materials out of several hundred, and the dense loop was multiplying by
+   * zero across nearly the whole of a tableau eight hundred columns wide.
+   *
+   * The row is scanned once anyway to divide it through, so the index list
+   * costs nothing that was not already being paid.
+   */
+  const cols = new Int32Array(width + 1);
   const pivot = (r, c) => {
     const at = r * stride;
     const p = table[at + c];
-    for (let j = 0; j <= width; j++) table[at + j] /= p;
+    let n = 0;
+    for (let j = 0; j <= width; j++) {
+      const v = (table[at + j] /= p);
+      if (v !== 0) cols[n++] = j;
+    }
     for (let i = 0; i < height; i++) {
       if (i === r) continue;
       const row = i * stride;
       const f = table[row + c];
       if (f === 0 || Math.abs(f) < EPS) { table[row + c] = 0; continue; }
-      for (let j = 0; j <= width; j++) table[row + j] -= f * table[at + j];
+      for (let k = 0; k < n; k++) {
+        const j = cols[k];
+        table[row + j] -= f * table[at + j];
+      }
     }
     basis[r] = c;
   };
@@ -118,14 +139,23 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
    * down one array.
    */
   const run = (costOf, allowed) => {
+    /**
+     * Built a row at a time, and only the rows that count for anything.
+     *
+     * Written as a column at a time this asked `costOf(basis[i])` once per
+     * cell -- a third of a million calls for a value that depends only on the
+     * row -- and walked a row-major tableau down its columns, missing the
+     * cache on nearly every read. Row-major, the basic cost is fetched once
+     * per row, and the rows whose basic variable costs nothing are skipped
+     * outright. Most of them are: a slack is in the basis and free.
+     */
     const dual = new Float64Array(width);
-    for (let j = 0; j < width; j++) {
-      let z = 0;
-      for (let i = 0; i < height; i++) {
-        const cb = costOf(basis[i]);
-        if (cb !== 0) z += cb * table[i * stride + j];
-      }
-      dual[j] = costOf(j) - z;
+    for (let j = 0; j < width; j++) dual[j] = costOf(j);
+    for (let i = 0; i < height; i++) {
+      const cb = costOf(basis[i]);
+      if (cb === 0) continue;
+      const at = i * stride;
+      for (let j = 0; j < width; j++) dual[j] -= cb * table[at + j];
     }
     const carry = (r, c) => {
       const f = dual[c];
