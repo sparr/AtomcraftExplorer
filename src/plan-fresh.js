@@ -606,6 +606,26 @@ export function subgraph(graph, spec) {
    * standing plants, and the growing things.
    */
   const meltsOut = (name) => {
+    /**
+     * Not for the landscape, whatever it melts into.
+     *
+     * The exception is for a substance that happens to be solid where you
+     * found it -- ice, which you melt and pour and then react as water. It is
+     * not a way back to the ground itself, and read without this it was: seven
+     * reactions came back, five of them the very thing they were meant to
+     * stop. `Sulfuric Acid + Fluorite Deposit` is acid on unmined rock, and it
+     * qualified because a fluorite deposit melts.
+     *
+     * What breaks the reasoning is that these recipes name the deposit and not
+     * the melt, so being able to melt it buys nothing -- melting a fluorite
+     * deposit gives Molten Calcium Fluoride, which is a different input to a
+     * different recipe. And every one of the seven has a portable twin doing
+     * the same chemistry on the mined mineral: `Sulfuric Acid + Fluorite`
+     * against `Sulfuric Acid + Fluorite Deposit`, Limestone Gravel's eight
+     * reactions against Limestone's five.
+     */
+    const cat = graph.categoryOf(name);
+    if (cat === 'deposit' || cat === 'terrain') return false;
     const raw = graph.db.byName.get(name)?.raw;
     for (const field of ['Evaporation', 'Condensation']) {
       const to = raw?.[field]?.TargetMaterialName;
@@ -1072,10 +1092,29 @@ export function shortlist(graph, spec, sub, build) {
    * step price at a hundred runs, which is far too small to outweigh anything
    * either question actually cares about -- it decides ties and nothing else.
    */
+  /**
+   * Asked plainly first, and the nudge only if the plain question landed.
+   *
+   * The nudge is a tie-break and it is not free: a cost on every column is a
+   * different problem to walk, and on a degenerate one it walks much worse.
+   * Chalcopyrite to Copper settles in 135ms without it and spends six seconds
+   * failing with it, all three walks exhausting their budget on improvements
+   * worth a hundred-thousandth each. Columbite does not notice it at all.
+   *
+   * So the plain solve decides whether there is an answer, and the nudged one
+   * only gets to say which of the equally good answers to keep. When it cannot
+   * manage that, the plain answer stands and the shortlist is merely arbitrary
+   * again, which is where it was before the tie-break existed.
+   */
   const NUDGE = 1e-5;
-  const cost = new Map([...model.fetchCost].map(([i, a]) => [i, rnum(a)]));
+  const plainCost = new Map([...model.fetchCost].map(([i, a]) => [i, rnum(a)]));
+  const cost = new Map(plainCost);
   for (const [, i] of model.index) cost.set(i, (cost.get(i) || 0) + NUDGE);
-  const answer = solveLPFloat({ vars: model.vars, rows, cost });
+  const nudged = solveLPFloat({ vars: model.vars, rows, cost });
+  // Nudged first, since it almost always lands and asking twice every time
+  // doubled the shortlist. The plain question is the one that decides whether
+  // there is an answer at all, so it is what we fall back to.
+  const answer = nudged.ok ? nudged : solveLPFloat({ vars: model.vars, rows, cost: plainCost });
   if (!answer.ok) return null;
 
   /**
@@ -1109,8 +1148,10 @@ export function shortlist(graph, spec, sub, build) {
     rhs: total + 1e-6,
   };
   const drawn = new Map([...model.supply].map(([, i]) => [i, 1]));
+  const plainDrawn = new Map(drawn);
   for (const [, i] of model.index) drawn.set(i, (drawn.get(i) || 0) + NUDGE);
-  const second = solveLPFloat({ vars: model.vars, rows: [...rows, cap], cost: drawn });
+  let second = solveLPFloat({ vars: model.vars, rows: [...rows, cap], cost: drawn });
+  if (!second.ok) second = solveLPFloat({ vars: model.vars, rows: [...rows, cap], cost: plainDrawn });
 
   const chosen = new Set();
   for (const p of sub.processes) {
@@ -1451,6 +1492,37 @@ function planOnce(graph, rawSpec) {
   const giveUp = (why) => { if (notes) notes.push(why); return null; };
 
   const spec = withElements(graph, normalizeFresh(rawSpec));
+
+  /**
+   * Answer the unanswerable questions before doing any work on them.
+   *
+   * Sparr: an unusable have or an unproducible want should exit immediately.
+   * Asked for Copper by somebody holding Chalcopyrite -- which not one process
+   * in the game consumes -- the walk went looking for Copper anyway, because
+   * it works backward from the target and never asks whether the stock is good
+   * for anything. Four hundred and eight candidates and six seconds later it
+   * said the doubles could not settle, which was true and told nobody
+   * anything.
+   *
+   * Neither check is a proof of impossibility -- copper might have come from
+   * somewhere else entirely, and the plan would then simply have ignored the
+   * ore. That is the point. If you name a stock, you mean to use it, and being
+   * told nothing eats it is the answer you wanted.
+   */
+  const eats = (name) => graph.consumers(name).some((p) => spec.kinds.has(p.kind));
+  const held = [...spec.have];
+  if (held.length && held.every((name) => !eats(name))) {
+    return giveUp(`nothing consumes ${held.join(' or ')}, so holding ` +
+      `${held.length > 1 ? 'them' : 'it'} cannot help`);
+  }
+
+  const makes = (name) => graph.producers(name).some((p) => spec.kinds.has(p.kind)) ||
+    spec.have.has(name) || fetchable(graph, name, spec.kinds, spec.sources, spec);
+  if (spec.targets.length && spec.targets.every((t) => !makes(t.name))) {
+    return giveUp(`nothing makes ${spec.targets.map((t) => t.name).join(' or ')} ` +
+      `and ${spec.targets.length > 1 ? 'none' : 'it'} can be fetched`);
+  }
+
   const whole = subgraph(graph, spec);
   if (!whole.processes.length) {
     return giveUp('the candidate walk found no process at all');
