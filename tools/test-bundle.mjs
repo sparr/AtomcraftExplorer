@@ -118,21 +118,38 @@ if (/is not a function|Failed to load/.test(document.body.textContent)) {
  * a dag, a scale, an apparatus, a window on every step -- and a missing field
  * there surfaces as a bare TypeError out of the render.
  */
-globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
+/**
+ * Asked for something it has to go shopping for, which the first version of
+ * this check was not.
+ *
+ * Carbon out of Carbon Dioxide buys nothing, so its shopping list is empty and
+ * the loop that draws one never runs. The fresh solver was shipped with no
+ * `feeds` on a frontier line and the side panel threw on every plan that
+ * bought anything, while this file reported all clear. Columbite buys.
+ */
+globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite&fr=1';
 let freshSteps = '';
+let freshSide = '';
 try {
   app.reload();
   await new Promise((r) => setTimeout(r, 0));
   freshSteps = document.querySelector('#plan-steps')?.textContent ?? '';
+  freshSide = document.querySelector('#plan-side')?.textContent ?? '';
 } catch (err) {
   console.log(`FAIL the fresh solver threw in the bundle: ${err.message}`);
   fail++;
+}
+if (!/to fetch/.test(freshSide)) {
+  console.log(`FAIL the fresh solver drew no shopping list: ${freshSide.slice(0, 80)}`);
+  fail++;
+} else {
+  console.log(`ok    and its shopping list and leavings draw (${freshSide.length} chars)`);
 }
 if (/is not a function|Cannot read propert/.test(document.body.textContent)) {
   console.log('FAIL the page reports an error with the fresh solver: ' +
     `${document.body.textContent.match(/[^.]*(?:is not a function|Cannot read propert)[^.]*/)?.[0]}`);
   fail++;
-} else if (!/Carbon/.test(freshSteps) || freshSteps.length < 40) {
+} else if (!/Tantalum|Niobium/.test(freshSteps) || freshSteps.length < 40) {
   console.log(`FAIL the fresh solver rendered nothing: ${freshSteps.slice(0, 60)}`);
   fail++;
 } else {

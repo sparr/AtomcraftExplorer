@@ -1983,16 +1983,44 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
                        avoided: [], unavoidable: [], narrowed: false } };
   }).sort((a, b) => a.process.id.localeCompare(b.process.id));
 
+  /**
+   * The shopping list and the leavings, in the shape the side panel reads.
+   *
+   * It wants more of each line than this solver needs for itself: what a
+   * fetched thing goes on to feed, the other ways of getting it, whether the
+   * world simply hands it over. All of that is knowable here and none of it
+   * was being filled in, so the panel threw on the first line it drew -- and
+   * only where something was actually bought, which is why a plan for Carbon
+   * out of Carbon Dioxide never showed it.
+   *
+   * `credited` and `kept` are false throughout: this solver has no notion of
+   * agreeing to plumb a byproduct back or of setting one aside, so the honest
+   * answer is that nothing has been.
+   */
   const frontier = [];
   const feed = [];
+  const routesTo = (name) => graph.producers(name).filter((q) => spec.kinds.has(q.kind));
+  const feedsOf = (name) => {
+    const ends = new Set();
+    for (const { process: p } of steps) {
+      if (!inputsOf(p).some((i) => i.name === name)) continue;
+      for (const o of p.produces) if (o.name !== name) ends.add(o.name);
+    }
+    return [...ends].sort();
+  };
   for (const [name, amount] of drawn) {
-    if (spec.have.has(name)) feed.push({ name, amount });
-    else frontier.push({ name, amount,
-                         alternatives: graph.producers(name).filter((q) => spec.kinds.has(q.kind)).length });
+    if (spec.have.has(name)) { feed.push({ name, amount }); continue; }
+    const routes = routesTo(name);
+    frontier.push({ name, amount,
+                    alternatives: routes.length,
+                    routes,
+                    raw: routes.length === 0,
+                    feeds: feedsOf(name),
+                    credited: false });
   }
   const byproducts = [...spare]
     .filter(([name]) => !asked.has(name))
-    .map(([name, amount]) => ({ name, amount, holds: [] }));
+    .map(([name, amount]) => ({ name, amount, holds: [], kept: false, credited: false }));
 
   /**
    * Enough of the older solver's shape for the page to render this one.
