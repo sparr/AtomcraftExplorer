@@ -14,7 +14,8 @@ const check = (ok, what) => {
   console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}`);
 };
 
-const tools = { matter: (n) => ({ Lepidolite: 22, 'Hydrofluoric Acid': 5, Water: 3 }[n] ?? 1),
+const tools = { matter: (n) => ({ Lepidolite: 22, 'Hydrofluoric Acid': 5, Water: 3,
+                                 Ten: 10, Twenty: 20, Thirty: 30 }[n] ?? 1),
                 toNumber: (x) => x };
 const plan = (frontier, byproducts, steps, batch) => ({
   spec: { targets: [{ name: 'X', amount: batch }] },
@@ -68,6 +69,25 @@ check(trade.menu.length === 2, 'fewer atoms against a shorter shopping list is n
 const byAtoms = trade.menu.find((r) => r.best.includes('atoms'));
 const byList = trade.menu.find((r) => r.best.includes('units'));
 check(byAtoms && byList && byAtoms !== byList, 'and each row is labelled with what it wins');
+
+console.log('\n--- a row can be on the menu and best at nothing ---');
+// Sparr found one: fewer reactors than the cheaper plan, fewer atoms than the
+// one with the shorter list, so neither beats it and it is the compromise
+// between them. It must survive, and it must be sayable why.
+const middle = digest([
+  // fewest atoms, fewest items, shortest list -- but the most reactors
+  { options: ['cheap'], plan: plan([{ name: 'Ten', amount: 1 }], [], ['rx', 'rx', 'rx', 'rx', 'rx'], 1) },
+  // beaten on all three of those, and on none of the other three
+  { options: ['mid'], plan: plan([{ name: 'Twenty', amount: 1 }, { name: 'a', amount: 1 }],
+                                 [{ name: 'a', amount: 1 }], ['rx', 'rx', 'rx'], 1) },
+  // fewest reactors and steps, most left over -- but the most atoms
+  { options: ['few'], plan: plan([{ name: 'Thirty', amount: 1 }, { name: 'a', amount: 1 },
+                                  { name: 'b', amount: 1 }], [{ name: 'a', amount: 2 }], ['rx'], 1) },
+], tools);
+check(middle.menu.length === 3, 'all three are kept, none beating another outright');
+const nowhere = middle.menu.filter((r) => !r.best.length);
+check(nowhere.length === 1, 'and exactly one of them is the best at nothing');
+check(nowhere[0].via[0][0] === 'mid', 'namely the one in the middle');
 
 console.log('\n--- what could not answer at all ---');
 const barren = digest([{ options: ['farm'], plan: null },

@@ -12586,10 +12586,18 @@ function menuRow(row, table) {
   if (row.via.length > 1) {
     via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
   }
-  if (row.best.length) {
-    via.append(el('div', 'menu-best',
-      `best on ${listed(row.best.map((id) => SCORES.find((s) => s.id === id).label))}`));
-  }
+  /**
+   * Every row says why it is here, including the ones that win nothing.
+   *
+   * A plan can be on the menu without being the best at anything: this one
+   * takes fewer reactors than the cheaper row above it and fewer atoms than
+   * the shorter-list row below, so neither beats it, and it is the compromise
+   * between them. Sparr found one of those and it had no caption at all, which
+   * reads as an oversight rather than as the answer it is.
+   */
+  via.append(el('div', 'menu-best', row.best.length
+    ? `best on ${listed(row.best.map((id) => SCORES.find((s) => s.id === id).label))}`
+    : 'a compromise — nothing here beats it outright'));
   tr.append(via);
   table.append(tr);
 }
