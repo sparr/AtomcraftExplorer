@@ -380,7 +380,10 @@ for (const c of WANTED) {
     // Ran beats every other reading of events. Asked last, a step the plan runs
     // was being reported as one the shortlist never picked.
     else if (ran.has(id)) verdict = `RUN ${rstr(ran.get(id))}x`;
-    else if (!inShort.has(id)) verdict = 'offered and NOT CHOSEN -- the simplex saw it and said no';
+    // `!inShort` is the shortlist dropping it, which means the simplex never
+    // saw it at all -- the old wording here said the opposite and sent me
+    // looking for a rejection that never happened.
+    else if (!inShort.has(id)) verdict = 'CUT BY THE SHORTLIST -- the simplex was never offered it';
     else verdict = 'shortlisted but dropped by the step-elimination';
     const mark = verdict.startsWith('RUN') ? 'ok  ' : '    ';
     console.log(`  ${mark}${id.padEnd(52)} ${verdict}`);

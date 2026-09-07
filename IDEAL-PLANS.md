@@ -116,11 +116,32 @@ round inside that. Both want laying in once and never buying. (Sparr)
 
 Five steps against four, and a charge of four potassium against one hydrogen,
 so the hydrogen route is the better answer as things stand and the solver
-finds it. What would bring the potassium back is a plan that wants the
+finds it. What ought to bring the potassium back is a plan that wants the
 potassium circuit anyway -- cases 1, 4 and 5 all turn it for their own reasons
 -- because then its steps are already paid for and closing the carbon on it
-costs one reaction rather than four. Worth re-checking whenever the carbon
-loop shows up inside a larger plan.
+should cost one reaction rather than four.
+
+**That has been tested and it does not happen, for a reason worth writing
+down.** In case 1 the potassium circuit *is* already turning, for the
+potassium target, and the solver still closes its carbon on hydrogen. Barring
+the hydrogen route sends it to magnesium; barring both makes it decompose
+twice the ore rather than touch potassium; handing it free Molten Potassium
+changes nothing. None of that is the simplex judging the route and finding it
+wanting -- **`rx:Molten Potassium + Carbon Dioxide` is cut by the shortlist**,
+which keeps only what one solve happened to use, so nothing downstream ever
+sees it. Carbon dioxide has thirteen consumers and exactly one survives.
+
+Offering all of them costs more than it is worth: the shortlist goes from
+twenty-two processes to a hundred and fifty, and the cases go from 88ms to
+17.8s and 174ms to 22.5s, two hundred times slower. And when the route finally
+is on the table, the simplex looks at it and drops it anyway -- lepidolite
+comes out at twenty-one steps rather than twenty-two, same shopping list. One
+step, for two orders of magnitude.
+
+So the shortlist's narrowness is real and known, and the potassium route is
+not obviously the better answer even where its steps are free. What would make
+it worth revisiting is a cheaper way to widen the shortlist than offering
+every consumer of everything the plan recycles.
 
 The solver answers this correctly, by the hydrogen route.
 
