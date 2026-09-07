@@ -225,6 +225,31 @@ in `KLi3Al4O10(OH,F)2`. This one is realistic rather than wrong: lepidolite is
 the principal ore of rubidium. It does mean the drop table knows something the
 formula does not.
 
+### Ammonium paratungstate is two different substances
+
+It has no formula, and its two reactions disagree about what it is:
+
+    Sodium Tungstate to APT           1 Na2WO4 + 1 NH4Cl+H2O + 1 HCl
+                                          -> 1 APT + 2 Seawater      APT = H3NO3W
+    Ammonium Paratungstate Roasting   1 APT -> 1 WO3 + 1 NH3 + 1 H2O APT = H5NO4W
+
+Exactly one water apart. Any plan that makes it and then roasts it conjures
+that water out of nothing, which is what both tungstate plans do: two runs of
+each, two water minted, and the leavings that look like free product are
+partly not.
+
+Worth stating because the leavings of a plan that buys nothing are otherwise
+determined -- what goes in must come out -- so two plans from the same ore
+cannot differ in what they leave unless something along the way is not
+conserving. That is what makes the leftover a useful measurement: a change in
+it is a bug report. Here it caught this.
+
+The real mineral is (NH4)10(H2W12O42)·4H2O, a cluster of twelve tungstens; the
+game treats it as a one-to-one material, so neither reading is going to be
+right. `H5NO4W` is the one the roasting needs and the one our derivation would
+have picked, and it is left out of src/formulas.js because the evidence
+conflicts.
+
 ### Hydrofluoric acid is five atoms, not two
 
 `Hydrofluoric Acid` is written `HF+H2O`: it is the aqueous acid, and a unit of
