@@ -177,32 +177,21 @@ const carbonish = (name) =>
  * source; until then, reading it here.
  */
 /**
- * How many atoms a unit of the stuff is, where the formula can be counted.
+ * How much stuff a unit of the stuff is, where it can be counted at all.
  *
  * A shopping list measured in units flatters whatever is densest -- one
  * Silicon Tetrafluoride against four Hydrofluoric Acid -- and measured in
  * atoms it does not. Neither is the truth on its own: units are what you carry
  * and atoms are what you are actually buying, so both are printed and the gap
  * between them says how concentrated the purchase is.
+ *
+ * `m.matter` rather than the formula, because the formula is not the whole
+ * story: a unit of a condensed phase can hold several units of the vapour it
+ * came from, and this used to read Liquid Oxygen as two atoms where it holds
+ * eight. It also handles the minerals whose formula names a site holding one
+ * of several elements, which the old walk gave up on.
  */
-function atomsOf(graph, name) {
-  const ast = graph.db.byName.get(name)?.formula?.ast;
-  if (!ast) return null;
-  let total = 0;
-  let ok = true;
-  const walk = (items, times) => {
-    for (const node of items) {
-      if (!ok) return;
-      if (node.k === 'el') total += node.n * times;
-      else if (node.k === 'group') {
-        if (node.branches.length !== 1) { ok = false; return; }
-        walk(node.branches[0], times * node.n);
-      } else if (node.k === 'unknown') { ok = false; return; }
-    }
-  };
-  walk(ast, 1);
-  return ok ? total : null;
-}
+const atomsOf = (graph, name) => graph.db.byName.get(name)?.matter ?? null;
 
 const SPELT = { F: ['F', 'Fl'] };
 const carries = (c, name) => (c.carries || []).some((el) =>

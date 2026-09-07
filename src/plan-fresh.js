@@ -815,8 +815,21 @@ export const FRESH_DEFAULTS = { ways: 3, reach: 9, loops: 3, eaters: 30 };
 /**
  * How hard to try not to leave things on the floor: 'off', 'units' or 'atoms'.
  * Ranked above step count, so it is asked before anything is dropped.
+ *
+ * `atoms`, because `units` cannot tell compressing waste from producing less
+ * of it. Weighed by the unit, a plan that vents Liquid Oxygen instead of
+ * Oxygen Gas looks four times tidier and throws away exactly as much: on
+ * lepidolite `units` reports 4.25 units against 7.25 and twenty-five atoms
+ * either way, and it pays seven steps for the privilege. Weighed by matter,
+ * with phase packing counted, that trade stops looking like one.
+ *
+ * What is left is a strict improvement. Four of the five cases come out
+ * exactly as they did with this off -- there was no real waste to remove --
+ * and columbite drops from twenty-four atoms on the floor to seventeen, in one
+ * step fewer, buying its hydrofluoric acid outright instead of going round by
+ * magnesium.
  */
-export const TIDY_DEFAULT = 'off';
+export const TIDY_DEFAULT = 'atoms';
 
 export function normalizeFresh(spec) {
   return {
@@ -1477,13 +1490,17 @@ function planOnce(graph, rawSpec) {
     return c;
   };
   const perUnit = () => 1;
-  const perAtom = (name) => {
-    const counts = graph.db.byName.get(name)?.atoms;
-    if (!counts) return 1;
-    let n = 0;
-    for (const v of counts.values()) n += v;
-    return n || 1;
-  };
+  /**
+   * What a unit of it really is, packing included.
+   *
+   * Not the formula: Oxygen Gas condenses four to one into Liquid Oxygen, so a
+   * unit of the liquid holds eight atoms where its formula says two. Weighed
+   * by the formula, this stage learnt it could vent the liquid instead of the
+   * gas, throw away exactly as much, and be charged a quarter of it -- which
+   * is what both carbon plans spent their extra step doing. One a unit where
+   * nothing in the phase group has a formula to anchor with.
+   */
+  const perAtom = (name) => graph.db.byName.get(name)?.matter ?? 1;
   const tidiness = spec.tidy;
   const tidyCost = tidiness === 'off' ? null
     : leftoverCost(tidiness === 'atoms' ? perAtom : perUnit);

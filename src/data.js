@@ -166,6 +166,8 @@ export async function loadData(url = './data/atomcraft.json') {
 
   const byName = new Map(materials.map((m) => [m.name, m]));
 
+  assignMatter(materials, byName);
+
   // 131 display names belong to more than one material -- 25 tree trunks all
   // read "Trunk", four bush tiles all read "Berry" -- which is fine in a list
   // that shows the internal name beside it, and useless in a sentence. So
@@ -299,3 +301,96 @@ export async function loadData(url = './data/atomcraft.json') {
     isDangling: (name) => dangling.has(name),
   };
 }
+
+/**
+ * How much stuff is actually in one unit, once phase packing is accounted for.
+ *
+ * `atoms` reads the formula, and the formula is not the whole story: a unit of
+ * a condensed phase can hold several units of the vapour it came from. Oxygen
+ * Gas condenses four to one into Liquid Oxygen, so a unit of the liquid holds
+ * four units of the gas -- eight atoms, not the two its formula names. Read
+ * literally, that phase change destroys six atoms, and a plan asked to keep
+ * its leftovers down learns it can vent the liquid and be charged a quarter.
+ *
+ * The transitions themselves say what the ratios are. Evaporation is one unit
+ * becoming `Amount` of the target, so the source holds `Amount` times what the
+ * target does; condensation is `Amount` units becoming one, the other way
+ * about. That fixes every member of a phase-linked group relative to the rest.
+ *
+ * What it does not fix is the scale, and for that one member's formula has to
+ * be believed. The least-packed member is the one to believe: packing only
+ * ever multiplies, so the lightest unit in a group is the one whose formula is
+ * likeliest to be the plain molecular one. It gives Liquid Oxygen eight atoms
+ * from Oxygen Gas's two, and it agrees with Liquid Hydrogen, whose formula is
+ * already written `H8` and carries its own packing -- the data does this both
+ * ways, which is why it cannot simply be read off.
+ *
+ * Groups where no member has a countable formula get null: relative weights
+ * are known, absolute ones are not, and guessing at them would be worse than
+ * saying so.
+ */
+function assignMatter(materials, byName) {
+  const sum = (m) => {
+    if (!m.atoms) return null;
+    let n = 0;
+    for (const v of m.atoms.values()) n += v;
+    return n || null;
+  };
+
+  // matter(other) = ratio * matter(name), read off the two transition fields
+  // in both directions.
+  const links = new Map(materials.map((m) => [m.name, []]));
+  const link = (a, b, ratio) => {
+    if (!links.has(a) || !links.has(b)) return;
+    links.get(a).push([b, ratio]);
+    links.get(b).push([a, 1 / ratio]);
+  };
+  for (const m of materials) {
+    const up = m.raw.Evaporation;
+    if (up?.TargetMaterialName) link(m.name, up.TargetMaterialName, 1 / (up.Amount || 1));
+    const down = m.raw.Condensation;
+    if (down?.TargetMaterialName) link(m.name, down.TargetMaterialName, down.Amount || 1);
+  }
+
+  const rel = new Map();
+  const seen = new Set();
+  for (const start of materials) {
+    if (seen.has(start.name)) continue;
+    const group = [];
+    rel.set(start.name, 1);
+    seen.add(start.name);
+    const queue = [start.name];
+    while (queue.length) {
+      const cur = queue.shift();
+      group.push(cur);
+      for (const [other, ratio] of links.get(cur)) {
+        const want = rel.get(cur) * ratio;
+        if (!seen.has(other)) {
+          rel.set(other, want);
+          seen.add(other);
+          queue.push(other);
+        }
+        // A disagreeing second route through the group is the data
+        // contradicting itself; the first reading stands and `matterOdd`
+        // records it rather than silently averaging.
+        else if (Math.abs(rel.get(other) - want) > 1e-9 * Math.max(1, want)) {
+          MATTER_ODD.push([cur, other, rel.get(other), want]);
+        }
+      }
+    }
+    // Anchor on the lightest member that has a formula to anchor with.
+    let anchor = null;
+    for (const name of group) {
+      const each = sum(byName.get(name));
+      if (each === null) continue;
+      if (!anchor || rel.get(name) < rel.get(anchor)) anchor = name;
+    }
+    const scale = anchor === null ? null : sum(byName.get(anchor)) / rel.get(anchor);
+    for (const name of group) {
+      byName.get(name).matter = scale === null ? null : scale * rel.get(name);
+    }
+  }
+}
+
+/** Phase groups whose transitions disagree about their own ratios. */
+export const MATTER_ODD = [];
