@@ -16,7 +16,7 @@
  *
  * Everything else is a consequence, not a rule.
  */
-import { DEFAULT_KINDS } from './plan-graph.js';
+import { DEFAULT_KINDS, operatingWindow } from './plan-graph.js';
 import { composition, elementsOf } from './composition.js';
 import { heatingNeed, coolingNeed } from './units.js';
 import { solveLP } from './simplex.js';
@@ -916,6 +916,24 @@ export function subgraph(graph, spec) {
     for (const o of p.produces) materials.add(o.name);
   }
   for (const t of spec.targets) materials.add(t.name);
+  /**
+   * A chamber is all or none of it.
+   *
+   * Half a competition is worse than none: the plan would run the potassium
+   * branch of the Lepidolite decomposition and never account for the two
+   * thirds of the ore the other two branches take. If any member is worth
+   * having, all of them come.
+   */
+  for (const g of rivalGroups(graph)) {
+    if (!g.ids.some((id) => chosen.has(id))) continue;
+    for (const id of g.ids) {
+      const q = graph.byId.get(id);
+      if (!q || chosen.has(id)) continue;
+      chosen.set(id, q);
+      for (const i of inputsOf(q)) materials.add(i.name);
+      for (const o of q.produces) materials.add(o.name);
+    }
+  }
   return { processes: [...chosen.values()], materials, depth };
 }
 
@@ -971,6 +989,87 @@ export function normalizeFresh(spec) {
  * you like, and everything else costs one a unit, which is the whole of what
  * "fetch total" means.
  */
+const rivalCache = new WeakMap();
+
+/**
+ * Reactions that share a chamber, and how the feed divides between them.
+ *
+ * Sparr: the plan thought it could run one of the Lepidolite reactions without
+ * the other two. It cannot. Three decompositions sit on the same primary input
+ * gated at 51, 52 and 50, so a tick in that chamber fires one of them and which
+ * one is not yours to choose. Over a run they take about a third of the ore
+ * each, and a plan that helps itself to the potassium branch alone is claiming
+ * two thirds of its feed came back as something it did not ask for.
+ *
+ * The chances are worked out again here rather than read off `competition`,
+ * which carries them as doubles. Everything downstream of this is exact, and a
+ * third is not a double.
+ *
+ * Twenty-two chambers, forty-seven reactions.
+ */
+export function rivalGroups(graph) {
+  let groups = rivalCache.get(graph);
+  if (groups) return groups;
+  groups = [];
+  const seen = new Set();
+  for (const p of graph.processes) {
+    if (p.kind !== 'reaction' || seen.has(p.id)) continue;
+    const all = operatingWindow(p, true).competition;
+    if (!all || all.length < 2) continue;
+    /**
+     * One chamber each, first come.
+     *
+     * Which reactions compete depends on the window the chamber is held at,
+     * so the sets overlap: `Hydrogen Sulfide Gas + Oxygen Gas` is a rival in
+     * three of them, at nought, two and forty-nine per cent. Tying it into all
+     * three at once is not a model of anything -- it forced it to zero in one
+     * and then dragged its partners to zero with it, and the Lepidolite plan
+     * stopped having an answer at all.
+     */
+    const members = all.filter((m) => !seen.has(m.id));
+    if (members.length < 2) continue;
+    for (const m of members) seen.add(m.id);
+    // A 1-in-P gate rolled per tick, tried in the order the game baked them:
+    // the first takes 1/P of the ticks, the next that fraction of what is left,
+    // and a member with no gate at all takes everything still going.
+    let rest = rat(1);
+    const fires = members.map((m) => {
+      const gate = rat(BigInt(m.probability || 1));
+      const mine = rdiv(rest, gate);
+      rest = rsub(rest, mine);
+      return mine;
+    });
+    let total = R0;
+    for (const f of fires) total = radd(total, f);
+    if (rzero(total)) continue;
+    /**
+     * Only the branches that actually fire are tied to each other.
+     *
+     * Where an earlier rival carries no gate it takes every tick and the ones
+     * after it never run at all -- `Silica Reduction` sits behind `Molten
+     * Silica + Carbon` and comes out at nought. Tying a nought in means
+     * declaring that route dead, and with it any silicon out of Lepidolite,
+     * which is one of the four things the flagship plan is asked for. That is
+     * a claim about the game, not about arithmetic, and it is not this
+     * function's to make: a nought is left untied and goes on being treated
+     * the way it always was.
+     */
+    const live = members
+      .map((m, i) => [m.id, rdiv(fires[i], total)])
+      .filter(([, chance]) => !rzero(chance));
+    if (live.length < 2) continue;
+    groups.push({ ids: live.map(([id]) => id), chances: live.map(([, c]) => c) });
+  }
+  rivalCache.set(graph, groups);
+  return groups;
+}
+
+/** Which chamber a reaction shares, if it shares one. */
+export function rivalsOf(graph, id) {
+  for (const g of rivalGroups(graph)) if (g.ids.includes(id)) return g;
+  return null;
+}
+
 export function model(graph, spec, procs, materials) {
   const index = new Map(procs.map((p, i) => [p.id, i]));
   /**
@@ -1065,6 +1164,34 @@ export function model(graph, spec, procs, materials) {
     const each = prices.get(name) ?? 1;
     fetchCost.set(i, rat(Math.round(each * 64), 64n));
   }
+  /**
+   * A chamber runs as one, and the feed divides by the gates.
+   *
+   * Not a preference: which branch fires on a given tick is the game's roll,
+   * so over a run the counts are fixed against each other. Written as
+   * `runs(a) * chance(b) = runs(b) * chance(a)`, which is linear and exact --
+   * and which pins a branch that never fires at all to zero runs, since an
+   * earlier ungated rival takes every tick.
+   */
+  for (const g of rivalGroups(graph)) {
+    const here = [];
+    for (let k = 0; k < g.ids.length; k++) {
+      const at = index.get(g.ids[k]);
+      if (at !== undefined) here.push([at, g.chances[k]]);
+    }
+    if (here.length < 2) continue;
+    const [first, firstChance] = here[0];
+    for (let k = 1; k < here.length; k++) {
+      const [other, otherChance] = here[k];
+      rows.push({
+        name: `chamber:${g.ids[0]}`,
+        coeffs: new Map([[first, otherChance], [other, rsub(R0, firstChance)]]),
+        op: '=',
+        rhs: R0,
+      });
+    }
+  }
+
   return { index, supply, vars, rows, fetchCost, bought };
 }
 
@@ -1173,6 +1300,10 @@ export function shortlist(graph, spec, sub, build) {
     const i = model.index.get(p.id);
     if (answer.x[i] > 0) chosen.add(p.id);
     if (second.ok && second.x[i] > 0) chosen.add(p.id);
+  }
+  // And a chamber stays whole through the narrowing too, for the same reason.
+  for (const g of rivalGroups(graph)) {
+    if (g.ids.some((id) => chosen.has(id))) for (const id of g.ids) chosen.add(id);
   }
   const keep = sub.processes.filter((p) => chosen.has(p.id));
   if (!keep.length) return null;

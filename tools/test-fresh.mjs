@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
-import { solveFresh, phaseGroup } from '../src/plan-fresh.js';
+import { solveFresh, phaseGroup, rivalsOf } from '../src/plan-fresh.js';
 import { rnum, rzero, rstr } from '../src/rational.js';
 import { composition } from '../src/composition.js';
 import { CASES, NEVER } from './cases.mjs';
@@ -39,7 +39,9 @@ const holdsAWant = (p, name) => {
     return want && want.size && [...want].every((el) => has.has(el));
   });
 };
-const helpers = { rnum, rzero, rstr, carries, sameStuff, holdsAWant };
+// The chamber a reaction shares, if it shares one, with the exact split.
+const chamber = (id) => rivalsOf(graph, id);
+const helpers = { rnum, rzero, rstr, carries, sameStuff, holdsAWant, chamber };
 const budget = Number(process.env.FRESH_BUDGET || 240000);
 
 let met = 0, missed = 0, broke = 0;

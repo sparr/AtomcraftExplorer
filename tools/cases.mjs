@@ -143,8 +143,16 @@ export const CASES = [
       ['buys less per order than the plan that vents it', (p, { rnum }) =>
         p.frontier.reduce((a, f) => a + rnum(f.amount), 0) /
           (rnum(p.madeOf('Potassium')) / 2) < 5],
-      ['and no more ore per order either', (p, { rnum }) =>
-        rnum(p.amountOf('Lepidolite')) / (rnum(p.madeOf('Potassium')) / 2) <= 3],
+      /**
+       * Three was the bound while the plan could run one branch of the
+       * decomposition on its own. It cannot: the chamber fires its three
+       * branches 52, 50 and 51 times in 153, so the potassium branch is fifty
+       * ticks in a hundred and fifty-three and the ore per potassium cannot
+       * come below 153/50. The old number was not a tighter standard, it was
+       * the measure of a plan that was not possible.
+       */
+      ['and no more ore per order than the chamber allows', (p, { rnum }) =>
+        rnum(p.amountOf('Lepidolite')) / (rnum(p.madeOf('Potassium')) / 2) <= 153 / 50],
     ],
   },
 ];
@@ -214,6 +222,30 @@ export const NEVER = [
    * A charge is a fetch -- it is what you have to turn up holding -- so it
    * takes the same rule, and a wheel has more than one place to push it.
    */
+  /**
+   * Sparr: it thinks it can run one of the Lepidolite reactions without the
+   * other two.
+   *
+   * It cannot. Three decompositions sit on the same feed gated at 51, 52 and
+   * 50, and which one fires on a tick is the game's roll, not the player's
+   * choice. Helping itself to the potassium branch alone was claiming that two
+   * thirds of the ore came back as something it had not asked for.
+   *
+   * Checked as a ratio rather than a presence, because running all three in
+   * the wrong proportion is the same lie told more quietly.
+   */
+  ['and never runs one branch of a chamber without its rivals', (p, { chamber, rnum }) =>
+    !chamber || p.steps.every((step) => {
+      const shared = chamber(step.process.id);
+      if (!shared) return true;
+      const mineAt = shared.ids.indexOf(step.process.id);
+      const mine = rnum(step.runs) / rnum(shared.chances[mineAt]);
+      return shared.ids.every((id, i) => {
+        const mate = p.steps.find((other) => other.process.id === id);
+        if (!mate) return false;
+        return Math.abs(rnum(mate.runs) / rnum(shared.chances[i]) - mine) < 1e-6 * mine;
+      });
+    })],
   ['and never fetches or lays in an atom it was asked to make', (p, { holdsAWant }) =>
     !holdsAWant ||
     (!p.frontier.some((f) => holdsAWant(p, f.name)) &&
