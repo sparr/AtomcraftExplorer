@@ -130,7 +130,23 @@ const GREW = new Set(['Hamburger (Raw)', 'Cow Manure', 'Compost', 'Compost (Burn
  * as a deposit and is mined off a Kelp Stalk End, so it grows back and the
  * filing is wrong about the only thing that matters here.
  */
-export function sourceOf(graph, name, seen = new Set()) {
+const sourceCache = new WeakMap();
+export function sourceOf(graph, name, seen = new Set(), followPhase = true) {
+  // Memoised on the top-level question only: a nested call carries a `seen`
+  // set and its answer is conditional on that walk, not on the material.
+  let cache = null;
+  if (!seen.size && followPhase) {
+    cache = sourceCache.get(graph);
+    if (!cache) sourceCache.set(graph, (cache = new Map()));
+    const hit = cache.get(name);
+    if (hit) return hit;
+  }
+  const answer = sourceUncached(graph, name, seen, followPhase);
+  if (cache) cache.set(name, answer);
+  return answer;
+}
+
+function sourceUncached(graph, name, seen, followPhase) {
   if (weatherSet(graph).has(name) || graph.fallsFromSky(name)) return 'weather';
   if (FROM_AIR.has(name)) return 'air';
 
@@ -208,6 +224,38 @@ export function sourceOf(graph, name, seen = new Set()) {
   }
 
   if (own === 'deposit' || own === 'terrain') return 'world';
+
+  /**
+   * Follow the melt as well as the mine.
+   *
+   * `Calcium Fluoride` is terrain and so `world`; `Molten Calcium Fluoride` is
+   * the same mineral one phase change away, filed as a compound, and so came
+   * back `made`. The columbite plan is told to use no mined things, and bought
+   * forty-eight of the melt and froze them -- one `cond:` step, and the ban
+   * walked around. Forty-seven phase pairs disagree like this, among them
+   * Alumina, Columbite and Chromite.
+   *
+   * Melting is free and reversible, so the scarcer end of the pair governs
+   * both: if you can only get the solid by digging, the liquid is dug too.
+   */
+  /**
+   * One hop, and not for an element. Following the melt as far as it goes made
+   * Molten Copper `world` and copper with it, and an element is `made` however
+   * you came by it -- Sparr's categories put the pure elements there by name.
+   * What this is for is narrower: the melt of something you had to dig.
+   */
+  if (followPhase && own !== 'element') {
+    const dug = (n) => sourceOf(graph, n, new Set(), false) === 'world';
+    for (const p of graph.producers(name)) {
+      if (p.kind !== 'phase') continue;
+      for (const c of p.consumes) if (dug(c.name)) return 'world';
+    }
+    for (const p of graph.consumers(name)) {
+      if (p.kind !== 'phase') continue;
+      for (const o of p.produces) if (dug(o.name)) return 'world';
+    }
+  }
+
   return 'made';
 }
 
