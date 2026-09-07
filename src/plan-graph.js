@@ -14,6 +14,7 @@
  * it can say "there is a way, but it needs mining".
  */
 import { makeClassifier } from './grouping.js';
+import { listed } from './prose.js';
 import { phaseChange } from './data.js';
 
 /**
@@ -512,9 +513,7 @@ function phaseChains(db) {
         const limit = hops.map((h) => h.t.Temperature ?? (heating ? 0 : Infinity));
         const verbs = hops.map((h) =>
           phaseChange(h.from.state, h.to.state, heating ? 'heat' : 'cool').verb.replace(/ into$/, ''));
-        const said = verbs.length > 1
-          ? `${verbs.slice(0, -1).join(', ')} and ${verbs[verbs.length - 1]}`
-          : verbs[0];
+        const said = listed(verbs);
         out.push(makeProcess({
           id: `chain:${heating ? 'heat' : 'cool'}:${start.name}#${hops.length}`,
           kind: 'phase',

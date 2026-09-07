@@ -3699,6 +3699,40 @@ function formatTemperatureRange(min, max, unit = DEFAULT_TEMPERATURE_UNIT) {
 return { AMBIENT, heatingNeed, coolingNeed, TEMPERATURE_UNITS, DEFAULT_TEMPERATURE_UNIT, convertTemperature, convertTemperatureDelta, formatTemperature, formatTemperatureDelta, formatTemperatureRange };
 })();
 
+const __mod_prose = (() => {
+/**
+ * Turning a list of things into a phrase a person would say.
+ *
+ * Small enough to have been written three times over -- once in the plan pane,
+ * once for the phase-change verbs, once for the notes a refusal carries -- and
+ * they disagreed, which is how a page ends up saying "melts, boils and freezes"
+ * in one place and "reactors, and steps" nowhere at all.
+ */
+
+/**
+ * A, B, and C. With the serial comma, and only where there is a series.
+ *
+ * Sparr asked for it on enumerated lists shown to the reader. Two things take
+ * no comma -- "reactors and steps", not "reactors, and steps" -- because two
+ * things are not a series; the comma is there to keep the last two apart when
+ * there are others behind them.
+ *
+ * The conjunction is a parameter because a refusal reads "nothing consumes tin
+ * or lead", not "tin and lead", and the comma rule is the same either way.
+ */
+function listed(parts, conjunction = 'and') {
+  const items = [...parts];
+  if (items.length < 2) return items[0] ?? '';
+  const last = items[items.length - 1];
+  const rest = items.slice(0, -1);
+  return items.length === 2
+    ? `${rest[0]} ${conjunction} ${last}`
+    : `${rest.join(', ')}, ${conjunction} ${last}`;
+}
+
+return { listed };
+})();
+
 const __mod_plan_graph = (() => {
 /**
  * The production hypergraph: every way one material can become another.
@@ -3716,6 +3750,7 @@ const __mod_plan_graph = (() => {
  * it can say "there is a way, but it needs mining".
  */
 const {makeClassifier} = __mod_grouping;
+const {listed} = __mod_prose;
 const {phaseChange} = __mod_data;
 
 /**
@@ -4214,9 +4249,7 @@ function phaseChains(db) {
         const limit = hops.map((h) => h.t.Temperature ?? (heating ? 0 : Infinity));
         const verbs = hops.map((h) =>
           phaseChange(h.from.state, h.to.state, heating ? 'heat' : 'cool').verb.replace(/ into$/, ''));
-        const said = verbs.length > 1
-          ? `${verbs.slice(0, -1).join(', ')} and ${verbs[verbs.length - 1]}`
-          : verbs[0];
+        const said = listed(verbs);
         out.push(makeProcess({
           id: `chain:${heating ? 'heat' : 'cool'}:${start.name}#${hops.length}`,
           kind: 'phase',
@@ -5398,6 +5431,7 @@ const __mod_plan_fresh = (() => {
  * Everything else is a consequence, not a rule.
  */
 const {DEFAULT_KINDS, operatingWindow} = __mod_plan_graph;
+const {listed} = __mod_prose;
 const {composition, elementsOf} = __mod_composition;
 const {heatingNeed, coolingNeed} = __mod_units;
 const {solveLP} = __mod_simplex;
@@ -7256,7 +7290,7 @@ function planOnce(graph, rawSpec) {
   const eats = (name) => graph.consumers(name).some((p) => spec.kinds.has(p.kind));
   const held = [...spec.have];
   if (held.length && held.every((name) => !eats(name))) {
-    return giveUp(`nothing consumes ${held.join(' or ')}, so holding ` +
+    return giveUp(`nothing consumes ${listed(held, 'or')}, so holding ` +
       `${held.length > 1 ? 'them' : 'it'} cannot help`);
   }
 
@@ -7302,7 +7336,7 @@ function planOnce(graph, rawSpec) {
   }
   const lost = spec.targets.filter((t) => !reach.has(t.name)).map((t) => t.name);
   if (lost.length) {
-    return giveUp(`nothing can reach ${lost.join(' or ')} from what is held, ` +
+    return giveUp(`nothing can reach ${listed(lost, 'or')} from what is held, ` +
       `and buying ${lost.length > 1 ? 'them' : 'it'} is barred`);
   }
 
@@ -7593,7 +7627,7 @@ function planOnce(graph, rawSpec) {
       shut.push(...shutToo);
       if (notes) {
         notes.push(`closed the ${el} loop rather than buying ` +
-                   carriers.get(el).map(([n]) => n).join(' or '));
+                   listed(carriers.get(el).map(([n]) => n), 'or'));
       }
       base = closed;
     }
@@ -8115,7 +8149,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
         if (better) best = { step, short, price, outside, forbidden };
       }
       if (best && best.forbidden && notes) {
-        notes.push(`nothing but ${best.short.map(([n]) => n).join(' and ')} would start ` +
+        notes.push(`nothing but ${listed(best.short.map(([n]) => n))} would start ` +
                    `this, and that is made of what was asked for`);
       }
       if (!best || !best.short.length) break;
@@ -11325,6 +11359,7 @@ const __mod_plan_view = (() => {
  * else is drawn beside it later.
  */
 const {search} = __mod_search;
+const {listed} = __mod_prose;
 const {solvePlan, balanceTargets, routesFor, usesFor, rat, rmul, rsub, rstr, rcmp, R0} = __mod_plan_solve;
 const {solveFresh, blankFresh, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
 const {SCORES, optionSets, digest} = __mod_plan_menu;
@@ -11424,8 +11459,7 @@ function firesAt([lo, hi]) {
 }
 
 /** "a", "a and b", "a, b and c". */
-const listed = (parts) => (parts.length < 2 ? (parts[0] || '')
-  : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`);
+
 
 /**
  * Everything currently showing suggestions, so a click elsewhere can put them
@@ -12650,10 +12684,22 @@ function render() {
   const ask = { ...question, targets: shownTargets, sources: plan.sources };
   askedFor = ask;
   if (plan.fresh) {
+    /**
+     * The comparison already solved this one, so do not solve it again.
+     *
+     * Sparr: choosing a row from the scoreboard pauses -- is it re-running the
+     * solver on the plan it just showed me? It was. Every row of that table is
+     * a solved plan the sweep is still holding, and picking one changes the
+     * sources and nothing else, which is exactly the difference the sweep
+     * enumerated. So the answer is already in hand and the wait was for
+     * arithmetic that had been done.
+     */
+    const ready = sweep && sweep.key === questionKey(ask) &&
+      sweep.entries.find((e) => e.plan && sameSources(e.options, plan.sources));
     // It says null when it cannot answer, and says why if asked. The page has
     // to render something either way, so an empty plan carries the reason.
     const notes = [];
-    solved = solveFresh(ctx.graph, { ...ask, notes })
+    solved = (ready && ready.plan) || solveFresh(ctx.graph, { ...ask, notes })
       || blankFresh(ctx.graph, ask, notes.find((n) => !n.startsWith('spoils')) || null);
   } else {
     solved = solvePlan(ctx.graph, ask);

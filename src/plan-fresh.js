@@ -17,6 +17,7 @@
  * Everything else is a consequence, not a rule.
  */
 import { DEFAULT_KINDS, operatingWindow } from './plan-graph.js';
+import { listed } from './prose.js';
 import { composition, elementsOf } from './composition.js';
 import { heatingNeed, coolingNeed } from './units.js';
 import { solveLP } from './simplex.js';
@@ -1876,7 +1877,7 @@ function planOnce(graph, rawSpec) {
   const eats = (name) => graph.consumers(name).some((p) => spec.kinds.has(p.kind));
   const held = [...spec.have];
   if (held.length && held.every((name) => !eats(name))) {
-    return giveUp(`nothing consumes ${held.join(' or ')}, so holding ` +
+    return giveUp(`nothing consumes ${listed(held, 'or')}, so holding ` +
       `${held.length > 1 ? 'them' : 'it'} cannot help`);
   }
 
@@ -1922,7 +1923,7 @@ function planOnce(graph, rawSpec) {
   }
   const lost = spec.targets.filter((t) => !reach.has(t.name)).map((t) => t.name);
   if (lost.length) {
-    return giveUp(`nothing can reach ${lost.join(' or ')} from what is held, ` +
+    return giveUp(`nothing can reach ${listed(lost, 'or')} from what is held, ` +
       `and buying ${lost.length > 1 ? 'them' : 'it'} is barred`);
   }
 
@@ -2213,7 +2214,7 @@ function planOnce(graph, rawSpec) {
       shut.push(...shutToo);
       if (notes) {
         notes.push(`closed the ${el} loop rather than buying ` +
-                   carriers.get(el).map(([n]) => n).join(' or '));
+                   listed(carriers.get(el).map(([n]) => n), 'or'));
       }
       base = closed;
     }
@@ -2735,7 +2736,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
         if (better) best = { step, short, price, outside, forbidden };
       }
       if (best && best.forbidden && notes) {
-        notes.push(`nothing but ${best.short.map(([n]) => n).join(' and ')} would start ` +
+        notes.push(`nothing but ${listed(best.short.map(([n]) => n))} would start ` +
                    `this, and that is made of what was asked for`);
       }
       if (!best || !best.short.length) break;

@@ -12,6 +12,7 @@
  * else is drawn beside it later.
  */
 import { search } from './search.js';
+import { listed } from './prose.js';
 import { solvePlan, balanceTargets, routesFor, usesFor,
          rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
 import { solveFresh, blankFresh, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
@@ -118,8 +119,7 @@ function firesAt([lo, hi]) {
 }
 
 /** "a", "a and b", "a, b and c". */
-const listed = (parts) => (parts.length < 2 ? (parts[0] || '')
-  : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`);
+
 
 /**
  * Everything currently showing suggestions, so a click elsewhere can put them
@@ -1344,10 +1344,22 @@ export function render() {
   const ask = { ...question, targets: shownTargets, sources: plan.sources };
   askedFor = ask;
   if (plan.fresh) {
+    /**
+     * The comparison already solved this one, so do not solve it again.
+     *
+     * Sparr: choosing a row from the scoreboard pauses -- is it re-running the
+     * solver on the plan it just showed me? It was. Every row of that table is
+     * a solved plan the sweep is still holding, and picking one changes the
+     * sources and nothing else, which is exactly the difference the sweep
+     * enumerated. So the answer is already in hand and the wait was for
+     * arithmetic that had been done.
+     */
+    const ready = sweep && sweep.key === questionKey(ask) &&
+      sweep.entries.find((e) => e.plan && sameSources(e.options, plan.sources));
     // It says null when it cannot answer, and says why if asked. The page has
     // to render something either way, so an empty plan carries the reason.
     const notes = [];
-    solved = solveFresh(ctx.graph, { ...ask, notes })
+    solved = (ready && ready.plan) || solveFresh(ctx.graph, { ...ask, notes })
       || blankFresh(ctx.graph, ask, notes.find((n) => !n.startsWith('spoils')) || null);
   } else {
     solved = solvePlan(ctx.graph, ask);
