@@ -960,6 +960,15 @@ export function normalizeFresh(spec) {
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /**
+     * Which way to settle a draw over what is left on the floor.
+     *
+     * The lowest priority there is: by the time it is consulted the steps, the
+     * shopping list and the feed are all pinned, so it can only choose between
+     * answers that are otherwise the same. Off by default, because leavings
+     * that appear without more going in are matter the game invented.
+     */
+    keepLeftovers: !!spec.keepLeftovers,
+    /**
      * Not used to solve anything -- this solver has no notion of spending a
      * byproduct on purpose -- but the page reads it off the plan to mark which
      * steps are running on something spare, so it has to be here to be empty.
@@ -2312,13 +2321,18 @@ function planOnce(graph, rawSpec) {
    *
    * The steps are settled, the shopping list is pinned and so is what goes in
    * at the door, so this cannot trade any of them away. What it can still
-   * choose is which corner of the remaining face to sit in, and Sparr's answer
-   * is the one that leaves the most behind. Free matter is free matter.
+   * choose is which corner of the remaining face to sit in, and the corner to
+   * take is the one that leaves the least behind.
    *
-   * Maximised, which is minimising its negative -- the LP has no other way to
-   * be asked. Where the answer is genuinely determined this changes nothing,
-   * which is most of the time: it only has room to move where the plan runs a
-   * reaction the game does not balance, and those exist on purpose.
+   * This asked for the most, once, on the reasoning that free matter is free
+   * matter. Sparr: more leftover atoms from the same inputs is just
+   * conservation errors in play, and I do not want to incentivise that. Quite
+   * right -- the feed is pinned here, so anything extra on the floor did not
+   * come from anywhere. It was minted by a reaction that does not balance, and
+   * asking for more of it is asking the plan to go looking for the game's
+   * mistakes. Where the answer is genuinely determined this changes nothing,
+   * which is most of the time: it only has room to move where such a reaction
+   * is being run at all.
    */
   if (spoilsCost.size) {
     /**
@@ -2337,13 +2351,17 @@ function planOnce(graph, rawSpec) {
     for (const [, i] of supply) {
       fixed.push({ coeffs: new Map([[i, rat(1)]]), op: '=', rhs: best.x[i] });
     }
-    const richer = attempt(banned, [...fixed, ...demands],
-      new Map([...spoilsCost].map(([i, a]) => [i, rsub(R0, a)])));
-    if (richer) {
+    // Maximised by minimising its negative; the LP has no other way to be asked.
+    const aim = spec.keepLeftovers
+      ? new Map([...spoilsCost].map(([i, a]) => [i, rsub(R0, a)]))
+      : spoilsCost;
+    const other = attempt(banned, [...fixed, ...demands], aim);
+    if (other) {
       if (notes) {
-        notes.push(`spoils: ${rstr(spoilsIn(best.x))} -> ${rstr(spoilsIn(richer.x))} atoms left over`);
+        notes.push(`spoils: ${rstr(spoilsIn(best.x))} -> ${rstr(spoilsIn(other.x))} atoms left over`);
       }
-      if (rcmp(spoilsIn(richer.x), spoilsIn(best.x)) > 0) best = richer;
+      const better = rcmp(spoilsIn(other.x), spoilsIn(best.x));
+      if (spec.keepLeftovers ? better > 0 : better < 0) best = other;
     }
   }
 

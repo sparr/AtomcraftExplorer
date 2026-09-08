@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
+import { balanceTargets } from '../src/plan-solve.js';
 import { solveFresh, phaseGroup, chamberShares, withElements,
          normalizeFresh } from '../src/plan-fresh.js';
 import { rnum, rzero, rstr } from '../src/rational.js';
@@ -91,9 +92,28 @@ for (const c of CASES) {
   const started = Date.now();
   let plan = null, err = null;
   try {
-    plan = solveFresh(graph, { targets: c.plan.targets.map((t) => ({ name: t, amount: 1 })),
-                               have: c.plan.have || [],
-                               ...(c.plan.sources ? { sources: c.plan.sources } : {}) });
+    /**
+     * The way the page asks it, which is not what this used to do.
+     *
+     * Two things were being dropped on the floor. `consume` and `takeCharges`
+     * never reached the solver, so `co-to-carbon-used-up` was never actually
+     * told to use the carbon dioxide up and was then marked down for not
+     * having done so. And the amounts were left at one apiece rather than
+     * balanced, so what got measured was the solver's own batch scaling --
+     * Lepidolite came out 2/2/2/2 and was read as failing to reach 2/2/2/3,
+     * which it reaches perfectly well when it is asked to.
+     *
+     * Balancing costs a few dozen solves per case, about thirty seconds across
+     * the seven. Worth it: the old solver's harness has always asked this way,
+     * and a suite that asks a different question from the page is measuring
+     * something nobody uses.
+     */
+    const ask = { targets: c.plan.targets.map((t) => ({ name: t, amount: 1 })),
+                  have: c.plan.have || [],
+                  ...(c.plan.consume ? { consume: c.plan.consume } : {}),
+                  ...(c.plan.takeCharges ? { takeCharges: true } : {}),
+                  ...(c.plan.sources ? { sources: c.plan.sources } : {}) };
+    plan = solveFresh(graph, { ...ask, targets: balanceTargets(graph, ask, solveFresh) });
   } catch (e) { err = e; }
   const took = Date.now() - started;
   if (err) { console.log(`      threw after ${took}ms: ${err.message}`); broke++; continue; }

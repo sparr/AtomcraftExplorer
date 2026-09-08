@@ -1054,6 +1054,13 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
       Keep each step to one reaction &mdash; narrow its temperature range so
       nothing else in the chamber goes off
     </label>
+    <label class="plan-opt" id="plan-leftovers-opt">
+      <input type="checkbox" id="plan-leftovers">
+      Keep the leavings &mdash; where two plans are otherwise identical, prefer
+      the one that leaves more behind rather than less. Off by default: matter
+      that appears without more going in is the game failing to conserve, not
+      value found
+    </label>
     <label class="plan-opt">
       <input type="checkbox" id="plan-charges">
       Start with something in hand &mdash; lay a charge in once where it saves
@@ -6373,6 +6380,15 @@ function normalizeFresh(spec) {
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /**
+     * Which way to settle a draw over what is left on the floor.
+     *
+     * The lowest priority there is: by the time it is consulted the steps, the
+     * shopping list and the feed are all pinned, so it can only choose between
+     * answers that are otherwise the same. Off by default, because leavings
+     * that appear without more going in are matter the game invented.
+     */
+    keepLeftovers: !!spec.keepLeftovers,
+    /**
      * Not used to solve anything -- this solver has no notion of spending a
      * byproduct on purpose -- but the page reads it off the plan to mark which
      * steps are running on something spare, so it has to be here to be empty.
@@ -7725,13 +7741,18 @@ function planOnce(graph, rawSpec) {
    *
    * The steps are settled, the shopping list is pinned and so is what goes in
    * at the door, so this cannot trade any of them away. What it can still
-   * choose is which corner of the remaining face to sit in, and Sparr's answer
-   * is the one that leaves the most behind. Free matter is free matter.
+   * choose is which corner of the remaining face to sit in, and the corner to
+   * take is the one that leaves the least behind.
    *
-   * Maximised, which is minimising its negative -- the LP has no other way to
-   * be asked. Where the answer is genuinely determined this changes nothing,
-   * which is most of the time: it only has room to move where the plan runs a
-   * reaction the game does not balance, and those exist on purpose.
+   * This asked for the most, once, on the reasoning that free matter is free
+   * matter. Sparr: more leftover atoms from the same inputs is just
+   * conservation errors in play, and I do not want to incentivise that. Quite
+   * right -- the feed is pinned here, so anything extra on the floor did not
+   * come from anywhere. It was minted by a reaction that does not balance, and
+   * asking for more of it is asking the plan to go looking for the game's
+   * mistakes. Where the answer is genuinely determined this changes nothing,
+   * which is most of the time: it only has room to move where such a reaction
+   * is being run at all.
    */
   if (spoilsCost.size) {
     /**
@@ -7750,13 +7771,17 @@ function planOnce(graph, rawSpec) {
     for (const [, i] of supply) {
       fixed.push({ coeffs: new Map([[i, rat(1)]]), op: '=', rhs: best.x[i] });
     }
-    const richer = attempt(banned, [...fixed, ...demands],
-      new Map([...spoilsCost].map(([i, a]) => [i, rsub(R0, a)])));
-    if (richer) {
+    // Maximised by minimising its negative; the LP has no other way to be asked.
+    const aim = spec.keepLeftovers
+      ? new Map([...spoilsCost].map(([i, a]) => [i, rsub(R0, a)]))
+      : spoilsCost;
+    const other = attempt(banned, [...fixed, ...demands], aim);
+    if (other) {
       if (notes) {
-        notes.push(`spoils: ${rstr(spoilsIn(best.x))} -> ${rstr(spoilsIn(richer.x))} atoms left over`);
+        notes.push(`spoils: ${rstr(spoilsIn(best.x))} -> ${rstr(spoilsIn(other.x))} atoms left over`);
       }
-      if (rcmp(spoilsIn(richer.x), spoilsIn(best.x)) > 0) best = richer;
+      const better = rcmp(spoilsIn(other.x), spoilsIn(best.x));
+      if (spec.keepLeftovers ? better > 0 : better < 0) best = other;
     }
   }
 
@@ -8313,6 +8338,17 @@ function emptyPlan() {
      * order to under seven, because the potassium is only put in once.
      */
     takeCharges: false,
+    /**
+     * Which way to settle a draw over what is left on the floor.
+     *
+     * Sparr: leavings that appear without more going in are the game's
+     * conservation errors, and a planner should not go looking for them -- but
+     * make it an option either way, and keep it one of the lowest priorities
+     * regardless. It is the last thing the newer solver decides, once the
+     * steps, the shopping list and the feed are all settled, so it can only
+     * choose between answers that are otherwise identical.
+     */
+    keepLeftovers: false,
     kinds: [...DEFAULT_KINDS],
     /**
      * Which sorts of thing the plan may go and get, for the newer solver.
@@ -8373,6 +8409,7 @@ function readPlan(params) {
   if (params.get('fb') === '0') plan.feedBackAll = false;
   if (params.get('fr') === '1') plan.fresh = true;
   if (params.get('ch') === '1') plan.takeCharges = true;
+  if (params.get('lv') === '1') plan.keepLeftovers = true;
 
   for (const entry of list(params.get('pin'))) {
     const at = entry.indexOf(PAIR);
@@ -8423,6 +8460,7 @@ function writePlan(plan, params) {
   if (!plan.feedBackAll) params.set('fb', '0');
   if (plan.fresh) params.set('fr', '1');
   if (plan.takeCharges) params.set('ch', '1');
+  if (plan.keepLeftovers) params.set('lv', '1');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
 
@@ -11252,8 +11290,23 @@ const SCORES = [
     hint: 'Machines to build; a step run twice still costs one' },
   { id: 'steps', short: 'steps', label: 'steps', dir: 1,
     hint: 'Reactors plus the phase changes, which are free' },
-  { id: 'left', short: 'left', label: 'leftovers', dir: -1,
-    hint: 'Matter left over, which is yours to keep -- more is better' },
+  /**
+   * Leftovers: lowest priority, and which way is a preference.
+   *
+   * Sparr, twice. First: more leftover atoms from the same inputs is just
+   * conservation errors in play, so do not incentivise it -- fewer leavings is
+   * the sign of not having fetched what you did not need. Then: make it an
+   * option either way, but keep it one of the lowest priorities regardless.
+   *
+   * So it is a tie-break and never a reason to prefer one answer to another.
+   * Ranked alongside the rest it credited the Columbite plan that fetched
+   * sixty-six atoms and left thirty-six of them lying about as the best of the
+   * five at leftovers, which is the opposite of what that number means.
+   * `dir` here is only the default; `digest` takes the reader's choice.
+   */
+  { id: 'left', short: 'left', label: 'leftovers', dir: 1, tiebreak: true,
+    hint: 'Matter left on the floor. Broken ties only -- never a reason to ' +
+          'prefer one plan to another' },
 ];
 
 /** Every non-empty combination of the categories, smallest first. */
@@ -11299,16 +11352,26 @@ function measure(plan, { matter, toNumber }) {
 const SAME = 1e-9;
 const signature = (row) => SCORES.map((s) => row[s.id].toFixed(6)).join('|');
 
-/** At least as good everywhere, and better somewhere. */
-function beats(a, b) {
+/** The scores a plan is judged on, and the one that only settles draws. */
+const COSTS = SCORES.filter((s) => !s.tiebreak);
+const TIES = SCORES.filter((s) => s.tiebreak);
+
+/**
+ * At least as good everywhere that counts, and better somewhere -- or level
+ * all through and ahead on a tie-break.
+ *
+ * `want` is +1 to keep the leavings down and -1 to pile them up.
+ */
+function beats(a, b, want) {
   let strictly = false;
-  for (const s of SCORES) {
+  for (const s of COSTS) {
     const mine = s.dir * a[s.id];
     const theirs = s.dir * b[s.id];
     if (mine > theirs + SAME) return false;
     if (mine < theirs - SAME) strictly = true;
   }
-  return strictly;
+  if (strictly) return true;
+  return TIES.some((s) => want * a[s.id] < want * b[s.id] - SAME);
 }
 
 /**
@@ -11319,7 +11382,8 @@ function beats(a, b) {
  * could not answer -- kept and returned separately, because "farming alone
  * cannot make tantalum" is worth saying rather than quietly dropping.
  */
-function digest(entries, tools) {
+function digest(entries, tools, { keepLeftovers = false } = {}) {
+  const want = keepLeftovers ? -1 : 1;
   const scored = [];
   const barren = [];
   for (const e of entries) {
@@ -11340,9 +11404,9 @@ function digest(entries, tools) {
   for (const row of distinct) row.via.sort((a, b) => a.length - b.length);
 
   const menu = distinct.filter((row) =>
-    !distinct.some((other) => other !== row && beats(other, row)));
+    !distinct.some((other) => other !== row && beats(other, row, want)));
   for (const row of menu) {
-    row.best = SCORES.filter((s) => {
+    row.best = COSTS.filter((s) => {
       const mine = s.dir * row[s.id];
       return !menu.some((other) => s.dir * other[s.id] < mine - SAME);
     }).map((s) => s.id);
@@ -12475,6 +12539,10 @@ function renderOptions() {
   }
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
   srcBox.hidden = !plan.fresh;
+  // Same reasoning as the source boxes: the older solver cannot read it, and a
+  // control that does nothing is worse than one that is not there.
+  $('#plan-leftovers-opt').hidden = !plan.fresh;
+  $('#plan-leftovers').checked = plan.keepLeftovers;
   $('#plan-avoid').checked = plan.avoidSideEffects;
   $('#plan-feedback').checked = plan.feedBackAll;
   $('#plan-charges').checked = plan.takeCharges;
@@ -12641,7 +12709,8 @@ function renderMenu() {
     return;
   }
 
-  const { menu, distinct, barren } = digest(sweep.entries, menuTools());
+  const { menu, distinct, barren } =
+    digest(sweep.entries, menuTools(), { keepLeftovers: plan.keepLeftovers });
   const done = sweep.entries.length;
   status.textContent = running
     ? `${done} of 31 tried…`
@@ -12699,6 +12768,7 @@ function render() {
     // In the question, not bolted on after: the amounts are balanced from this
     // object, and a key built from it could not see a change of sources.
     sources: plan.sources,
+    keepLeftovers: plan.keepLeftovers,
   };
   shownTargets = targetsFor(question);
 
@@ -12746,6 +12816,9 @@ const lastSolved = () => solved;
 
 function initPlan(context) {
   ctx = context;
+
+  $('#plan-leftovers').addEventListener('change', () =>
+    edit(setOption, 'keepLeftovers', $('#plan-leftovers').checked));
 
   $('#plan-menu-run').addEventListener('click', () => {
     const running = sweep && askedFor && sweep.key === questionKey(askedFor) && sweep.queue !== null;

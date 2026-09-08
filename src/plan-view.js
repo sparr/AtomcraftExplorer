@@ -1125,6 +1125,10 @@ function renderOptions() {
   }
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
   srcBox.hidden = !plan.fresh;
+  // Same reasoning as the source boxes: the older solver cannot read it, and a
+  // control that does nothing is worse than one that is not there.
+  $('#plan-leftovers-opt').hidden = !plan.fresh;
+  $('#plan-leftovers').checked = plan.keepLeftovers;
   $('#plan-avoid').checked = plan.avoidSideEffects;
   $('#plan-feedback').checked = plan.feedBackAll;
   $('#plan-charges').checked = plan.takeCharges;
@@ -1291,7 +1295,8 @@ function renderMenu() {
     return;
   }
 
-  const { menu, distinct, barren } = digest(sweep.entries, menuTools());
+  const { menu, distinct, barren } =
+    digest(sweep.entries, menuTools(), { keepLeftovers: plan.keepLeftovers });
   const done = sweep.entries.length;
   status.textContent = running
     ? `${done} of 31 tried…`
@@ -1349,6 +1354,7 @@ export function render() {
     // In the question, not bolted on after: the amounts are balanced from this
     // object, and a key built from it could not see a change of sources.
     sources: plan.sources,
+    keepLeftovers: plan.keepLeftovers,
   };
   shownTargets = targetsFor(question);
 
@@ -1396,6 +1402,9 @@ export const lastSolved = () => solved;
 
 export function initPlan(context) {
   ctx = context;
+
+  $('#plan-leftovers').addEventListener('change', () =>
+    edit(setOption, 'keepLeftovers', $('#plan-leftovers').checked));
 
   $('#plan-menu-run').addEventListener('click', () => {
     const running = sweep && askedFor && sweep.key === questionKey(askedFor) && sweep.queue !== null;

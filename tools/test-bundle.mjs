@@ -197,6 +197,38 @@ if (!srcBox) {
  * and that rows come out with numbers in them. A slow question would test the
  * solver, which has its own suite.
  */
+/**
+ * Which way the leavings are wanted, which only the newer solver reads.
+ *
+ * Shown for it, put away for the older one, and reaching the address bar --
+ * an option that does not survive a reload is an option nobody can share.
+ */
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
+app.reload();
+await new Promise((r) => setTimeout(r, 0));
+const leftBox = document.querySelector('#plan-leftovers');
+const leftOpt = document.querySelector('#plan-leftovers-opt');
+if (!leftBox || !leftOpt) {
+  console.log('FAIL no leftovers option in the built page');
+  fail++;
+} else if (leftOpt.hidden) {
+  console.log('FAIL the leftovers option is hidden for a fresh plan');
+  fail++;
+} else if (leftBox.checked) {
+  console.log('FAIL the leftovers option is on by default');
+  fail++;
+} else {
+  leftBox.checked = true;
+  leftBox.dispatch('change');
+  await new Promise((r) => setTimeout(r, 0));
+  if (!/lv=1/.test(globalThis.location.hash)) {
+    console.log(`FAIL turning it on did not reach the address bar: ${globalThis.location.hash}`);
+    fail++;
+  } else {
+    console.log('ok    the leftovers preference is offered and lands in the URL');
+  }
+}
+
 globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
 app.reload();
 await new Promise((r) => setTimeout(r, 0));

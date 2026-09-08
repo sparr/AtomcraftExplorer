@@ -1,3 +1,6 @@
+/** Highest common factor, for comparing a ratio rather than a scale. */
+const hcfOf = (a, b) => (b ? hcfOf(b, a % b) : a);
+
 /**
  * The plans this planner is judged by.
  *
@@ -25,10 +28,29 @@ export const CASES = [
     want: [
       // The flagship. Three Lepidolite are what the four come out of, and the
       // proportion is the whole answer -- 2/2/2/3 and not 1/1/1/1 or 4/4/4/6.
-      ['balances to 2/2/2/3', (p) =>
-        p.spec.targets.map((t) => t.amount).join('/') === '2/2/2/3'],
-      ['and fetches nothing but the carbon for the reductions', (p) =>
-        p.frontier.every((f) => f.name === 'Bitter Oyster Spore')],
+      /**
+       * The ratio, not the literal amounts. Balanced, the plan may be offered
+       * at 8/8/8/12 -- which is the same answer four times over, and was being
+       * read as a different one.
+       */
+      ['balances to 2/2/2/3', (p) => {
+        const got = p.spec.targets.map((t) => t.amount);
+        const hcf = got.reduce((a, b) => (b ? hcfOf(b, a % b) : a));
+        return got.map((n) => n / hcf).join('/') === '2/2/2/3';
+      }],
+      /**
+       * A carbon source, not one named carbon source.
+       *
+       * This said "Bitter Oyster Spore" because that is what the older solver
+       * bought. The newer one buys Dolomite -- a carbonate, four of them where
+       * the mushrooms wanted thirty-six -- which is the same answer to the same
+       * question and was being marked wrong for it. The spore is named
+       * explicitly because the game gives it no formula, so nothing can be
+       * asked about what it is made of.
+       */
+      ['and fetches nothing but a source of the carbon for the reductions',
+       (p, { carries }) => p.frontier.every((f) =>
+         f.name === 'Bitter Oyster Spore' || carries(f.name, 'C'))],
     ],
   },
   {
@@ -115,8 +137,19 @@ export const CASES = [
       // Two carbons and two oxygens in, and that is what must come back.
       ['says what it makes rather than leaving carbon over', (p) =>
         !p.byproducts.some((b) => b.name === 'Carbon')],
+      /**
+       * Against what comes in from outside, not against everything that moves.
+       *
+       * `amountOf` is how much the plan puts through a material, and once the
+       * carbon monoxide is being recycled that is larger than what you supply:
+       * four through the steps, two from the feed. Measured against the four,
+       * a plan that recovers every carbon it was given looked like it was
+       * recovering half of them. What is drawn from outside is what is used
+       * less what is made.
+       */
       ['recovers every carbon in the feed', (p, { rnum }) =>
-        rnum(p.madeOf('Carbon')) === rnum(p.amountOf('Carbon Monoxide'))],
+        rnum(p.madeOf('Carbon')) ===
+          rnum(p.amountOf('Carbon Monoxide')) - rnum(p.madeOf('Carbon Monoxide'))],
       ['and leaves only the oxygen', (p) =>
         p.byproducts.every((b) => b.name === 'Oxygen Gas')],
     ],

@@ -70,6 +70,20 @@ const byAtoms = trade.menu.find((r) => r.best.includes('atoms'));
 const byList = trade.menu.find((r) => r.best.includes('units'));
 check(byAtoms && byList && byAtoms !== byList, 'and each row is labelled with what it wins');
 
+console.log('\n--- which way the leavings are wanted is the reader\'s ---');
+// Two plans alike in everything that counts, differing only in what they leave.
+const tidy = { options: ['tidy'], plan: plan([{ name: 'Water', amount: 1 }], [], ['rx'], 1) };
+const messy = { options: ['messy'], plan: plan([{ name: 'Water', amount: 1 }],
+                                               [{ name: 'Water', amount: 1 }], ['rx'], 1) };
+const fewer = digest([tidy, messy], tools);
+check(fewer.menu.length === 1 && fewer.menu[0].via[0][0] === 'tidy',
+      'by default the one that leaves less wins the draw');
+const more = digest([tidy, messy], tools, { keepLeftovers: true });
+check(more.menu.length === 1 && more.menu[0].via[0][0] === 'messy',
+      'and asked to keep the leavings, the one that leaves more does');
+check(!fewer.menu[0].best.includes('left') && !more.menu[0].best.includes('left'),
+      'neither is ever labelled best at leftovers, which is not a thing to win');
+
 console.log('\n--- a row can be on the menu and best at nothing ---');
 // Sparr found one: fewer reactors than the cheaper plan, fewer atoms than the
 // one with the shorter list, so neither beats it and it is the compromise
@@ -99,8 +113,10 @@ check(barren.menu.length === 1, 'and does not appear on the menu');
 console.log('\n--- every score is used ---');
 check(SCORES.every((s) => s.short && s.label && s.hint && (s.dir === 1 || s.dir === -1)),
       'each score has a name, a hint and a direction');
-check(SCORES.filter((s) => s.dir === -1).map((s) => s.id).join() === 'left',
-      'and leftovers is the only one where more is better');
+check(SCORES.filter((s) => s.tiebreak).map((s) => s.id).join() === 'left',
+      'and leftovers is the only one that merely settles draws');
+check(SCORES.filter((s) => !s.tiebreak).every((s) => s.dir === 1),
+      'everything actually scored is a cost, where less is better');
 
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

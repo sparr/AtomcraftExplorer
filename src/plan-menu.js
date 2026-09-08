@@ -39,8 +39,23 @@ export const SCORES = [
     hint: 'Machines to build; a step run twice still costs one' },
   { id: 'steps', short: 'steps', label: 'steps', dir: 1,
     hint: 'Reactors plus the phase changes, which are free' },
-  { id: 'left', short: 'left', label: 'leftovers', dir: -1,
-    hint: 'Matter left over, which is yours to keep -- more is better' },
+  /**
+   * Leftovers: lowest priority, and which way is a preference.
+   *
+   * Sparr, twice. First: more leftover atoms from the same inputs is just
+   * conservation errors in play, so do not incentivise it -- fewer leavings is
+   * the sign of not having fetched what you did not need. Then: make it an
+   * option either way, but keep it one of the lowest priorities regardless.
+   *
+   * So it is a tie-break and never a reason to prefer one answer to another.
+   * Ranked alongside the rest it credited the Columbite plan that fetched
+   * sixty-six atoms and left thirty-six of them lying about as the best of the
+   * five at leftovers, which is the opposite of what that number means.
+   * `dir` here is only the default; `digest` takes the reader's choice.
+   */
+  { id: 'left', short: 'left', label: 'leftovers', dir: 1, tiebreak: true,
+    hint: 'Matter left on the floor. Broken ties only -- never a reason to ' +
+          'prefer one plan to another' },
 ];
 
 /** Every non-empty combination of the categories, smallest first. */
@@ -86,16 +101,26 @@ export function measure(plan, { matter, toNumber }) {
 const SAME = 1e-9;
 const signature = (row) => SCORES.map((s) => row[s.id].toFixed(6)).join('|');
 
-/** At least as good everywhere, and better somewhere. */
-function beats(a, b) {
+/** The scores a plan is judged on, and the one that only settles draws. */
+const COSTS = SCORES.filter((s) => !s.tiebreak);
+const TIES = SCORES.filter((s) => s.tiebreak);
+
+/**
+ * At least as good everywhere that counts, and better somewhere -- or level
+ * all through and ahead on a tie-break.
+ *
+ * `want` is +1 to keep the leavings down and -1 to pile them up.
+ */
+function beats(a, b, want) {
   let strictly = false;
-  for (const s of SCORES) {
+  for (const s of COSTS) {
     const mine = s.dir * a[s.id];
     const theirs = s.dir * b[s.id];
     if (mine > theirs + SAME) return false;
     if (mine < theirs - SAME) strictly = true;
   }
-  return strictly;
+  if (strictly) return true;
+  return TIES.some((s) => want * a[s.id] < want * b[s.id] - SAME);
 }
 
 /**
@@ -106,7 +131,8 @@ function beats(a, b) {
  * could not answer -- kept and returned separately, because "farming alone
  * cannot make tantalum" is worth saying rather than quietly dropping.
  */
-export function digest(entries, tools) {
+export function digest(entries, tools, { keepLeftovers = false } = {}) {
+  const want = keepLeftovers ? -1 : 1;
   const scored = [];
   const barren = [];
   for (const e of entries) {
@@ -127,9 +153,9 @@ export function digest(entries, tools) {
   for (const row of distinct) row.via.sort((a, b) => a.length - b.length);
 
   const menu = distinct.filter((row) =>
-    !distinct.some((other) => other !== row && beats(other, row)));
+    !distinct.some((other) => other !== row && beats(other, row, want)));
   for (const row of menu) {
-    row.best = SCORES.filter((s) => {
+    row.best = COSTS.filter((s) => {
       const mine = s.dir * row[s.id];
       return !menu.some((other) => s.dir * other[s.id] < mine - SAME);
     }).map((s) => s.id);

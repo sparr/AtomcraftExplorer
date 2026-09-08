@@ -105,6 +105,17 @@ export function emptyPlan() {
      * order to under seven, because the potassium is only put in once.
      */
     takeCharges: false,
+    /**
+     * Which way to settle a draw over what is left on the floor.
+     *
+     * Sparr: leavings that appear without more going in are the game's
+     * conservation errors, and a planner should not go looking for them -- but
+     * make it an option either way, and keep it one of the lowest priorities
+     * regardless. It is the last thing the newer solver decides, once the
+     * steps, the shopping list and the feed are all settled, so it can only
+     * choose between answers that are otherwise identical.
+     */
+    keepLeftovers: false,
     kinds: [...DEFAULT_KINDS],
     /**
      * Which sorts of thing the plan may go and get, for the newer solver.
@@ -165,6 +176,7 @@ export function readPlan(params) {
   if (params.get('fb') === '0') plan.feedBackAll = false;
   if (params.get('fr') === '1') plan.fresh = true;
   if (params.get('ch') === '1') plan.takeCharges = true;
+  if (params.get('lv') === '1') plan.keepLeftovers = true;
 
   for (const entry of list(params.get('pin'))) {
     const at = entry.indexOf(PAIR);
@@ -215,6 +227,7 @@ export function writePlan(plan, params) {
   if (!plan.feedBackAll) params.set('fb', '0');
   if (plan.fresh) params.set('fr', '1');
   if (plan.takeCharges) params.set('ch', '1');
+  if (plan.keepLeftovers) params.set('lv', '1');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
 
