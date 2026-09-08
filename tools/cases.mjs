@@ -204,6 +204,27 @@ export const NEVER = [
   ['and never runs a step no number of times', (p, { rzero }) =>
     p.steps.every((s) => !rzero(s.runs))],
   /**
+   * Sparr: deposits are never inputs, they cannot be fetched.
+   *
+   * A deposit is a tile of the world. What travels is what the mine hands
+   * back -- the Columbite Deposit stays where it is and `Columbite` goes in
+   * the sack -- so no plan may put one in a reactor or write one on a
+   * shopping list.
+   *
+   * `staticFeed` said this for reactions and the melt walked round it: 22
+   * phase changes turn unmined rock straight into metal, `evap:Hematite
+   * Deposit` giving Molten Iron. Told not to buy Lepidolite, a plan went
+   * shopping for twelve Fluorite Deposits.
+   *
+   * Static as well as the category, because Galena Gravel and Pneumatocyst
+   * are filed under `deposit` and are Solid, loose and fetchable like any
+   * other ore.
+   */
+  ['never fetches the ground itself, nor puts a tile of it in a reactor',
+   (p, { ground }) =>
+     !p.frontier.some((f) => ground(f.name)) &&
+     !p.steps.some((s) => s.process.consumes.some((i) => ground(i.name)))],
+  /**
    * A charge is laid in once, so it may seed a loop and may not feed a
    * shortfall. The check above asks only that the plan makes some of what it
    * lays in, which the Lepidolite plan did -- eleven Carbon against eighteen

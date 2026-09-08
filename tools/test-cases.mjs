@@ -24,7 +24,12 @@ const graph = buildProcessGraph(db);
 // Which elements a material carries, so an invariant can ask.
 const table = composition(graph);
 const carries = (name, el) => table.get(name)?.elements?.has(el) ?? false;
-const kit = { rnum, rzero, rstr, carries };
+// The ground itself, as the newer solver's `landscape` reads it. The older
+// planner is asked the same question -- the invariants are claims about a
+// plan, not about which solver drew it.
+const ground = (name) => graph.stateOf(name) === 'Static' &&
+  ['deposit', 'terrain'].includes(graph.categoryOf(name));
+const kit = { rnum, rzero, rstr, carries, ground };
 
 let fail = 0;
 const ok = (msg) => console.log(`ok    ${msg}`);

@@ -5769,6 +5769,27 @@ const placed = (graph, name) =>
   graph.stateOf(name) === 'Static' && !WORLDLY.has(graph.categoryOf(name));
 
 /**
+ * The ground itself, which nobody placed and nobody can carry.
+ *
+ * Sparr: deposits are never inputs, they cannot be fetched. A deposit is a
+ * tile of the world. What travels is what the mine hands back -- the Columbite
+ * Deposit stays where it is and `Columbite` goes in the sack -- so a plan may
+ * ask for the ore and may never ask for the ground it came out of.
+ *
+ * `placed` will not say this, and should not: it means "somebody put this
+ * here", which is true of a wall and false of a hematite seam. `WORLDLY`
+ * exempts deposits from it precisely because the world does hand them over --
+ * through the mine, and only through the mine.
+ *
+ * Static as well as the category, because two things filed under `deposit` are
+ * not landscape at all: Galena Gravel and Pneumatocyst are Solid, loose, and
+ * fetchable like any other ore.
+ */
+const landscape = (graph, name) =>
+  graph.stateOf(name) === 'Static' &&
+  (graph.categoryOf(name) === 'deposit' || graph.categoryOf(name) === 'terrain');
+
+/**
  * Whether the world will simply hand this over.
  *
  * The same division the old planner drew with its `acquire` weights, kept
@@ -5854,6 +5875,7 @@ function alreadyInHand(graph, name, held) {
 
 function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (placed(graph, name)) return false;
+  if (landscape(graph, name)) return false;
   /**
    * Sparr: refusing a material at the door steers a plan better than refusing
    * a reaction.
@@ -6231,10 +6253,34 @@ function walkSubgraph(graph, spec) {
   const staticFeed = (p) => p.kind === 'reaction' &&
     inputsOf(p).some((i) => graph.stateOf(i.name) === 'Static' && !meltsOut(i.name));
 
+  /**
+   * And the ground itself, whatever is being done to it.
+   *
+   * `staticFeed` says "reactions only" on purpose -- a blanket rule would take
+   * Ice to Water with it, and growth eats a standing plant by definition. But
+   * that left the melt open, and melting is how the landscape got back in: 22
+   * phase changes turn unmined rock straight into metal. `evap:Hematite
+   * Deposit` gives Molten Iron and `evap:Columbite Deposit` gives Molten
+   * Columbite, so a plan told not to buy Lepidolite went shopping for twelve
+   * Fluorite Deposits instead -- twelve tiles of the world, delivered.
+   *
+   * The reasoning `meltsOut` already gives for the reactions is the same one
+   * here: melting a fluorite deposit makes molten calcium fluoride *in the
+   * ground*. Being able to melt a thing is not a way to carry it.
+   *
+   * Mining and handling are exempt. They are player actions on a placed thing
+   * rather than steps in a factory, and mining a deposit is the one thing a
+   * deposit is for -- neither kind runs by default, but the exemption is the
+   * rule, not an accident of which kinds are switched on.
+   */
+  const digsIn = (p) => p.kind !== 'mine' && p.kind !== 'handling' &&
+    inputsOf(p).some((i) => landscape(graph, i.name));
+
   const usable = (p) => kinds.has(p.kind) &&
     !buggy.has(p.id) &&
     !spec.excludeProcesses.has(p.id) &&
     !staticFeed(p) &&
+    !digsIn(p) &&
     !inputsOf(p).some((i) => spec.excludeMaterials.has(i.name) || placed(graph, i.name)) &&
     !p.produces.some((o) => spec.excludeMaterials.has(o.name));
   const allowed = graph.processes.filter(usable);

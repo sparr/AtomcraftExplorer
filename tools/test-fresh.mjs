@@ -11,7 +11,7 @@ import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
 import { balanceTargets } from '../src/balance.js';
 import { solveFresh, phaseGroup, chamberShares, withElements,
-         normalizeFresh } from '../src/plan-fresh.js';
+         normalizeFresh, fetchable, subgraph } from '../src/plan-fresh.js';
 import { rnum, rzero, rstr } from '../src/rational.js';
 import { composition } from '../src/composition.js';
 import { CASES, NEVER } from './cases.mjs';
@@ -45,7 +45,13 @@ const holdsAWant = (p, name) => {
 // branches tied to each other, at the rounded split, with the too-rare ones
 // left out.
 const chamber = (p, id) => chamberShares(graph, id, p.spec.wanted);
-const helpers = { rnum, rzero, rstr, carries, sameStuff, holdsAWant, chamber };
+/**
+ * The ground itself: static, and filed as landscape rather than as a material
+ * you could carry. Mirrors `landscape` in the solver, asked from outside.
+ */
+const ground = (name) => graph.stateOf(name) === 'Static' &&
+  ['deposit', 'terrain'].includes(graph.categoryOf(name));
+const helpers = { rnum, rzero, rstr, carries, sameStuff, holdsAWant, chamber, ground };
 const budget = Number(process.env.FRESH_BUDGET || 240000);
 
 let met = 0, missed = 0, broke = 0;
@@ -58,6 +64,49 @@ let met = 0, missed = 0, broke = 0;
  * Both halves are checked here because both are claims about the game rather
  * than about any one question put to it.
  */
+/**
+ * The ground, before any plan is solved.
+ *
+ * Sparr: deposits are never inputs, they cannot be fetched. Checked here
+ * rather than only through the cases, because none of the seven asks a
+ * question whose best answer is a tile of the world -- the fault showed up
+ * when a plan was told not to buy Lepidolite and went shopping for twelve
+ * Fluorite Deposits instead. A rule nothing exercises is a rule that quietly
+ * stops working, so this asks the solver's two gates directly.
+ */
+console.log('--- the ground');
+{
+  const spec = normalizeFresh({ targets: [], have: [] });
+  const canBuy = (n) => fetchable(graph, n, spec.kinds, spec.sources, spec);
+  const dirt = graph.db.materials.map((m) => m.name).filter(ground);
+  const forSale = dirt.filter(canBuy);
+  // Told to make niobium out of columbite and nothing else, the walk once kept
+  // 22 melts of unmined rock -- `evap:Hematite Deposit` among them.
+  const asked = withElements(graph, normalizeFresh({
+    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+    have: ['Columbite'] }));
+  const eaters = subgraph(graph, asked).processes
+    .filter((p) => (p.consumes || []).some((i) => ground(i.name)));
+  const groundChecks = [
+    [`none of the ${dirt.length} tiles of landscape can be fetched`, !forSale.length,
+     forSale.slice(0, 3).join(', ')],
+    // Not by category alone: two things filed under `deposit` are Solid, loose
+    // and no more landscape than any other ore. Whether either is *worth*
+    // fetching is a separate question -- both have recipes -- but the rule
+    // must not be what stops them.
+    ['while the two loose things filed under deposit are not landscape',
+     ['Galena Gravel', 'Pneumatocyst'].every((n) =>
+       graph.categoryOf(n) === 'deposit' && !ground(n)), ''],
+    ['and no candidate step puts one in a reactor', !eaters.length,
+     eaters.slice(0, 3).map((p) => p.id).join(', ')],
+  ];
+  for (const [what, ok, detail] of groundChecks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}${ok || !detail ? '' : ` -- ${detail}`}`);
+    if (ok) met++; else broke++;
+  }
+  console.log('');
+}
+
 console.log('--- chambers');
 const shownAs = (id, wanted) => {
   const c = chamberShares(graph, id, wanted);
