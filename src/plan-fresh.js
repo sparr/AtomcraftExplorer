@@ -3310,6 +3310,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     steps, frontier, feed, byproducts,
     priming,
     brokenLoops: [],
+    graph,
     fetchTotal: rnum(rmul(fetchTotal, scale)),
     realSteps: reactorsIn(steps),
     considered: procs.length,

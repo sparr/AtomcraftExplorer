@@ -980,3 +980,23 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 /* An option the chosen solver does not read: still there, plainly not in play. */
 .plan-opt.is-off { color: var(--fg-faint); }
 .plan-opt.is-off input { cursor: not-allowed; }
+
+/*
+ * A control the newer solver does not read.
+ *
+ * Outlined rather than greyed: greyed says "not available", and these are
+ * available -- they are on the page, they take the press, they write the
+ * question. What they do not do is change the answer. Red because the point
+ * of showing them is to be found.
+ */
+.solver-gap {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+}
+.solver-gap:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.gap-swatch {
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 0 .3em;
+}
+.plan-gap-note { color: var(--fg-dim); display: block; line-height: 1.5; }

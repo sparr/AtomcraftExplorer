@@ -661,6 +661,65 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(!/ruled out/.test(text('#plan-side')), 'with nothing ruled out the panel is not there');
 }
 
+/* --------------------------- what the newer solver does not read, shown as such */
+
+// Sparr: hide the moot ones, mark the losses in red so they can be found.
+// Two different things and they must not look alike: a control the solver
+// makes no difference to is clutter, and one it ignores is a decision waiting
+// to be taken.
+{
+  app.setPlan({
+    ...emptyPlan(), fresh: true, balance: false,
+    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+    have: ['Columbite'],
+  });
+  check($('#plan-feedback-opt').hidden && $('#plan-charges-opt').hidden,
+        'the options it cannot change are off the panel, not greyed on it');
+  check(!$('#plan-gap-note').hidden, 'and the panel says what red means');
+
+  const red = nodes($('#plan-side'), 'solver-gap');
+  check(red.length > 0, `the controls that would be lost are marked: ${red.length}`);
+  check(red.every((b) => /does not read this yet/.test(b.title || '')),
+        'each saying so where you would hover it');
+  const labels = new Set(red.map((b) => b.textContent.trim()));
+  check(labels.has('Keep it') && labels.has('Get rid of it'),
+        `keeping a spare and finding it a use among them: ${[...labels].join(', ')}`);
+
+  // Feeding a leftover back is not a choice under this solver -- it always
+  // does -- so that button is gone rather than painted.
+  const gone = [...$('#plan-side').walk()]
+    .filter((n) => /^(Feed it back|Make it instead)$/.test(n.textContent || ''));
+  check(gone.length > 0 && gone.every((b) => b.hidden),
+        'while "feed it back" is taken away rather than marked');
+
+  // The one that matters most is in the inspector rather than the panels:
+  // choosing how a material is made is real steering, and the newer solver
+  // does not read it at all.
+  app.setPlan({
+    ...emptyPlan(), fresh: true, balance: false,
+    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+    have: ['Columbite'], selected: 'Hydrofluoric Acid',
+  });
+  const picks = nodes($('#plan-side'), 'route-pick');
+  const ways = picks.filter((b) =>
+    /^(Make .* this way|Undo a choice made here)/.test(b.title || ''));
+  check(ways.length > 1 && ways.every((b) => b.classList.contains('solver-gap')),
+        `every way of making a material is marked, the undo with them: ${ways.length}`);
+  // Saying you have one, and running a route on the spare, are both read by
+  // the newer solver -- they must not be painted with the rest.
+  const kept = picks.filter((b) => !ways.includes(b));
+  check(kept.length > 0 && kept.every((b) => !b.classList.contains('solver-gap')),
+        `while "I have it" and the spare routes are left alone: ${kept.length}`);
+
+  app.setPlan({
+    ...emptyPlan(), balance: false,
+    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+    have: ['Columbite'], selected: 'Hydrofluoric Acid',
+  });
+  check(!$('#plan-feedback-opt').hidden && !nodes($('#plan-side'), 'solver-gap').length,
+        'and the older solver keeps every control, unmarked');
+}
+
 /* ------------------------------ refusing a material at the door, not outright */
 
 // Sparr: "if we allow excluding fetch and prime materials, that should be more

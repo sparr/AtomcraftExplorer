@@ -988,6 +988,26 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .plan-opt.is-off { color: var(--fg-faint); }
 .plan-opt.is-off input { cursor: not-allowed; }
 
+/*
+ * A control the newer solver does not read.
+ *
+ * Outlined rather than greyed: greyed says "not available", and these are
+ * available -- they are on the page, they take the press, they write the
+ * question. What they do not do is change the answer. Red because the point
+ * of showing them is to be found.
+ */
+.solver-gap {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+}
+.solver-gap:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.gap-swatch {
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 0 .3em;
+}
+.plan-gap-note { color: var(--fg-dim); display: block; line-height: 1.5; }
+
 </style>
 </head>
 <body>
@@ -1073,9 +1093,16 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
     </label>
     <label class="plan-opt">
       <input type="checkbox" id="plan-fresh">
-      Try the newer solver &mdash; it buys less and recycles more, but it
-      reads none of the greyed options below
+      Try the newer solver &mdash; it buys less and recycles more
     </label>
+    <p class="plan-opt plan-gap-note" id="plan-gap-note" hidden>
+      Anything marked <span class="solver-gap gap-swatch">like this</span> is a
+      control the newer solver does not read yet, left on the page so you can
+      see what it would cost to drop the older one. Options it makes no
+      difference to &mdash; feeding spare output back, laying a charge in, how
+      much of a stock you have &mdash; are hidden rather than marked, since it
+      already does all three, always.
+    </p>
   </div>
 
   <div id="plan-empty" class="plan-empty">
@@ -8791,6 +8818,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     steps, frontier, feed, byproducts,
     priming,
     brokenLoops: [],
+    graph,
     fetchTotal: rnum(rmul(fetchTotal, scale)),
     realSteps: reactorsIn(steps),
     considered: procs.length,
@@ -11609,7 +11637,17 @@ function routesFor(plan, name) {
   const { graph, spec, cost } = plan;
   const inPlan = plan.dag.materials;
   const chosen = plan.dag.materials.get(name)?.producer;
-  const stock = new Set([...spec.have].filter((n) => !spec.plenty.has(n)));
+  /**
+   * The newer solver's spec has no `plenty`: everything it holds is finite.
+   *
+   * This draws the inspector for whichever solver answered, and the question
+   * it asks here -- which of the things you have are in limited supply -- has
+   * the answer "all of them" over there. Read without the guard, clicking any
+   * material in a fresh plan threw, and took the whole page down with it. Not
+   * noticed until now because the one thing the UI suite did not do with the
+   * newer solver was open the inspector.
+   */
+  const stock = new Set([...spec.have].filter((n) => !spec.plenty?.has(n)));
 
   const routes = graph.producers(name)
     .filter((p) => spec.kinds.has(p.kind) || p.id === chosen || spec.alsoUse.has(p.id))
@@ -11620,7 +11658,19 @@ function routesFor(plan, name) {
         inPlan: inPlan.has(i.name),
       }));
       let c = processCost(p, spec.weights, spec.avoidSideEffects);
-      for (const i of inputs) c += cost.get(i.name) ?? Infinity;
+      /**
+       * What the inputs cost, where anybody has worked that out.
+       *
+       * The older solver carries a table of what each material costs to get,
+       * and a route is priced as its step plus its inputs. The newer one has
+       * no such table -- it prices a *fetch* by the matter it carries and
+       * decides the rest inside the simplex -- so for its plans a route is
+       * priced by its step alone and the ordering falls through to the keys
+       * below. Summing `?? Infinity` over an absent table would have made
+       * every route cost Infinity and every comparison NaN, which sorts by
+       * nothing at all.
+       */
+      if (cost) for (const i of inputs) c += cost.get(i.name) ?? Infinity;
       const runs = plan.runsOf(p.id);
       const yields = p.produces.find((o) => o.name === name)?.count ?? 0;
       // Could be switched on right now and get somewhere: the plan is already
@@ -12156,6 +12206,39 @@ function button(cls, label, title, onClick) {
 }
 
 /**
+ * Two ways of saying "the newer solver does not read this".
+ *
+ * Every control on this page writes one field of the question, and the newer
+ * solver reads eleven of the twenty. The nine it ignores are not all the same
+ * sort of thing, so they are not shown the same way.
+ *
+ * `moot` takes the control away. The field cannot change a fresh plan because
+ * the solver already does that thing and does it always: it feeds every spare
+ * output back, it lays a charge in wherever a loop needs starting, and it has
+ * no notion of a stock running out. Offering a switch for something that is
+ * permanently on is worse than not offering it.
+ *
+ * `gap` leaves the control where it is and paints it red. These are the ones
+ * that would really be lost -- pinning how a material is made, keeping a spare
+ * as a product, planning a use for a leftover, adding a step forwards -- and
+ * Sparr wants to see where they are before deciding whether the newer solver
+ * should learn them or the page should stop offering them. Red means "this
+ * does nothing today", not "this is broken".
+ */
+const moot = (node) => { if (plan.fresh) node.hidden = true; return node; };
+const gap = (node, what) => {
+  if (plan.fresh) {
+    node.classList.add('solver-gap');
+    // Added to what the control already said, not written over it. "Make
+    // Hydrofluoric Acid this way" is the useful half; the warning is the
+    // footnote.
+    node.title = [node.title, `The newer solver does not read this yet — ${what}`]
+      .filter(Boolean).join(' — ');
+  }
+  return node;
+};
+
+/**
  * A material, anywhere in the plan.
  *
  * Clicking one opens it in the inspector rather than leaving for the explorer.
@@ -12372,7 +12455,7 @@ function renderGoals() {
           'Press if you can get more.',
       () => edit(togglePlenty, name));
     if (plenty) mark.classList.add('on');
-    inner.append(mark);
+    inner.append(moot(mark));
     haves.append(goalChip('goal-have', '', () => edit(removeHave, name), inner));
   }
 }
@@ -12594,9 +12677,9 @@ function renderSteps() {
                    'does not have to be laid in');
         what.append(why);
       }
-      acts.append(button('ghost small', 'Prime instead',
+      acts.append(moot(button('ghost small', 'Prime instead',
         `Drop this step and lay in the ${loop} to start the loop off`,
-        () => edit(primeInstead, loop)));
+        () => edit(primeInstead, loop))));
     }
     if (made) {
       acts.append(button('ghost small', 'Other ways',
@@ -12646,8 +12729,9 @@ function renderUses() {
   const list = el('ul', 'use-list');
   for (const u of uses.slice(0, allUses ? uses.length : USES_SHOWN)) {
     const li = el('li', 'use-opt' + (u.ready ? ' ready' : '') + (u.included ? ' on' : ''));
-    const pick = button('route-pick', '', 'Put this step in the plan',
-                        () => edit(includeProcess, u.process.id));
+    const pick = gap(button('route-pick', '', 'Put this step in the plan',
+                        () => edit(includeProcess, u.process.id)),
+                     'it cannot yet be told to add a step going forwards');
     pick.append(el('span', 'kind-glyph', KIND.get(u.process.kind)?.glyph || ''));
     pick.append(el('span', 'route-label', u.process.label));
     const eq = el('span', 'route-from');
@@ -12733,10 +12817,11 @@ function renderInspector(box) {
     // stated before the batch scaling and a surplus is shown after it.
     const spare = rcmp(rsub(made, need), R0) > 0;
     if (spare) {
-      acts.append(button('ghost small' + (isKept(plan, name) ? ' on' : ''),
+      acts.append(gap(button('ghost small' + (isKept(plan, name) ? ' on' : ''),
                          isKept(plan, name) ? 'Kept' : 'Keep it',
                          'Count the spare as something you wanted, without making more',
-                         () => edit(keepOutput, name)));
+                         () => edit(keepOutput, name)),
+                      'it cannot yet count a spare as something you wanted'));
     } else {
       acts.append(button('ghost small', 'I want it', 'Plan a way to make some',
                          () => edit(addTarget, name)));
@@ -12779,8 +12864,9 @@ function renderInspector(box) {
   if (routes.length) {
     const pinned = plan.pins[name];
     const auto = el('li', 'route-opt' + (!pinned && !has ? ' on' : ''));
-    auto.append(button('route-pick', 'Let the planner choose',
-                       'Undo a choice made here', () => edit(pin, name, null)));
+    auto.append(gap(button('route-pick', 'Let the planner choose',
+                       'Undo a choice made here', () => edit(pin, name, null)),
+                    'it always chooses the route itself'));
     list.append(auto);
 
     const head = allRoutes ? routes : routes.slice(0, ROUTES_SHOWN);
@@ -12793,8 +12879,9 @@ function renderInspector(box) {
     for (const r of shown) {
       const li = el('li', 'route-opt' + (r.chosen || r.spare ? ' on' : '') +
                           (r.banned ? ' banned' : ''));
-      const pick = button('route-pick', '', `Make ${m.display} this way`,
-                          () => edit(pin, name, r.process.id));
+      const pick = gap(button('route-pick', '', `Make ${m.display} this way`,
+                          () => edit(pin, name, r.process.id)),
+                       'it cannot yet be told which way to make a material');
       pick.append(el('span', 'kind-glyph', KIND.get(r.process.kind)?.glyph || ''));
       pick.append(el('span', 'route-label', r.process.label));
       // Two routes can be live at once: one running on what the plan throws
@@ -13055,9 +13142,9 @@ function renderSide() {
           `what the charge is for`,
           () => edit(pin, item.name, null)));
       } else {
-        acts.append(button('ghost small', 'Make it instead',
+        acts.append(moot(button('ghost small', 'Make it instead',
                            `Add a step that makes ${item.name}, rather than laying some in`,
-                           () => edit(makeInstead, item.name)));
+                           () => edit(makeInstead, item.name))));
       }
       // And the blunter answer: not this one, find another way to start.
       // "Make it instead" names the replacement; this leaves the choice open.
@@ -13111,12 +13198,13 @@ function renderSide() {
         li.append(note);
       }
       const acts = el('div', 'plan-item-acts');
-      acts.append(button('ghost small' + (b.kept ? ' on' : ''),
+      acts.append(gap(button('ghost small' + (b.kept ? ' on' : ''),
                          b.kept ? 'Kept' : 'Keep it',
                          b.kept ? 'Count it as waste again'
                                 : 'Count this spare output as something you wanted, ' +
                                   'without making any more',
-                         () => edit(keepOutput, b.name)));
+                         () => edit(keepOutput, b.name)),
+                      'it cannot yet count a spare as something you wanted'));
       const fed = isFedBack(plan, b.name);
       const feed = button('ghost small' + (fed ? ' on' : ''),
                           fed ? 'Fed back' : 'Feed it back',
@@ -13124,7 +13212,7 @@ function renderSide() {
                               : 'Let the plan use this surplus instead of fetching more',
                           () => edit(toggleFedBack, b.name));
       feed.setAttribute('aria-pressed', String(!!b.credited));
-      acts.append(feed);
+      acts.append(moot(feed));
       /**
        * The third thing you can say about a leftover.
        *
@@ -13135,11 +13223,12 @@ function renderSide() {
        * and build whatever that route needs.
        */
       const rid = isUsedUp(plan, b.name);
-      acts.append(button('ghost small' + (rid ? ' on' : ''),
+      acts.append(gap(button('ghost small' + (rid ? ' on' : ''),
         rid ? 'Getting rid of it' : 'Get rid of it',
         rid ? 'Stop planning a use for this'
             : `Add whatever it takes to use the ${b.name} up, rather than leaving it`,
-        () => edit(useUp, b.name)));
+        () => edit(useUp, b.name)),
+        'it cannot yet be told to find a use for a leftover'));
       li.append(acts);
       ul.append(li);
     }
@@ -13261,12 +13350,23 @@ function renderOptions() {
    * whereas these are real options that this solver happens not to have yet,
    * and saying so is more use than hiding them.
    */
+  /**
+   * Taken away rather than greyed, which is a change of mind.
+   *
+   * They were greyed on the grounds that these are real options the newer
+   * solver "happens not to have yet", and saying so was more use than hiding
+   * them. Measuring what it actually reads says otherwise: it feeds every
+   * spare output back always, and it lays a charge in wherever a loop needs
+   * one, whatever the box says. There is no plan these two could change, so
+   * there is nothing to say -- unlike the four marked in red below, which
+   * would really be lost.
+   */
   for (const id of ['feedback', 'charges']) {
-    $(`#plan-${id}`).disabled = plan.fresh;
-    const label = $(`#plan-${id}-opt`);
-    if (plan.fresh) label.classList.add('is-off'); else label.classList.remove('is-off');
-    label.title = plan.fresh ? 'The newer solver does not read this' : '';
+    $(`#plan-${id}-opt`).hidden = plan.fresh;
+    $(`#plan-${id}`).disabled = false;
+    $(`#plan-${id}-opt`).classList.remove('is-off');
   }
+  $('#plan-gap-note').hidden = !plan.fresh;
   // Same reasoning as the source boxes: the older solver cannot read it, and a
   // control that does nothing is worse than one that is not there.
   $('#plan-leftovers-opt').hidden = !plan.fresh;

@@ -2297,7 +2297,17 @@ export function routesFor(plan, name) {
   const { graph, spec, cost } = plan;
   const inPlan = plan.dag.materials;
   const chosen = plan.dag.materials.get(name)?.producer;
-  const stock = new Set([...spec.have].filter((n) => !spec.plenty.has(n)));
+  /**
+   * The newer solver's spec has no `plenty`: everything it holds is finite.
+   *
+   * This draws the inspector for whichever solver answered, and the question
+   * it asks here -- which of the things you have are in limited supply -- has
+   * the answer "all of them" over there. Read without the guard, clicking any
+   * material in a fresh plan threw, and took the whole page down with it. Not
+   * noticed until now because the one thing the UI suite did not do with the
+   * newer solver was open the inspector.
+   */
+  const stock = new Set([...spec.have].filter((n) => !spec.plenty?.has(n)));
 
   const routes = graph.producers(name)
     .filter((p) => spec.kinds.has(p.kind) || p.id === chosen || spec.alsoUse.has(p.id))
@@ -2308,7 +2318,19 @@ export function routesFor(plan, name) {
         inPlan: inPlan.has(i.name),
       }));
       let c = processCost(p, spec.weights, spec.avoidSideEffects);
-      for (const i of inputs) c += cost.get(i.name) ?? Infinity;
+      /**
+       * What the inputs cost, where anybody has worked that out.
+       *
+       * The older solver carries a table of what each material costs to get,
+       * and a route is priced as its step plus its inputs. The newer one has
+       * no such table -- it prices a *fetch* by the matter it carries and
+       * decides the rest inside the simplex -- so for its plans a route is
+       * priced by its step alone and the ordering falls through to the keys
+       * below. Summing `?? Infinity` over an absent table would have made
+       * every route cost Infinity and every comparison NaN, which sorts by
+       * nothing at all.
+       */
+      if (cost) for (const i of inputs) c += cost.get(i.name) ?? Infinity;
       const runs = plan.runsOf(p.id);
       const yields = p.produces.find((o) => o.name === name)?.count ?? 0;
       // Could be switched on right now and get somewhere: the plan is already
