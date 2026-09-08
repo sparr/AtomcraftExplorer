@@ -2477,7 +2477,7 @@ function planOnce(graph, rawSpec) {
     }
   }
 
-  return assemble(graph, spec, procs, index, supply, best.x, base.total, sub);
+  return assemble(graph, spec, procs, index, supply, best.x, base.total, sub, notes);
 }
 
 /* -------------------------------------------------------------- the answer */
@@ -2490,7 +2490,7 @@ function planOnce(graph, rawSpec) {
  * quantities nobody needs and dumped straight back out as a leftover. What the
  * plan actually draws is what its steps come up short by.
  */
-function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
+function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) {
   // Whole runs. A step cannot be run four sevenths of a time, so the plan is
   // multiplied up until every count is a whole number -- which is why asking
   // for one sometimes makes four.
