@@ -8315,17 +8315,53 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
 
     // Every pass either turns something or lays something in, and a charge is
     // always enough to turn the thing it was laid in for, so this ends.
+    /**
+     * Only look again at what could have changed.
+     *
+     * A step becomes runnable when something it eats turns up, and the only
+     * things that turn up are what the last firing made. Re-asking every step
+     * on every sweep is how fifteen steps came to want eighteen thousand
+     * affordability checks over eleven hundred sweeps: the plan runs its
+     * Boudouard equilibrium twenty times, the loop yields one turn at a time,
+     * and each turn re-examined the whole factory.
+     *
+     * So a step is asked again only when one of its inputs is on the list of
+     * things that moved. Everything is on that list to begin with, and again
+     * after a charge is laid in.
+     */
+    let stirred = null;                       // null means "everything"
+    const eatersOf = new Map();
+    for (const step of steps) {
+      for (const i of step.process.consumes) {
+        if (!eatersOf.has(i.name)) eatersOf.set(i.name, new Set());
+        eatersOf.get(i.name).add(step);
+      }
+      for (const r of step.process.requires) {
+        if (!eatersOf.has(r.name)) eatersOf.set(r.name, new Set());
+        eatersOf.get(r.name).add(step);
+      }
+    }
+
     let guard = steps.length * 64 + 64;
     for (;;) {
       const left = stillOwed();
       if (!left.length || guard-- <= 0) break;
 
+      const ask = stirred === null ? left : left.filter((step) => stirred.has(step));
       let moved = false;
-      for (const step of left) {
+      const woke = new Set();
+      for (const step of ask) {
         const times = affordable(step);
-        if (rcmp(times, R0) > 0) { fire(step, times); moved = true; }
+        if (rcmp(times, R0) <= 0) continue;
+        fire(step, times);
+        moved = true;
+        for (const o of step.process.produces) {
+          for (const eater of (eatersOf.get(o.name) || [])) woke.add(eater);
+        }
       }
-      if (moved) continue;
+      if (moved) { stirred = woke; continue; }
+      // Nothing stirred what was watched; before giving up, look at everything.
+      if (stirred !== null) { stirred = null; guard++; continue; }
 
       /**
        * Only a wheel needs a push.
@@ -8428,6 +8464,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
         charge.set(name, radd(charge.get(name) || R0, amount));
         stock.set(name, radd(held(name), amount));
       }
+      stirred = null;                         // a charge can wake anything
     }
     for (const [name, amount] of charge) {
       if (rcmp(amount, R0) > 0) priming.push({ name, amount });
