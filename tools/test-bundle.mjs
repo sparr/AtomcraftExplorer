@@ -235,33 +235,6 @@ for (const [hash, fresh] of [['#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1', true]
 globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
 app.reload();
 await new Promise((r) => setTimeout(r, 0));
-const primeBox = document.querySelector('#plan-prime');
-const primeOpt = document.querySelector('#plan-prime-opt');
-if (!primeBox || !primeOpt) {
-  console.log('FAIL no borrow-a-want option in the built page');
-  fail++;
-} else if (primeOpt.hidden || !primeBox.checked) {
-  console.log('FAIL the borrow option is hidden or off by default for a fresh plan');
-  fail++;
-} else if (/pw=/.test(globalThis.location.hash)) {
-  console.log(`FAIL the default shows up in the address bar: ${globalThis.location.hash}`);
-  fail++;
-} else {
-  // On by default, so only the refusal is worth carrying in the URL.
-  primeBox.checked = false;
-  primeBox.dispatch('change');
-  await new Promise((r) => setTimeout(r, 0));
-  if (!/pw=0/.test(globalThis.location.hash)) {
-    console.log(`FAIL refusing to borrow did not reach the address bar: ${globalThis.location.hash}`);
-    fail++;
-  } else {
-    console.log('ok    borrowing is on by default and only the refusal is in the URL');
-  }
-  globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
-  app.reload();
-  await new Promise((r) => setTimeout(r, 0));
-}
-
 const leftBox = document.querySelector('#plan-leftovers');
 const leftOpt = document.querySelector('#plan-leftovers-opt');
 if (!leftBox || !leftOpt) {

@@ -1149,8 +1149,6 @@ function renderOptions() {
   // control that does nothing is worse than one that is not there.
   $('#plan-leftovers-opt').hidden = !plan.fresh;
   $('#plan-leftovers').checked = plan.keepLeftovers;
-  $('#plan-prime-opt').hidden = !plan.fresh;
-  $('#plan-prime').checked = plan.primeWithWants;
   $('#plan-avoid').checked = plan.avoidSideEffects;
   $('#plan-feedback').checked = plan.feedBackAll;
   $('#plan-charges').checked = plan.takeCharges;
@@ -1397,7 +1395,6 @@ export function render() {
     // object, and a key built from it could not see a change of sources.
     sources: plan.sources,
     keepLeftovers: plan.keepLeftovers,
-    primeWithWants: plan.primeWithWants,
   };
   shownTargets = targetsFor(question);
 
@@ -1448,9 +1445,6 @@ export function initPlan(context) {
 
   $('#plan-leftovers').addEventListener('change', () =>
     edit(setOption, 'keepLeftovers', $('#plan-leftovers').checked));
-
-  $('#plan-prime').addEventListener('change', () =>
-    edit(setOption, 'primeWithWants', $('#plan-prime').checked));
 
   /**
    * Putting the comparison away, rather than hiding the whole panel.

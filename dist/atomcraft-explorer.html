@@ -1065,12 +1065,6 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
       that appears without more going in is the game failing to conserve, not
       value found
     </label>
-    <label class="plan-opt" id="plan-prime-opt">
-      <input type="checkbox" id="plan-prime" checked>
-      Start a loop on something you are making &mdash; let a charge be one of
-      the things you asked for, where the plan makes it back on the first turn.
-      Never bought, only borrowed
-    </label>
     <label class="plan-opt" id="plan-charges-opt">
       <input type="checkbox" id="plan-charges">
       Start with something in hand &mdash; lay a charge in once where it saves
@@ -6513,13 +6507,6 @@ function normalizeFresh(spec) {
      */
     keepLeftovers: !!spec.keepLeftovers,
     /**
-     * Whether a want may be laid in to start a wheel. On unless refused: it
-     * cannot make a plan worse -- the borrowing and the not-borrowing are both
-     * worked out and the lighter kept -- and it is refused outright for
-     * anything the plan does not make, or spends faster than it makes.
-     */
-    primeWithWants: spec.primeWithWants !== false,
-    /**
      * The one material that may be bought despite carrying the want atoms.
      * Empty unless `solveFresh` put something here; see `barredAsTarget`.
      */
@@ -8398,27 +8385,13 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    * going out for the stuff regardless, so laying some in is not a second
    * errand.
    */
-  /**
-   * Run twice, if the reader has allowed a want to be laid in.
-   *
-   * Sparr: let a want be used as a primer, though never as a fetch -- which
-   * works so long as the step that makes it can turn once before the primer is
-   * wanted, and not at all if making it needs the primer first.
-   *
-   * That condition is not something to reason about in advance; it is
-   * something the simulation answers by running. So the permissive attempt is
-   * made, and then the charge is tested against the plan's own accounts: a
-   * primer is laid in once and goes round for ever, which means the plan must
-   * make at least as much of it as it spends. Where a borrowed want fails that
-   * the whole thing is worked out again with the permission withdrawn.
-   */
-  const layIn = (allowWants) => {
+  const priming = [];
+  {
     const prices = fetchPrices(graph, spec.kinds);
     const unlimited = (name) => spec.have.has(name) || drawn.has(name);
     const stock = new Map();
     const held = (name) => stock.get(name) || R0;
     const charge = new Map();
-    const produced = new Map();
     /**
      * Runs still owed, not steps still to do.
      *
@@ -8472,7 +8445,6 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
       for (const o of step.process.produces) {
         stock.set(o.name, radd(held(o.name), rmul(times, rat(o.count))));
-        produced.set(o.name, radd(produced.get(o.name) || R0, rmul(times, rat(o.count))));
       }
       owed.set(step, rsub(owed.get(step), times));
     };
@@ -8497,8 +8469,6 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      * after a charge is laid in.
      */
     let stirred = null;                       // null means "everything"
-    const makers = new Set();
-    for (const step of steps) for (const o of step.process.produces) makers.add(o.name);
     const eatersOf = new Map();
     for (const step of steps) {
       for (const i of step.process.consumes) {
@@ -8611,15 +8581,22 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
        * other side.
        */
       /**
-       * Allowed only where the plan makes the thing itself.
+       * A want is the last thing to reach for, never the first.
        *
-       * Laying in what nobody here produces is a fetch wearing another hat --
-       * you would have to go and get it -- so that stays refused however the
-       * option is set. What the permission buys is the loan: something the
-       * plan makes, handed over early so the wheel it seeds can start turning.
+       * Sparr: the primer should come from the chain that leads to the output;
+       * the player should not be handing over anything containing what they
+       * asked for. The loop under the Lepidolite lithium is
+       * `LiCl -> molten -> chlorine -> hydrochloric acid -> LiCl`, and two of
+       * its four members carry no lithium at all. Seeded with chlorine gas the
+       * chain makes its own lithium chloride; seeded with lithium chloride the
+       * player is supplying lithium, which is the thing being asked for.
+       *
+       * Ranked rather than forbidden, so a wheel with nothing lithium-free
+       * anywhere on it can still be started -- and when that happens the notes
+       * say so, because the reader is then being asked for the thing they
+       * asked to be made.
        */
-      const carriesAWant = (name) => holdsATarget(graph, name, spec.wanted) &&
-        !(allowWants && makers.has(name));
+      const carriesAWant = (name) => holdsATarget(graph, name, spec.wanted);
       let best = null;
       for (const step of candidates) {
         const short = missing(step);
@@ -8644,65 +8621,11 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
       stirred = null;                         // a charge can wake anything
     }
-    return { charge, produced };
-  };
-
-  /**
-   * A primer is laid in once and goes round; a shortfall is bought every batch.
-   *
-   * Sparr: it has to be something used in constant quantity for an arbitrary
-   * number of cycles. Making the loan back once is not enough to establish
-   * that -- a plan can produce some of a material and still be eating into it,
-   * and then what looks like a charge is really a purchase spread thin, and
-   * doubling the order doubles it.
-   *
-   * The test that does establish it is whether the plan is self-sufficient in
-   * the thing: makes at least as much as it spends. Then the seed is the same
-   * however long you run, because every turn puts back what it took.
-   */
-  const notASeed = ({ charge }) => [...charge].some(([name, amount]) =>
-    rcmp(amount, R0) > 0 && holdsATarget(graph, name, spec.wanted) &&
-    rcmp(made.get(name) || R0, used.get(name) || R0) < 0);
-
-  /**
-   * Borrowed only where borrowing is lighter.
-   *
-   * Permission is not a preference. Told it may lay in a want, the Lepidolite
-   * plan reached for two Lithium Chloride where a single Chlorine Gas had done
-   * -- four atoms in the chamber instead of two -- because the pass picks the
-   * cheapest step to unstick and a newly-affordable candidate changed which
-   * step that was. So both are worked out and the lighter is kept, and a tie
-   * goes to not borrowing.
-   */
-  const chargeWeight = (charge) => {
-    let atoms = 0;
     for (const [name, amount] of charge) {
-      if (rcmp(amount, R0) > 0) atoms += rnum(amount) * (graph.db.byName.get(name)?.matter ?? 1);
+      if (rcmp(amount, R0) > 0) priming.push({ name, amount });
     }
-    return atoms;
-  };
-  let laid = layIn(false);
-  if (spec.primeWithWants) {
-    const borrowed = layIn(true);
-    if (notASeed(borrowed)) {
-      if (notes) {
-        notes.push('a want was laid in that the plan spends faster than it makes, ' +
-                   'which is a purchase and not a primer, so it was worked out ' +
-                   'again without borrowing one');
-      }
-    } else if (chargeWeight(borrowed.charge) < chargeWeight(laid.charge)) {
-      laid = borrowed;
-      if (notes) {
-        notes.push('borrowed a want to start the wheel; the plan spends no more of ' +
-                   'it than it makes, so the same charge serves any number of runs');
-      }
-    }
+    priming.sort((a, b) => a.name.localeCompare(b.name));
   }
-  const priming = [];
-  for (const [name, amount] of laid.charge) {
-    if (rcmp(amount, R0) > 0) priming.push({ name, amount });
-  }
-  priming.sort((a, b) => a.name.localeCompare(b.name));
 
   const plan = {
     spec: { ...spec, targets: spec.targets.map((t) => ({ ...t, amount: t.amount * Number(mul) })) },
@@ -8864,18 +8787,6 @@ function emptyPlan() {
      * choose between answers that are otherwise identical.
      */
     keepLeftovers: false,
-    /**
-     * Whether a want may be laid in to start a wheel turning.
-     *
-     * Never fetched -- that stays refused however this is set. This is a loan:
-     * something the plan makes, handed over early so the loop that needs it can
-     * take its first turn, and spent no faster than the plan makes it.
-     *
-     * On by default, so it appears in the address bar only when switched off.
-     * It cannot cost anything: the charge is worked out both ways and the
-     * lighter kept.
-     */
-    primeWithWants: true,
     kinds: [...DEFAULT_KINDS],
     /**
      * Which sorts of thing the plan may go and get, for the newer solver.
@@ -8937,7 +8848,6 @@ function readPlan(params) {
   if (params.get('fr') === '1') plan.fresh = true;
   if (params.get('ch') === '1') plan.takeCharges = true;
   if (params.get('lv') === '1') plan.keepLeftovers = true;
-  if (params.get('pw') === '0') plan.primeWithWants = false;
 
   for (const entry of list(params.get('pin'))) {
     const at = entry.indexOf(PAIR);
@@ -8989,7 +8899,6 @@ function writePlan(plan, params) {
   if (plan.fresh) params.set('fr', '1');
   if (plan.takeCharges) params.set('ch', '1');
   if (plan.keepLeftovers) params.set('lv', '1');
-  if (!plan.primeWithWants) params.set('pw', '0');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
 
@@ -13094,8 +13003,6 @@ function renderOptions() {
   // control that does nothing is worse than one that is not there.
   $('#plan-leftovers-opt').hidden = !plan.fresh;
   $('#plan-leftovers').checked = plan.keepLeftovers;
-  $('#plan-prime-opt').hidden = !plan.fresh;
-  $('#plan-prime').checked = plan.primeWithWants;
   $('#plan-avoid').checked = plan.avoidSideEffects;
   $('#plan-feedback').checked = plan.feedBackAll;
   $('#plan-charges').checked = plan.takeCharges;
@@ -13342,7 +13249,6 @@ function render() {
     // object, and a key built from it could not see a change of sources.
     sources: plan.sources,
     keepLeftovers: plan.keepLeftovers,
-    primeWithWants: plan.primeWithWants,
   };
   shownTargets = targetsFor(question);
 
@@ -13393,9 +13299,6 @@ function initPlan(context) {
 
   $('#plan-leftovers').addEventListener('change', () =>
     edit(setOption, 'keepLeftovers', $('#plan-leftovers').checked));
-
-  $('#plan-prime').addEventListener('change', () =>
-    edit(setOption, 'primeWithWants', $('#plan-prime').checked));
 
   /**
    * Putting the comparison away, rather than hiding the whole panel.
