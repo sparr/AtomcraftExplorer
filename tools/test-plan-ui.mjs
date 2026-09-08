@@ -661,6 +661,51 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(!/ruled out/.test(text('#plan-side')), 'with nothing ruled out the panel is not there');
 }
 
+/* ------------------------------ refusing a material at the door, not outright */
+
+// Sparr: "if we allow excluding fetch and prime materials, that should be more
+// effective than excluding individual reactions". Two narrower refusals than
+// "Never use it": the plan may still make the thing and spend it, it just may
+// not buy it, or may not be handed some to start with.
+{
+  const ask = {
+    ...emptyPlan(), fresh: true, balance: false,
+    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+    have: ['Columbite'],
+  };
+  app.setPlan(ask);
+  const shopping = () => text('#plan-side');
+  check(/Lepidolite/.test(shopping()), `the plan buys Lepidolite to start with: ${shopping().slice(0, 60)}`);
+  check(/Not this one/.test(shopping()), 'and offers to be told not to');
+
+  app.setPlan({ ...ask, noFetch: ['Lepidolite'] });
+  check(!/\bLepidolite\b/.test(text('#plan-side').split('ruled out')[0]),
+        'refused, it goes shopping somewhere else instead of giving up');
+  check(/1 ruled out/.test(text('#plan-side')) && /may still make some/.test(text('#plan-side')),
+        'and the refusal is listed with its way back');
+
+  // The blunt version really is blunter: nothing may touch it at all.
+  app.setPlan({ ...ask, excludeMaterials: ['Lepidolite'] });
+  const blunt = app.getPlan();
+  check(blunt.excludeMaterials.length === 1 && !blunt.noFetch.length,
+        'and the two are separate choices, not one another');
+}
+
+// Both ride in the URL like everything else the reader chose.
+{
+  const spec = { ...emptyPlan(), targets: [{ name: 'Carbon', amount: 1 }],
+                 noFetch: ['Lepidolite'], noPrime: ['Chlorine Gas'] };
+  const params = new URLSearchParams();
+  writePlan(spec, params);
+  check(params.get('xf') === 'Lepidolite' && params.get('xp') === 'Chlorine Gas',
+        'a refusal to buy and a refusal to start with are written separately');
+  const back = readPlan(params);
+  check(back.noFetch.join() === 'Lepidolite' && back.noPrime.join() === 'Chlorine Gas',
+        'and both survive a reload');
+  const old = readPlan(new URLSearchParams());
+  check(!old.noFetch.length && !old.noPrime.length, 'while an older link without them still reads');
+}
+
 // The same undo where you would first look for it: on the route itself. It
 // sorts last of 153, so it also has to survive the cut.
 {

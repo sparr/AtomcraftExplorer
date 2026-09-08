@@ -373,6 +373,21 @@ function alreadyInHand(graph, name, held) {
 
 export function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (placed(graph, name)) return false;
+  /**
+   * Sparr: refusing a material at the door steers a plan better than refusing
+   * a reaction.
+   *
+   * `excludeMaterials` is the blunt version -- it deletes every step that so
+   * much as touches the thing, so a plan cannot make it, use it or see it.
+   * This is the narrow one: the material may still be made and spent inside
+   * the plan, it just may not be bought. "Get the fluorine from somewhere
+   * else" rather than "pretend fluorine does not exist".
+   *
+   * Answered here rather than at the eight places that ask, so that the
+   * candidate walk, the reachability sweep, the shopping columns and the
+   * charge all agree without being told separately.
+   */
+  if (spec?.noFetch?.has(name)) return false;
   if (sources && !sources.has(sourceOf(graph, name))) return false;
 
   /**
@@ -646,6 +661,8 @@ const subgraphKey = (spec) => JSON.stringify([
   spec.targets.map((t) => t.name).sort(),
   [...spec.excludeProcesses].sort(),
   [...spec.excludeMaterials].sort(),
+  [...spec.noFetch].sort(),
+  [...spec.noPrime].sort(),
   [...(spec.alsoUse || [])].sort(),
   [...(spec.oreAllowed || [])].sort(),
 ]);
@@ -1031,6 +1048,10 @@ export function normalizeFresh(spec) {
     sources: new Set(spec.sources || DEFAULT_SOURCES),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
+    /** Things the reader will not buy, though the plan may still make them. */
+    noFetch: new Set(spec.noFetch || []),
+    /** Things the reader will not start with, though the plan may still use them. */
+    noPrime: new Set(spec.noPrime || []),
     /**
      * Which way to settle a draw over what is left on the floor.
      *
@@ -3140,7 +3161,16 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
        * say so, because the reader is then being asked for the thing they
        * asked to be made.
        */
-      const carriesAWant = (name) => holdsATarget(graph, name, spec.wanted);
+      /**
+       * And what the reader has said they will not start with.
+       *
+       * Ranked with the wants rather than forbidden outright, for the same
+       * reason: a wheel with nothing else on it still has to be started, and a
+       * plan that cannot begin is worse than one that begins awkwardly. The
+       * notes say which it was.
+       */
+      const carriesAWant = (name) =>
+        holdsATarget(graph, name, spec.wanted) || spec.noPrime.has(name);
       let best = null;
       for (const step of candidates) {
         const short = missing(step);

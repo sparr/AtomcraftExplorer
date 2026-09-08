@@ -5854,6 +5854,21 @@ function alreadyInHand(graph, name, held) {
 
 function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (placed(graph, name)) return false;
+  /**
+   * Sparr: refusing a material at the door steers a plan better than refusing
+   * a reaction.
+   *
+   * `excludeMaterials` is the blunt version -- it deletes every step that so
+   * much as touches the thing, so a plan cannot make it, use it or see it.
+   * This is the narrow one: the material may still be made and spent inside
+   * the plan, it just may not be bought. "Get the fluorine from somewhere
+   * else" rather than "pretend fluorine does not exist".
+   *
+   * Answered here rather than at the eight places that ask, so that the
+   * candidate walk, the reachability sweep, the shopping columns and the
+   * charge all agree without being told separately.
+   */
+  if (spec?.noFetch?.has(name)) return false;
   if (sources && !sources.has(sourceOf(graph, name))) return false;
 
   /**
@@ -6127,6 +6142,8 @@ const subgraphKey = (spec) => JSON.stringify([
   spec.targets.map((t) => t.name).sort(),
   [...spec.excludeProcesses].sort(),
   [...spec.excludeMaterials].sort(),
+  [...spec.noFetch].sort(),
+  [...spec.noPrime].sort(),
   [...(spec.alsoUse || [])].sort(),
   [...(spec.oreAllowed || [])].sort(),
 ]);
@@ -6512,6 +6529,10 @@ function normalizeFresh(spec) {
     sources: new Set(spec.sources || DEFAULT_SOURCES),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
+    /** Things the reader will not buy, though the plan may still make them. */
+    noFetch: new Set(spec.noFetch || []),
+    /** Things the reader will not start with, though the plan may still use them. */
+    noPrime: new Set(spec.noPrime || []),
     /**
      * Which way to settle a draw over what is left on the floor.
      *
@@ -8621,7 +8642,16 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
        * say so, because the reader is then being asked for the thing they
        * asked to be made.
        */
-      const carriesAWant = (name) => holdsATarget(graph, name, spec.wanted);
+      /**
+       * And what the reader has said they will not start with.
+       *
+       * Ranked with the wants rather than forbidden outright, for the same
+       * reason: a wheel with nothing else on it still has to be started, and a
+       * plan that cannot begin is worse than one that begins awkwardly. The
+       * notes say which it was.
+       */
+      const carriesAWant = (name) =>
+        holdsATarget(graph, name, spec.wanted) || spec.noPrime.has(name);
       let best = null;
       for (const step of candidates) {
         const short = missing(step);
@@ -8769,6 +8799,19 @@ function emptyPlan() {
     excludeProcesses: [],
     excludeMaterials: [],
     /**
+     * Materials the reader will not buy, and will not start with.
+     *
+     * Narrower than `excludeMaterials`, which keeps a material out of the plan
+     * altogether: these two let the plan make the thing and spend it, and
+     * refuse it only at the door. "Get the fluorine from somewhere else" is a
+     * different instruction from "pretend fluorine does not exist", and the
+     * first is the one a reader looking at a shopping list usually means.
+     *
+     * Read by the newer solver only.
+     */
+    noFetch: [],
+    noPrime: [],
+    /**
      * Spare output the reader wants counted as a product rather than waste.
      *
      * Not a target: it asks for nothing to be made. Asking for a leftover as a
@@ -8878,6 +8921,8 @@ function readPlan(params) {
   plan.alsoUse = list(params.get('au'));
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
+  plan.noFetch = list(params.get('xf'));
+  plan.noPrime = list(params.get('xp'));
   plan.credit = list(params.get('cr'));
   plan.kept = list(params.get('kp'));
   plan.consume = list(params.get('cu'));
@@ -8929,6 +8974,8 @@ function writePlan(plan, params) {
   put('au', plan.alsoUse.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
+  put('xf', plan.noFetch.join(SEP));
+  put('xp', plan.noPrime.join(SEP));
   put('cr', plan.credit.join(SEP));
   put('kp', plan.kept.join(SEP));
   put('cu', plan.consume.join(SEP));
@@ -8972,6 +9019,8 @@ const clone = (p) => ({
   runs: { ...p.runs },
   excludeProcesses: [...p.excludeProcesses],
   excludeMaterials: [...p.excludeMaterials],
+  noFetch: [...p.noFetch],
+  noPrime: [...p.noPrime],
   credit: [...p.credit],
   kept: [...p.kept],
   consume: [...p.consume],
@@ -12771,6 +12820,23 @@ function renderSide() {
       }
       acts.append(button('ghost small', 'Other ways', `How else ${f.name} could be got`,
                          () => edit(selectMaterial, f.name)));
+      /**
+       * Sparr: refusing a material steers a plan better than refusing a step.
+       *
+       * "Never use it" is next door in the inspector and is a bigger hammer:
+       * it deletes every step that touches the thing, so the plan can neither
+       * make it nor spend it. This one only shuts the shop door. The plan is
+       * free to make its own and put it straight back in, which is usually
+       * what a reader staring at a shopping list actually wants.
+       *
+       * Newer solver only -- the older one does not read the field, and a
+       * button that quietly does nothing is worse than no button.
+       */
+      if (plan.fresh) {
+        acts.append(button('ghost small', 'Not this one',
+                           `Plan without buying ${f.name}, though it may still be made along the way`,
+                           () => edit(toggle, 'noFetch', f.name)));
+      }
       li.append(acts);
       ul.append(li);
     }
@@ -12786,7 +12852,10 @@ function renderSide() {
   // and nothing on the page saying what narrowed it.
   const ruledProcesses = plan.excludeProcesses;
   const ruledMaterials = plan.excludeMaterials;
-  const ruled = ruledProcesses.length + ruledMaterials.length;
+  const ruledFetch = plan.noFetch;
+  const ruledPrime = plan.noPrime;
+  const ruled = ruledProcesses.length + ruledMaterials.length
+    + ruledFetch.length + ruledPrime.length;
   if (ruled) {
     const out = el('section', 'plan-panel ruled-out');
     const title = el('h2', null, `${ruled} ruled out`);
@@ -12820,18 +12889,27 @@ function renderSide() {
       li.append(acts);
       ul.append(li);
     }
-    for (const name of ruledMaterials) {
-      const li = el('li', 'plan-item');
-      li.dataset.material = name;
-      const line = el('div', 'plan-item-main');
-      line.append(matLink(name));
-      li.append(line);
-      li.append(el('div', 'plan-how', 'this material, kept out of the plan entirely'));
-      const acts = el('div', 'plan-item-acts');
-      acts.append(button('ghost small', 'Allow it', 'Let the planner use this again',
-                         () => edit(toggle, 'excludeMaterials', name)));
-      li.append(acts);
-      ul.append(li);
+    for (const [field, names, how, back] of [
+      ['excludeMaterials', ruledMaterials,
+       'this material, kept out of the plan entirely', 'Let the planner use this again'],
+      ['noFetch', ruledFetch,
+       'not bought — the plan may still make some', 'Let the plan buy this again'],
+      ['noPrime', ruledPrime,
+       'not laid in — the plan must start some other way', 'Let the plan start with this again'],
+    ]) {
+      for (const name of names) {
+        const li = el('li', 'plan-item');
+        li.dataset.material = name;
+        const line = el('div', 'plan-item-main');
+        line.append(matLink(name));
+        li.append(line);
+        li.append(el('div', 'plan-how', how));
+        const acts = el('div', 'plan-item-acts');
+        acts.append(button('ghost small', 'Allow it', back,
+                           () => edit(toggle, field, name)));
+        li.append(acts);
+        ul.append(li);
+      }
     }
     out.append(ul);
     box.append(out);
@@ -12877,6 +12955,13 @@ function renderSide() {
         acts.append(button('ghost small', 'Make it instead',
                            `Add a step that makes ${item.name}, rather than laying some in`,
                            () => edit(makeInstead, item.name)));
+      }
+      // And the blunter answer: not this one, find another way to start.
+      // "Make it instead" names the replacement; this leaves the choice open.
+      if (plan.fresh) {
+        acts.append(button('ghost small', 'Not this one',
+                           `Start the plan with something other than ${item.name}`,
+                           () => edit(toggle, 'noPrime', item.name)));
       }
       li.append(acts);
       ul.append(li);
@@ -13160,6 +13245,7 @@ const questionKey = (ask) => JSON.stringify({
   targets: ask.targets, have: ask.have, plenty: ask.plenty, consume: ask.consume,
   kinds: ask.kinds, include: ask.include, pins: ask.pins, runs: ask.runs,
   excludeProcesses: ask.excludeProcesses, excludeMaterials: ask.excludeMaterials,
+  noFetch: ask.noFetch, noPrime: ask.noPrime,
   takeCharges: ask.takeCharges, avoidSideEffects: ask.avoidSideEffects,
   feedBackAll: ask.feedBackAll, noFeedBack: ask.noFeedBack,
 });
@@ -13316,6 +13402,8 @@ function render() {
     runs: plan.runs,
     excludeProcesses: plan.excludeProcesses,
     excludeMaterials: plan.excludeMaterials,
+    noFetch: plan.noFetch,
+    noPrime: plan.noPrime,
     credit: plan.credit,
     kept: plan.kept,
     consume: plan.consume,

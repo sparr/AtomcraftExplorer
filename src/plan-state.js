@@ -60,6 +60,19 @@ export function emptyPlan() {
     excludeProcesses: [],
     excludeMaterials: [],
     /**
+     * Materials the reader will not buy, and will not start with.
+     *
+     * Narrower than `excludeMaterials`, which keeps a material out of the plan
+     * altogether: these two let the plan make the thing and spend it, and
+     * refuse it only at the door. "Get the fluorine from somewhere else" is a
+     * different instruction from "pretend fluorine does not exist", and the
+     * first is the one a reader looking at a shopping list usually means.
+     *
+     * Read by the newer solver only.
+     */
+    noFetch: [],
+    noPrime: [],
+    /**
      * Spare output the reader wants counted as a product rather than waste.
      *
      * Not a target: it asks for nothing to be made. Asking for a leftover as a
@@ -169,6 +182,8 @@ export function readPlan(params) {
   plan.alsoUse = list(params.get('au'));
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
+  plan.noFetch = list(params.get('xf'));
+  plan.noPrime = list(params.get('xp'));
   plan.credit = list(params.get('cr'));
   plan.kept = list(params.get('kp'));
   plan.consume = list(params.get('cu'));
@@ -220,6 +235,8 @@ export function writePlan(plan, params) {
   put('au', plan.alsoUse.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
+  put('xf', plan.noFetch.join(SEP));
+  put('xp', plan.noPrime.join(SEP));
   put('cr', plan.credit.join(SEP));
   put('kp', plan.kept.join(SEP));
   put('cu', plan.consume.join(SEP));
@@ -263,6 +280,8 @@ const clone = (p) => ({
   runs: { ...p.runs },
   excludeProcesses: [...p.excludeProcesses],
   excludeMaterials: [...p.excludeMaterials],
+  noFetch: [...p.noFetch],
+  noPrime: [...p.noPrime],
   credit: [...p.credit],
   kept: [...p.kept],
   consume: [...p.consume],

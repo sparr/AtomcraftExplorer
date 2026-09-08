@@ -838,6 +838,23 @@ function renderSide() {
       }
       acts.append(button('ghost small', 'Other ways', `How else ${f.name} could be got`,
                          () => edit(selectMaterial, f.name)));
+      /**
+       * Sparr: refusing a material steers a plan better than refusing a step.
+       *
+       * "Never use it" is next door in the inspector and is a bigger hammer:
+       * it deletes every step that touches the thing, so the plan can neither
+       * make it nor spend it. This one only shuts the shop door. The plan is
+       * free to make its own and put it straight back in, which is usually
+       * what a reader staring at a shopping list actually wants.
+       *
+       * Newer solver only -- the older one does not read the field, and a
+       * button that quietly does nothing is worse than no button.
+       */
+      if (plan.fresh) {
+        acts.append(button('ghost small', 'Not this one',
+                           `Plan without buying ${f.name}, though it may still be made along the way`,
+                           () => edit(toggle, 'noFetch', f.name)));
+      }
       li.append(acts);
       ul.append(li);
     }
@@ -853,7 +870,10 @@ function renderSide() {
   // and nothing on the page saying what narrowed it.
   const ruledProcesses = plan.excludeProcesses;
   const ruledMaterials = plan.excludeMaterials;
-  const ruled = ruledProcesses.length + ruledMaterials.length;
+  const ruledFetch = plan.noFetch;
+  const ruledPrime = plan.noPrime;
+  const ruled = ruledProcesses.length + ruledMaterials.length
+    + ruledFetch.length + ruledPrime.length;
   if (ruled) {
     const out = el('section', 'plan-panel ruled-out');
     const title = el('h2', null, `${ruled} ruled out`);
@@ -887,18 +907,27 @@ function renderSide() {
       li.append(acts);
       ul.append(li);
     }
-    for (const name of ruledMaterials) {
-      const li = el('li', 'plan-item');
-      li.dataset.material = name;
-      const line = el('div', 'plan-item-main');
-      line.append(matLink(name));
-      li.append(line);
-      li.append(el('div', 'plan-how', 'this material, kept out of the plan entirely'));
-      const acts = el('div', 'plan-item-acts');
-      acts.append(button('ghost small', 'Allow it', 'Let the planner use this again',
-                         () => edit(toggle, 'excludeMaterials', name)));
-      li.append(acts);
-      ul.append(li);
+    for (const [field, names, how, back] of [
+      ['excludeMaterials', ruledMaterials,
+       'this material, kept out of the plan entirely', 'Let the planner use this again'],
+      ['noFetch', ruledFetch,
+       'not bought — the plan may still make some', 'Let the plan buy this again'],
+      ['noPrime', ruledPrime,
+       'not laid in — the plan must start some other way', 'Let the plan start with this again'],
+    ]) {
+      for (const name of names) {
+        const li = el('li', 'plan-item');
+        li.dataset.material = name;
+        const line = el('div', 'plan-item-main');
+        line.append(matLink(name));
+        li.append(line);
+        li.append(el('div', 'plan-how', how));
+        const acts = el('div', 'plan-item-acts');
+        acts.append(button('ghost small', 'Allow it', back,
+                           () => edit(toggle, field, name)));
+        li.append(acts);
+        ul.append(li);
+      }
     }
     out.append(ul);
     box.append(out);
@@ -944,6 +973,13 @@ function renderSide() {
         acts.append(button('ghost small', 'Make it instead',
                            `Add a step that makes ${item.name}, rather than laying some in`,
                            () => edit(makeInstead, item.name)));
+      }
+      // And the blunter answer: not this one, find another way to start.
+      // "Make it instead" names the replacement; this leaves the choice open.
+      if (plan.fresh) {
+        acts.append(button('ghost small', 'Not this one',
+                           `Start the plan with something other than ${item.name}`,
+                           () => edit(toggle, 'noPrime', item.name)));
       }
       li.append(acts);
       ul.append(li);
@@ -1227,6 +1263,7 @@ const questionKey = (ask) => JSON.stringify({
   targets: ask.targets, have: ask.have, plenty: ask.plenty, consume: ask.consume,
   kinds: ask.kinds, include: ask.include, pins: ask.pins, runs: ask.runs,
   excludeProcesses: ask.excludeProcesses, excludeMaterials: ask.excludeMaterials,
+  noFetch: ask.noFetch, noPrime: ask.noPrime,
   takeCharges: ask.takeCharges, avoidSideEffects: ask.avoidSideEffects,
   feedBackAll: ask.feedBackAll, noFeedBack: ask.noFeedBack,
 });
@@ -1383,6 +1420,8 @@ export function render() {
     runs: plan.runs,
     excludeProcesses: plan.excludeProcesses,
     excludeMaterials: plan.excludeMaterials,
+    noFetch: plan.noFetch,
+    noPrime: plan.noPrime,
     credit: plan.credit,
     kept: plan.kept,
     consume: plan.consume,
