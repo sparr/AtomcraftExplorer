@@ -113,6 +113,61 @@ for (const [what, ok] of oreChecks) {
   console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
   if (ok) met++; else broke++;
 }
+/**
+ * Borrowing a want to start a wheel, which is a loan and not a purchase.
+ *
+ * Sparr: allowed as a primer, never as a fetch, and only for something used in
+ * constant quantity however many cycles run. That last is the whole of it -- a
+ * plan that spends more of a thing than it makes is buying it a little at a
+ * time, and the charge would grow with the order.
+ */
+console.log('--- borrowing a want to start with');
+const borrowChecks = [];
+for (const c of CASES) {
+  const ask = { targets: c.plan.targets.map((t) => ({ name: t, amount: 1 })),
+                have: c.plan.have || [], primeWithWants: true,
+                ...(c.plan.consume ? { consume: c.plan.consume } : {}),
+                ...(c.plan.sources ? { sources: c.plan.sources } : {}) };
+  let p = null;
+  try { p = solveFresh(graph, ask); } catch { p = null; }
+  if (!p) { borrowChecks.push([`${c.id} still answers`, false]); continue; }
+  for (const x of p.priming || []) {
+    if (!holdsAWant(p, x.name)) continue;
+    borrowChecks.push([`${c.id} borrows ${x.name} and makes at least as much as it spends`,
+                       rnum(p.madeOf(x.name)) >= rnum(p.amountOf(x.name))]);
+  }
+  borrowChecks.push([`${c.id} never buys one`,
+                     !p.frontier.some((f) => holdsAWant(p, f.name))]);
+}
+/**
+ * And one question where it actually borrows, since none of the seven do.
+ *
+ * The combined factory on mined sources alone lays in two Lithium Chloride --
+ * lithium being one of the four things asked for -- and makes exactly two, so
+ * the charge is the same whether the line runs once or a thousand times.
+ */
+{
+  const ask = { targets: ['Tantalum', 'Niobium', 'Potassium', 'Lithium']
+                  .map((n) => ({ name: n, amount: 1 })),
+                have: ['Columbite', 'Lepidolite'], sources: ['world'] };
+  const plain = solveFresh(graph, ask);
+  const lent = solveFresh(graph, { ...ask, primeWithWants: true });
+  const borrowed = (lent.priming || []).filter((x) => holdsAWant(lent, x.name));
+  borrowChecks.push(['the combined factory does borrow when allowed to', borrowed.length > 0]);
+  borrowChecks.push(['and does not when it is not',
+                     !(plain.priming || []).some((x) => holdsAWant(plain, x.name))]);
+  for (const x of borrowed) {
+    borrowChecks.push([`what it borrows (${x.name}) it spends no more of than it makes`,
+                       rnum(lent.madeOf(x.name)) >= rnum(lent.amountOf(x.name))]);
+  }
+  borrowChecks.push(['and the plan itself is unchanged by borrowing',
+                     plain.steps.length === lent.steps.length]);
+}
+
+for (const [what, ok] of borrowChecks) {
+  console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+  if (ok) met++; else broke++;
+}
 console.log('');
 
 for (const c of CASES) {

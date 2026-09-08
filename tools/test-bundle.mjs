@@ -235,6 +235,29 @@ for (const [hash, fresh] of [['#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1', true]
 globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
 app.reload();
 await new Promise((r) => setTimeout(r, 0));
+const primeBox = document.querySelector('#plan-prime');
+const primeOpt = document.querySelector('#plan-prime-opt');
+if (!primeBox || !primeOpt) {
+  console.log('FAIL no borrow-a-want option in the built page');
+  fail++;
+} else if (primeOpt.hidden || primeBox.checked) {
+  console.log('FAIL the borrow option is hidden or on by default for a fresh plan');
+  fail++;
+} else {
+  primeBox.checked = true;
+  primeBox.dispatch('change');
+  await new Promise((r) => setTimeout(r, 0));
+  if (!/pw=1/.test(globalThis.location.hash)) {
+    console.log(`FAIL borrowing did not reach the address bar: ${globalThis.location.hash}`);
+    fail++;
+  } else {
+    console.log('ok    borrowing a want to start with is offered and lands in the URL');
+  }
+  globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
+  app.reload();
+  await new Promise((r) => setTimeout(r, 0));
+}
+
 const leftBox = document.querySelector('#plan-leftovers');
 const leftOpt = document.querySelector('#plan-leftovers-opt');
 if (!leftBox || !leftOpt) {

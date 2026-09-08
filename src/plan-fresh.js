@@ -1025,6 +1025,12 @@ export function normalizeFresh(spec) {
      */
     keepLeftovers: !!spec.keepLeftovers,
     /**
+     * Whether a want may be laid in to start a wheel. Never fetched -- this is
+     * a loan the plan repays on its first turn, and it is refused outright for
+     * anything the plan does not make.
+     */
+    primeWithWants: !!spec.primeWithWants,
+    /**
      * The one material that may be bought despite carrying the want atoms.
      * Empty unless `solveFresh` put something here; see `barredAsTarget`.
      */
@@ -2903,13 +2909,27 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    * going out for the stuff regardless, so laying some in is not a second
    * errand.
    */
-  const priming = [];
-  {
+  /**
+   * Run twice, if the reader has allowed a want to be laid in.
+   *
+   * Sparr: let a want be used as a primer, though never as a fetch -- which
+   * works so long as the step that makes it can turn once before the primer is
+   * wanted, and not at all if making it needs the primer first.
+   *
+   * That condition is not something to reason about in advance; it is
+   * something the simulation answers by running. So the permissive attempt is
+   * made, and then the charge is tested against the plan's own accounts: a
+   * primer is laid in once and goes round for ever, which means the plan must
+   * make at least as much of it as it spends. Where a borrowed want fails that
+   * the whole thing is worked out again with the permission withdrawn.
+   */
+  const layIn = (allowWants) => {
     const prices = fetchPrices(graph, spec.kinds);
     const unlimited = (name) => spec.have.has(name) || drawn.has(name);
     const stock = new Map();
     const held = (name) => stock.get(name) || R0;
     const charge = new Map();
+    const produced = new Map();
     /**
      * Runs still owed, not steps still to do.
      *
@@ -2963,6 +2983,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
       for (const o of step.process.produces) {
         stock.set(o.name, radd(held(o.name), rmul(times, rat(o.count))));
+        produced.set(o.name, radd(produced.get(o.name) || R0, rmul(times, rat(o.count))));
       }
       owed.set(step, rsub(owed.get(step), times));
     };
@@ -2987,6 +3008,8 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      * after a charge is laid in.
      */
     let stirred = null;                       // null means "everything"
+    const makers = new Set();
+    for (const step of steps) for (const o of step.process.produces) makers.add(o.name);
     const eatersOf = new Map();
     for (const step of steps) {
       for (const i of step.process.consumes) {
@@ -3098,7 +3121,16 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
        * refusing the salt does not stop the wheel turning, it just picks the
        * other side.
        */
-      const carriesAWant = (name) => holdsATarget(graph, name, spec.wanted);
+      /**
+       * Allowed only where the plan makes the thing itself.
+       *
+       * Laying in what nobody here produces is a fetch wearing another hat --
+       * you would have to go and get it -- so that stays refused however the
+       * option is set. What the permission buys is the loan: something the
+       * plan makes, handed over early so the wheel it seeds can start turning.
+       */
+      const carriesAWant = (name) => holdsATarget(graph, name, spec.wanted) &&
+        !(allowWants && makers.has(name));
       let best = null;
       for (const step of candidates) {
         const short = missing(step);
@@ -3123,11 +3155,65 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
       stirred = null;                         // a charge can wake anything
     }
+    return { charge, produced };
+  };
+
+  /**
+   * A primer is laid in once and goes round; a shortfall is bought every batch.
+   *
+   * Sparr: it has to be something used in constant quantity for an arbitrary
+   * number of cycles. Making the loan back once is not enough to establish
+   * that -- a plan can produce some of a material and still be eating into it,
+   * and then what looks like a charge is really a purchase spread thin, and
+   * doubling the order doubles it.
+   *
+   * The test that does establish it is whether the plan is self-sufficient in
+   * the thing: makes at least as much as it spends. Then the seed is the same
+   * however long you run, because every turn puts back what it took.
+   */
+  const notASeed = ({ charge }) => [...charge].some(([name, amount]) =>
+    rcmp(amount, R0) > 0 && holdsATarget(graph, name, spec.wanted) &&
+    rcmp(made.get(name) || R0, used.get(name) || R0) < 0);
+
+  /**
+   * Borrowed only where borrowing is lighter.
+   *
+   * Permission is not a preference. Told it may lay in a want, the Lepidolite
+   * plan reached for two Lithium Chloride where a single Chlorine Gas had done
+   * -- four atoms in the chamber instead of two -- because the pass picks the
+   * cheapest step to unstick and a newly-affordable candidate changed which
+   * step that was. So both are worked out and the lighter is kept, and a tie
+   * goes to not borrowing.
+   */
+  const chargeWeight = (charge) => {
+    let atoms = 0;
     for (const [name, amount] of charge) {
-      if (rcmp(amount, R0) > 0) priming.push({ name, amount });
+      if (rcmp(amount, R0) > 0) atoms += rnum(amount) * (graph.db.byName.get(name)?.matter ?? 1);
     }
-    priming.sort((a, b) => a.name.localeCompare(b.name));
+    return atoms;
+  };
+  let laid = layIn(false);
+  if (spec.primeWithWants) {
+    const borrowed = layIn(true);
+    if (notASeed(borrowed)) {
+      if (notes) {
+        notes.push('a want was laid in that the plan spends faster than it makes, ' +
+                   'which is a purchase and not a primer, so it was worked out ' +
+                   'again without borrowing one');
+      }
+    } else if (chargeWeight(borrowed.charge) < chargeWeight(laid.charge)) {
+      laid = borrowed;
+      if (notes) {
+        notes.push('borrowed a want to start the wheel; the plan spends no more of ' +
+                   'it than it makes, so the same charge serves any number of runs');
+      }
+    }
   }
+  const priming = [];
+  for (const [name, amount] of laid.charge) {
+    if (rcmp(amount, R0) > 0) priming.push({ name, amount });
+  }
+  priming.sort((a, b) => a.name.localeCompare(b.name));
 
   const plan = {
     spec: { ...spec, targets: spec.targets.map((t) => ({ ...t, amount: t.amount * Number(mul) })) },

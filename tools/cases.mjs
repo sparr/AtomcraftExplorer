@@ -281,10 +281,23 @@ export const NEVER = [
         return Math.abs(rnum(mate.runs) / rnum(shared.chances[i]) - mine) < 1e-6 * mine;
       });
     })],
-  ['and never fetches or lays in an atom it was asked to make', (p, { holdsAWant }) =>
-    !holdsAWant ||
-    (!p.frontier.some((f) => holdsAWant(p, f.name)) &&
-     !p.priming.some((x) => holdsAWant(p, x.name)))],
+  /**
+   * Bought, never; borrowed, only against something the plan makes back.
+   *
+   * The shopping list half is absolute -- going out for what you were asked to
+   * produce is not a plan at either end of it. The charge half is not quite:
+   * Sparr allows a want to be laid in to start a wheel, on the condition that
+   * makes it a loan rather than a purchase, which is that the plan produces at
+   * least as much of it as it began with. A charge it never makes back is the
+   * bootstrap that cannot start, and that stays refused whatever the option
+   * says.
+   */
+  ['and never fetches an atom it was asked to make, nor borrows one it cannot repay',
+   (p, { holdsAWant, rnum }) =>
+     !holdsAWant ||
+     (!p.frontier.some((f) => holdsAWant(p, f.name)) &&
+      !p.priming.some((x) => holdsAWant(p, x.name) &&
+                             rnum(p.madeOf(x.name)) < rnum(x.amount)))],
   ['and never asks to be primed with the thing it is making', (p, { sameStuff }) =>
     !sameStuff ||
     p.priming.every((x) => !p.spec.targets.some((t) => sameStuff(x.name, t.name)))],

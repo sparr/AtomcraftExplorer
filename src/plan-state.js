@@ -116,6 +116,14 @@ export function emptyPlan() {
      * choose between answers that are otherwise identical.
      */
     keepLeftovers: false,
+    /**
+     * Whether a want may be laid in to start a wheel turning.
+     *
+     * Never fetched -- that stays refused however this is set. This is a loan:
+     * something the plan makes, handed over early so the loop that needs it can
+     * take its first turn, and made back before the batch is out.
+     */
+    primeWithWants: false,
     kinds: [...DEFAULT_KINDS],
     /**
      * Which sorts of thing the plan may go and get, for the newer solver.
@@ -177,6 +185,7 @@ export function readPlan(params) {
   if (params.get('fr') === '1') plan.fresh = true;
   if (params.get('ch') === '1') plan.takeCharges = true;
   if (params.get('lv') === '1') plan.keepLeftovers = true;
+  if (params.get('pw') === '1') plan.primeWithWants = true;
 
   for (const entry of list(params.get('pin'))) {
     const at = entry.indexOf(PAIR);
@@ -228,6 +237,7 @@ export function writePlan(plan, params) {
   if (plan.fresh) params.set('fr', '1');
   if (plan.takeCharges) params.set('ch', '1');
   if (plan.keepLeftovers) params.set('lv', '1');
+  if (plan.primeWithWants) params.set('pw', '1');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
 
