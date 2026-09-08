@@ -509,9 +509,25 @@ function mintsElement(graph, a, b, element) {
  * oxygen it is the cheapest carbon in the game, and the Lepidolite plan was
  * built on it -- eighteen Carbon in and fifty-four out, and a shopping list of
  * nothing.
+ *
+ * Three molten iron and one carbon make three molten steel; each of those
+ * three, burnt, gives back a molten iron and a whole carbon dioxide. One carbon
+ * in, three out. Barring either direction stops it -- but `Steel Alloy` is the
+ * only reaction in the game that makes molten steel at all, so barring that one
+ * does not merely break the wheel, it puts steel out of reach: asked for Steel
+ * the newer solver had two processes to work with, both of them phase changes
+ * between Steel and Molten Steel, and said the shortlist could not fill the
+ * order. Barring the burn instead leaves steel makeable out of iron and carbon,
+ * which is the direction anyone actually wants, and costs only the ability to
+ * decarburise steel back to iron.
+ *
+ * The pair is still measured both ways round -- `mintsElement` scales the
+ * second recipe to eat what the first makes, and the arithmetic nets carbon
+ * whichever is named first -- so the exclusion still lifts itself if the game
+ * is ever fixed.
  */
 const KNOWN_BUGS = [
-  { drop: 'rx:Steel Alloy', with: 'rx:Molten Steel + Oxygen Gas', mints: 'C' },
+  { drop: 'rx:Molten Steel + Oxygen Gas', with: 'rx:Steel Alloy', mints: 'C' },
 ];
 
 /**

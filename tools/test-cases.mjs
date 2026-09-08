@@ -9,7 +9,8 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
-import { solvePlan, balanceTargets, rstr, rnum, rzero } from '../src/plan-solve.js';
+import { solvePlan, rstr, rnum, rzero } from '../src/plan-solve.js';
+import { balanceTargets } from '../src/balance.js';
 import { composition } from '../src/composition.js';
 import { CASES, NEVER } from './cases.mjs';
 

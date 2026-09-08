@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
-import { balanceTargets } from '../src/plan-solve.js';
+import { balanceTargets } from '../src/balance.js';
 import { solveFresh, phaseGroup, chamberShares, withElements,
          normalizeFresh } from '../src/plan-fresh.js';
 import { rnum, rzero, rstr } from '../src/rational.js';

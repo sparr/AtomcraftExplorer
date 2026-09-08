@@ -11,7 +11,8 @@ import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, PROCESS_KINDS, DEFAULT_KINDS,
          operatingWindow } from '../src/plan-graph.js';
-import { solvePlan, balanceTargets, reachableFrom, routesFor, competitionOf, shareRatio, processCost,
+import { balanceTargets } from '../src/balance.js';
+import { solvePlan, reachableFrom, routesFor, competitionOf, shareRatio, processCost,
          rat, radd, rsub, rmul, rdiv, rcmp, rstr, rzero, rnum, R0 } from '../src/plan-solve.js';
 import { AMBIENT, convertTemperature, convertTemperatureDelta, formatTemperature,
          formatTemperatureRange, heatingNeed, coolingNeed } from '../src/units.js';

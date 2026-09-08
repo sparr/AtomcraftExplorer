@@ -13,7 +13,8 @@
  */
 import { search } from './search.js';
 import { listed } from './prose.js';
-import { solvePlan, balanceTargets, routesFor, usesFor,
+import { balanceTargets } from './balance.js';
+import { solvePlan, routesFor, usesFor,
          rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
 import { solveFresh, blankFresh, questionShape, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
