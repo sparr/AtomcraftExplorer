@@ -309,7 +309,7 @@ console.log('\n--- the trade is offered wherever the loop is ---');
   // is the next section's business, and it uses this same plan to say so.
 }
 
-console.log('\n--- getting rid of a leftover ---');
+console.log('\n--- a leftover that still has something in it ---');
 {
   // b=0: the reader has said how much Carbon they want, so the amounts are
   // theirs and the leftover is the one they are actually looking at.
@@ -320,14 +320,16 @@ console.log('\n--- getting rid of a leftover ---');
   check(!!row(), 'the spare Carbon Dioxide is listed');
   check(/still has carbon in it/.test(row().textContent),
         'and says it still has carbon in it');
-  const rid = nodes(row(), 'plan-item-acts')
-    .flatMap((a) => [...a.children]).find((b) => b.textContent === 'Get rid of it');
-  check(!!rid, 'with a third thing to say about it, beside keeping and feeding back');
-  rid.click();
-  check(app.getPlan().consume.includes('Carbon Dioxide'),
-        'pressing it asks the plan to find a use');
+  // "Get rid of it" used to be the third thing you could say here. It asked
+  // the wrong question -- what the reader wants is the next best plan that
+  // does not make the thing, which is a comparison between whole plans and
+  // belongs on the scoreboard. The field it wrote still rides in the URL.
+  check(!row().textContent.includes('Get rid of it'),
+        'and is no longer offered a use it never had');
+  app.setPlan({ ...addHave(addTarget(emptyPlan(), 'Carbon'), 'Carbon Monoxide'),
+                balance: false, consume: ['Carbon Dioxide'] });
   check(!nodes($('#plan-side'), 'plan-item').some((n) => n.dataset.material === 'Carbon Dioxide'),
-        'and the leftover goes');
+        'while a link that carries the old choice still answers it');
 }
 
 console.log('\n--- pressing it and reloading it agree ---');
@@ -340,15 +342,15 @@ console.log('\n--- pressing it and reloading it agree ---');
    * loaded afresh said two Carbon and nothing left over. Whatever else a cache
    * does, it must not disagree with a fresh load of its own URL.
    */
-  app.setPlan(addHave(addTarget(emptyPlan(), 'Carbon'), 'Carbon Monoxide'));
+  const ask = addHave(addTarget(emptyPlan(), 'Carbon'), 'Carbon Monoxide');
+  app.setPlan(ask);
   app.setMode('plan');
-  const rid = nodes($('#plan-side'), 'plan-item')
-    .filter((n) => n.dataset.material === 'Carbon Dioxide')
-    .flatMap((n) => nodes(n, 'plan-item-acts')).flatMap((a) => [...a.children])
-    .find((b) => b.textContent === 'Get rid of it');
-  check(!!rid, 'the spare carbon dioxide offers to be got rid of');
-  rid.click();
   const amount = () => nodes($('#goal-targets'), 'goal-amount').map((n) => n.value).join('/');
+  check(amount() === '1', `one Carbon before the question changes: ${amount()}`);
+  // Changed in the session rather than by pressing a button: the button that
+  // wrote this field has gone, and the guard is about the cache, not the
+  // control. Any field that moves the amounts would serve.
+  app.setPlan({ ...ask, consume: ['Carbon Dioxide'] });
   const pressed = amount();
   const spare = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
 
@@ -359,7 +361,7 @@ console.log('\n--- pressing it and reloading it agree ---');
   const spareLoaded = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
 
   check(pressed === loaded,
-        `pressing gives what loading gives: ${pressed} against ${loaded}`);
+        `changing it gives what loading it gives: ${pressed} against ${loaded}`);
   check(pressed === '2', `and it is the two the feed comes to: ${pressed}`);
   check(!spare.includes('Carbon') && !spareLoaded.includes('Carbon'),
         `with no Carbon left over either way: ${spare.join(',')} / ${spareLoaded.join(',')}`);
@@ -709,17 +711,18 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
         'the options it cannot change are off the panel, not greyed on it');
   check(!$('#plan-gap-note').hidden, 'and the panel says what red means');
 
+  /**
+   * Nothing on the shopping list or the leavings is marked any more.
+   *
+   * There were two here. Keeping a spare was taught to the newer solver, and
+   * getting rid of one was dropped: what the reader wants from that is the
+   * next best plan that does not make the thing, which is a comparison
+   * between whole plans and belongs on the scoreboard. What is left of the
+   * red is in the inspector, checked below.
+   */
   const red = nodes($('#plan-side'), 'solver-gap');
-  check(red.length > 0, `the controls that would be lost are marked: ${red.length}`);
-  check(red.every((b) => /does not read this yet/.test(b.title || '')),
-        'each saying so where you would hover it');
-  const labels = new Set(red.map((b) => b.textContent.trim()));
-  check(labels.has('Get rid of it'),
-        `finding a leftover a use among them: ${[...labels].join(', ')}`);
-  // "Keep it" was in this list until the newer solver learned it: claiming a
-  // spare as a product moves the row and stops the last tie-break working to
-  // get rid of it, and neither needs the older solver.
-  check(!labels.has('Keep it'), 'and keeping a spare is no longer one of them');
+  check(red.length === 0,
+        `the panels are clear of it: ${red.map((b) => b.textContent.trim()).join(', ') || 'nothing marked'}`);
 
   // Feeding a leftover back is not a choice under this solver -- it always
   // does -- so that button is gone rather than painted.
@@ -741,6 +744,8 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
     /^(Make .* this way|Undo a choice made here)/.test(b.title || ''));
   check(ways.length > 1 && ways.every((b) => b.classList.contains('solver-gap')),
         `every way of making a material is marked, the undo with them: ${ways.length}`);
+  check(ways.every((b) => /does not read this yet/.test(b.title || '')),
+        'each saying so where you would hover it');
   // Saying you have one, and running a route on the spare, are both read by
   // the newer solver -- they must not be painted with the rest.
   const kept = picks.filter((b) => !ways.includes(b));

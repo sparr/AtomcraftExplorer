@@ -12181,7 +12181,7 @@ const {SCORES, optionSets, digest} = __mod_plan_menu;
 const {rnum} = __mod_rational;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
 const {AMBIENT, formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
-const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, toggleSource, setOption, selectMaterial, includeProcess, isFedBack, toggleFedBack, primeInstead, makeInstead, keepOutput, isKept, useUp, isUsedUp, useSpare, isUsingSpare, setOption: setPlanOption, hasPlenty, togglePlenty} = __mod_plan_state;
+const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, toggleSource, setOption, selectMaterial, includeProcess, isFedBack, toggleFedBack, primeInstead, makeInstead, keepOutput, isKept, useSpare, isUsingSpare, setOption: setPlanOption, hasPlenty, togglePlenty} = __mod_plan_state;
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -13231,21 +13231,21 @@ function renderSide() {
       feed.setAttribute('aria-pressed', String(!!b.credited));
       acts.append(moot(feed));
       /**
-       * The third thing you can say about a leftover.
+       * There used to be a third thing you could say about a leftover.
        *
-       * Keeping it says it was wanted after all. Feeding it back offers it to
-       * the plan as it stands, and does nothing where nothing wants it -- which
-       * is most of the time, and is why a Carbon Dioxide with a carbon still in
-       * it just sits there. This one goes looking: find a route that eats it,
-       * and build whatever that route needs.
+       * "Get rid of it" went looking for a route that ate the thing and built
+       * whatever that route needed. Sparr, on being offered it for the newer
+       * solver: what he would expect from that button is the next best plan
+       * that does not make the leftover at all -- which is a different
+       * question, and one a single button on one row is the wrong shape for.
+       * Asking it properly means comparing whole plans by what they fetch,
+       * what they need laying in and what they leave, and the comparison
+       * scoreboard is already that interface. So the button goes rather than
+       * being taught, and the choice moves to where the alternatives are.
+       *
+       * `consume` stays in the question: old links carry it and the older
+       * solver still reads it.
        */
-      const rid = isUsedUp(plan, b.name);
-      acts.append(gap(button('ghost small' + (rid ? ' on' : ''),
-        rid ? 'Getting rid of it' : 'Get rid of it',
-        rid ? 'Stop planning a use for this'
-            : `Add whatever it takes to use the ${b.name} up, rather than leaving it`,
-        () => edit(useUp, b.name)),
-        'it cannot yet be told to find a use for a leftover'));
       li.append(acts);
       ul.append(li);
     }
