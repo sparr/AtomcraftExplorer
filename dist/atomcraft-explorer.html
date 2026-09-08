@@ -7588,13 +7588,88 @@ function planOnce(graph, rawSpec) {
     inputCost.set(i, bought(name) ? (fetchCost.get(i) ?? rat(1)) : rat(1));
   }
 
+  /**
+   * The doubles say which columns matter; the rationals say how much.
+   *
+   * That division already runs at the shortlist. This is the same trick one
+   * level down: ask the float simplex the very question about to be put to the
+   * exact one, keep the columns it actually used, and hand the exact solver a
+   * narrower problem. Across two dozen models the float support has never once
+   * been missing a column the exact answer needed -- it carries the odd spare,
+   * never a gap -- and Columbite sheds ten of forty-nine columns for it.
+   *
+   * Not proof, though, so it is checked rather than trusted. Both solvers are
+   * answering the same relaxation, so the float optimum is what the exact
+   * answer should come to; if the narrowed exact solve comes back dearer than
+   * that, a needed column was dropped and the full problem is asked instead.
+   * Pinning the spare columns to zero was tried first and is worse than doing
+   * nothing: an equality row brings an artificial column with it, and phase
+   * one has to pivot every one of them back out -- Columbite went from a
+   * hundred and six pivots to a hundred and twenty-seven.
+   */
+  const asFloat = (row) => ({
+    coeffs: new Map([...row.coeffs].map(([i, a]) => [i, rnum(a)])),
+    op: row.op,
+    rhs: rnum(row.rhs),
+  });
+  const inDoubles = rows.map(asFloat);
+  /**
+   * Only where there is enough to save.
+   *
+   * The float solve is not free, and on a small tableau it costs more than the
+   * columns it removes are worth: Lepidolite is thirty-three columns and the
+   * doubles use twenty-nine of them, so the walk pays for a whole extra solve
+   * to shed four. Columbite is forty-nine and sheds ten, and that is worth
+   * having.
+   */
+  const WORTH_NARROWING = 40;
+  const narrowed = (all, cost) => {
+    if (vars < WORTH_NARROWING) return null;
+    const guess = solveLPFloat({
+      vars,
+      rows: [...inDoubles, ...all.slice(rows.length).map(asFloat)],
+      cost: new Map([...cost].map(([i, a]) => [i, rnum(a)])),
+    });
+    if (!guess.ok) return null;
+    const keep = [];
+    for (let i = 0; i < vars; i++) if (guess.x[i] > 1e-9) keep.push(i);
+    if (keep.length >= vars) return null;              // nothing to save
+    const at = new Map(keep.map((was, now) => [was, now]));
+    const shrink = (row) => {
+      const coeffs = new Map();
+      for (const [i, a] of row.coeffs) if (at.has(i)) coeffs.set(at.get(i), a);
+      return { name: row.name, coeffs, op: row.op, rhs: row.rhs };
+    };
+    const small = solveLP({
+      vars: keep.length,
+      rows: all.map(shrink),
+      cost: new Map([...cost].filter(([i]) => at.has(i)).map(([i, a]) => [at.get(i), a])),
+      lo: new Map(),
+      steep: true,
+    });
+    if (!small.ok) return null;
+    // The float optimum is what this ought to come to. Dearer means a column
+    // it needed was left out.
+    let paid = R0;
+    let guessed = 0;
+    for (const [i, a] of cost) {
+      if (at.has(i)) paid = radd(paid, rmul(a, small.x[at.get(i)]));
+      guessed += rnum(a) * guess.x[i];
+    }
+    if (rnum(paid) > guessed + 1e-6) return null;
+    const x = new Array(vars).fill(R0);
+    for (const [was, now] of at) x[was] = small.x[now];
+    return { ok: true, x };
+  };
+
   const attempt = (banned, extra = [], cost = fetchCost) => {
     const lo = new Map();
     const caps = [...extra];
     for (const p of procs) if (banned.has(p.id)) {
       caps.push({ coeffs: new Map([[index.get(p.id), rat(1)]]), op: '=', rhs: R0 });
     }
-    const first = solveLP({ vars, rows: [...rows, ...caps], cost, lo, steep: true });
+    const all = [...rows, ...caps];
+    const first = narrowed(all, cost) || solveLP({ vars, rows: all, cost, lo, steep: true });
     if (!first.ok) return null;
     let total = R0;
     let drawn = R0;
