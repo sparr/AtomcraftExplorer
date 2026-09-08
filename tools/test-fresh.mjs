@@ -107,6 +107,37 @@ console.log('--- the ground');
   console.log('');
 }
 
+/**
+ * That the pass which closes a loop is still alive.
+ *
+ * Not a claim about the game -- a guard against a way of breaking the solver
+ * that nothing else here notices. Pricing the caps on that pass consistently
+ * made them say "the closed answer must cost no more than the open one",
+ * which closing never does, so the pass fired zero times and the Columbite
+ * plan went back to buying four Magnesium Fluoride and eight Potassium and
+ * venting both. Every invariant still passed: the dead answer is *cheaper*,
+ * it carries no carbon, and no rule stated anywhere said it was wrong.
+ *
+ * "Buys no element it also vents" would be the honest general rule and it is
+ * not true of any plan that buys an ore -- Columbite fetches Lepidolite and
+ * throws away its potassium, lithium, silicon, aluminium and fluorine. So the
+ * check is this narrow one, on the one question where the cheap answer is a
+ * pile of pure carriers.
+ */
+console.log('--- closing a loop');
+{
+  const shut = [];
+  solveFresh(graph, { targets: [{ name: 'Tantalum', amount: 4 }, { name: 'Niobium', amount: 4 }],
+                      have: ['Columbite'], sources: ['world', 'weather', 'air', 'made'],
+                      notes: shut });
+  const closed = shut.filter((n) => n.startsWith('closed the'));
+  const ok = closed.length > 0;
+  console.log(`      ${ok ? 'MET  ' : 'BROKE'} the plan closes a loop rather than buying what it vents` +
+              `${ok ? ` (${closed.length})` : ' -- the repair pass fired not once'}`);
+  if (ok) met++; else broke++;
+  console.log('');
+}
+
 console.log('--- chambers');
 const shownAs = (id, wanted) => {
   const c = chamberShares(graph, id, wanted);

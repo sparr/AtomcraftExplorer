@@ -7904,22 +7904,39 @@ function planOnce(graph, rawSpec) {
     const all = [...rows, ...caps];
     const first = narrowed(all, cost) || solveLP({ vars, rows: all, cost, lo, steep: true });
     if (!first.ok) return null;
+    /**
+     * What the till came to, not how many things were on the counter.
+     *
+     * Priced the same way `fetchCost` and `inputCost` price them, because
+     * every later stage holds one of these two against a bound and the bound
+     * has to be in the currency the stage was optimised in. Counted raw, a pin
+     * on "the shopping list stays as it was" let the mix underneath it change
+     * to a dearer one of the same length.
+     */
     let total = R0;
     let drawn = R0;
     for (const [name, i] of supply) {
-      if (bought(name)) total = radd(total, first.x[i]);
-      drawn = radd(drawn, first.x[i]);
+      if (bought(name)) total = radd(total, rmul(first.x[i], fetchCost.get(i) ?? rat(1)));
+      drawn = radd(drawn, rmul(first.x[i], inputCost.get(i) ?? rat(1)));
     }
     return { total, drawn, x: first.x, caps };
   };
 
-  const sumOf = (which) => {
+  /**
+   * A row measuring some of the supply, in the currency it was priced in.
+   *
+   * The weights are the cost map's own, so `sumOf(bought, fetchCost)` is
+   * literally the objective the shopping list was minimised under, written as
+   * a constraint. That is what makes a pin hold what was won: pinning any
+   * other quantity leaves the simplex free to move within it.
+   */
+  const sumOf = (which, cost) => {
     const coeffs = new Map();
-    for (const [name, i] of supply) if (which(name)) coeffs.set(i, rat(1));
+    for (const [name, i] of supply) if (which(name)) coeffs.set(i, cost.get(i) ?? rat(1));
     return coeffs;
   };
-  const pinnedFetch = (t) => ({ coeffs: sumOf(bought), op: '=', rhs: t });
-  const pinnedInput = (t) => ({ coeffs: sumOf(() => true), op: '=', rhs: t });
+  const pinnedFetch = (t) => ({ coeffs: sumOf(bought, fetchCost), op: '=', rhs: t });
+  const pinnedInput = (t) => ({ coeffs: sumOf(() => true, inputCost), op: '=', rhs: t });
 
   let base = attempt(new Set());
   if (!base) {
@@ -8098,22 +8115,27 @@ function planOnce(graph, rawSpec) {
       const [el] = guilty;
       const shutToo = carriers.get(el).map(([, i]) =>
         ({ coeffs: new Map([[i, rat(1)]]), op: '=', rhs: R0 }));
-      // The draw is capped, not pinned: closing a loop runs more steps on the
-      // same feed and can draw a little less, and an equality there refused
-      // every closed answer on offer.
       /**
-       * Both capped, neither pinned.
+       * Bounded by nothing but the price, which is the only honest bound.
        *
-       * `pinnedFetch` is an equality on the number of things bought, which is
-       * the right tool for holding an optimum while asking a second question
-       * and the wrong one here: the closed answer buys strictly fewer things,
-       * so an equality refused every one of them. What this pass must not do
-       * is spend more; buying less is the whole point.
+       * There were two caps here, `<=` on the things bought and on the things
+       * drawn, and the note under them said "what this pass must not do is
+       * spend more". Counted raw that was satisfiable, because closing a loop
+       * swaps many cheap units for fewer dear ones and the count goes down
+       * while the bill goes up. Priced, the same two caps say the closed
+       * answer must cost no more than the open one -- and closing costs more
+       * by definition, or there would have been nothing to close. Kept, they
+       * refused every repair there was: the Columbite plan went straight back
+       * to buying four Magnesium Fluoride and eight Potassium and venting
+       * both, and the whole pass fired zero times.
+       *
+       * A cap on the count was never protecting anything a cap on the price
+       * would not protect better, and there is no bound that is both in this
+       * currency and satisfiable. So there is none. What is left is the thing
+       * that was wanted all along: of the answers that do not buy the element
+       * they throw away, the cheapest.
        */
-      const closed = attempt(new Set(),
-        [{ coeffs: sumOf(bought), op: '<=', rhs: base.total },
-         { coeffs: sumOf(() => true), op: '<=', rhs: base.drawn },
-         ...shut, ...shutToo], inputCost);
+      const closed = attempt(new Set(), [...shut, ...shutToo], inputCost);
       closedOff.add(el);
       if (!closed) continue;
       shut.push(...shutToo);
@@ -8158,6 +8180,7 @@ function planOnce(graph, rawSpec) {
     rhs: rnum(row.rhs),
   }));
   const floatCost = new Map([...inputCost].map(([i, a]) => [i, rnum(a)]));
+  const floatFetch = new Map([...fetchCost].map(([i, a]) => [i, rnum(a)]));
   const ceiling = { fetch: rnum(base.total) + 1e-6, drawn: rnum(base.drawn) + 1e-6 };
 
   const screen = (banned) => {
@@ -8170,8 +8193,8 @@ function planOnce(graph, rawSpec) {
     let fetched = 0;
     let drawn = 0;
     for (const [name, i] of supply) {
-      if (bought(name)) fetched += answer.x[i];
-      drawn += answer.x[i];
+      if (bought(name)) fetched += answer.x[i] * (floatFetch.get(i) ?? 1);
+      drawn += answer.x[i] * (floatCost.get(i) ?? 1);
     }
     return fetched <= ceiling.fetch && drawn <= ceiling.drawn;
   };
