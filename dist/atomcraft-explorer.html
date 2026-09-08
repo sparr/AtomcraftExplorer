@@ -900,6 +900,14 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
   cursor: pointer;
 }
 .make-chip:hover { border-color: var(--accent-dim); color: var(--fg); }
+/* Ticked, and waiting for the button at the end of the row. */
+.make-chip.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-raised));
+  color: var(--fg);
+}
+.make-send { align-self: center; margin-left: 4px; }
+.make-send:disabled { opacity: .5; cursor: default; }
 .make-element { display: inline-flex; align-items: baseline; gap: 6px; }
 .make-sym { color: var(--accent); font-weight: 600; }
 .make-name { color: var(--fg-dim); }
@@ -9189,6 +9197,18 @@ const clone = (p) => ({
 
 const drop = (arr, value) => arr.filter((x) => x !== value);
 
+/**
+ * Several at once, for a picker that offers a whole set.
+ *
+ * The elements of what you hold are chosen together or not at all -- asking
+ * for potassium and lithium out of the same ore is one decision, and making
+ * it one press at a time re-plans between each, which is both slow and a
+ * different question every time.
+ */
+function addTargets(plan, names) {
+  return names.reduce((p, n) => addTarget(p, n), plan);
+}
+
 function addTarget(plan, name, amount = 1) {
   const next = clone(plan);
   const found = next.targets.find((t) => t.name === name);
@@ -9363,7 +9383,7 @@ function planProcess(plan, process) {
   return next;
 }
 
-return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTarget, setTargetAmount, keepOutput, isKept, useUp, isUsedUp, isFedBack, toggleFedBack, primeInstead, makeInstead, isPrimedByChoice, selectMaterial, removeTarget, addHave, removeHave, hasPlenty, togglePlenty, pin, includeProcess, useSpare, isUsingSpare, toggle, toggleKind, toggleSource, setOption, planProcess };
+return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTargets, addTarget, setTargetAmount, keepOutput, isKept, useUp, isUsedUp, isFedBack, toggleFedBack, primeInstead, makeInstead, isPrimedByChoice, selectMaterial, removeTarget, addHave, removeHave, hasPlenty, togglePlenty, pin, includeProcess, useSpare, isUsingSpare, toggle, toggleKind, toggleSource, setOption, planProcess };
 })();
 
 const __mod_plan_solve = (() => {
@@ -12194,10 +12214,12 @@ const {SCORES, optionSets, digest} = __mod_plan_menu;
 const {rnum} = __mod_rational;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
 const {AMBIENT, formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
-const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, toggleSource, setOption, selectMaterial, isFedBack, toggleFedBack, primeInstead, makeInstead, keepOutput, isKept, useSpare, isUsingSpare, setOption: setPlanOption, hasPlenty, togglePlenty} = __mod_plan_state;
+const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, pin, toggle, toggleKind, toggleSource, setOption, selectMaterial, isFedBack, toggleFedBack, addTargets, primeInstead, makeInstead, keepOutput, isKept, useSpare, isUsingSpare, setOption: setPlanOption, hasPlenty, togglePlenty} = __mod_plan_state;
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
+/** Which elements of the haves are ticked, until they are sent or dropped. */
+let elementPicks = new Set();
 
 /** The amounts this render is working in: balanced, or exactly what was typed. */
 let shownTargets = [];
@@ -12759,17 +12781,49 @@ function renderMakeable() {
    *
    * Each is a material in its own right, and the shortest possible answer to
    * "what could I get out of this".
+   *
+   * Chosen together rather than one at a time. Sparr: make them toggles, then
+   * a button to send the lot. Asking for the potassium and the lithium out of
+   * one ore is a single decision -- the plan that makes both is not the plan
+   * that makes either -- so pressing them one by one would re-plan in between
+   * and answer a different question each time.
    */
-  const pick = (name, cls, label, why) =>
-    button(cls, label, why, () => edit(addTarget, name));
+  for (const sym of [...elementPicks]) if (!symbols.has(sym)) elementPicks.delete(sym);
+
   const elements = el('div', 'make-row');
+  const send = button('ghost small make-send', '', 'Add every element you have picked', () => {
+    const names = [...elementPicks].map((sym) => ctx.db.elementBySymbol.get(sym)?.mat)
+      .filter((n) => n && ctx.db.byName.has(n));
+    elementPicks = new Set();
+    edit(addTargets, names);
+  });
+  const label = el('span');
+  send.append(label);
+  const refresh = () => {
+    label.textContent = elementPicks.size
+      ? `Make ${elementPicks.size === 1 ? 'it' : `these ${elementPicks.size}`}`
+      : 'Pick the ones you want';
+    send.disabled = !elementPicks.size;
+  };
   for (const e of ctx.db.elements) {
     if (!symbols.has(e.sym) || !e.mat || !ctx.db.byName.has(e.mat)) continue;
-    const chip = pick(e.mat, 'make-chip make-element', '', `Plan a way to make ${e.name}`);
+    const chip = button('make-chip make-element' + (elementPicks.has(e.sym) ? ' on' : ''),
+                        '', `Make ${e.name} too`, () => {
+      if (elementPicks.has(e.sym)) {
+        elementPicks.delete(e.sym);
+        chip.classList.remove('on');
+      } else {
+        elementPicks.add(e.sym);
+        chip.classList.add('on');
+      }
+      refresh();
+    });
     chip.append(el('span', 'make-sym', e.sym));
     chip.append(el('span', 'make-name', e.name));
     elements.append(chip);
   }
+  elements.append(send);
+  refresh();
   box.append(elements);
 
   /**
@@ -12799,9 +12853,11 @@ function renderMakeable() {
   if (!made.length) return;
   const list = el('div', 'make-row');
   for (const m of made) {
-    const chip = pick(m.name, 'make-chip', m.display ?? m.name,
-                      `Plan a way to make ${m.display ?? m.name}`);
-    list.append(chip);
+    // One press each: a compound is a whole answer on its own, and asking for
+    // two of them at once is a question for the plan you get from the first.
+    list.append(button('make-chip', m.display ?? m.name,
+                       `Plan a way to make ${m.display ?? m.name}`,
+                       () => edit(addTarget, m.name)));
   }
   box.append(list);
 }

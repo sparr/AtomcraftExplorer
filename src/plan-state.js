@@ -291,6 +291,18 @@ const clone = (p) => ({
 
 const drop = (arr, value) => arr.filter((x) => x !== value);
 
+/**
+ * Several at once, for a picker that offers a whole set.
+ *
+ * The elements of what you hold are chosen together or not at all -- asking
+ * for potassium and lithium out of the same ore is one decision, and making
+ * it one press at a time re-plans between each, which is both slow and a
+ * different question every time.
+ */
+export function addTargets(plan, names) {
+  return names.reduce((p, n) => addTarget(p, n), plan);
+}
+
 export function addTarget(plan, name, amount = 1) {
   const next = clone(plan);
   const found = next.targets.find((t) => t.name === name);

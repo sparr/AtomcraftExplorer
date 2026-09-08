@@ -25,13 +25,15 @@ import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
          removeHave, pin, toggle, toggleKind, toggleSource, setOption,
-         selectMaterial, isFedBack, toggleFedBack,
+         selectMaterial, isFedBack, toggleFedBack, addTargets,
          primeInstead, makeInstead, keepOutput, isKept,
          useSpare, isUsingSpare, setOption as setPlanOption,
          hasPlenty, togglePlenty } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
+/** Which elements of the haves are ticked, until they are sent or dropped. */
+let elementPicks = new Set();
 
 /** The amounts this render is working in: balanced, or exactly what was typed. */
 let shownTargets = [];
@@ -593,17 +595,49 @@ function renderMakeable() {
    *
    * Each is a material in its own right, and the shortest possible answer to
    * "what could I get out of this".
+   *
+   * Chosen together rather than one at a time. Sparr: make them toggles, then
+   * a button to send the lot. Asking for the potassium and the lithium out of
+   * one ore is a single decision -- the plan that makes both is not the plan
+   * that makes either -- so pressing them one by one would re-plan in between
+   * and answer a different question each time.
    */
-  const pick = (name, cls, label, why) =>
-    button(cls, label, why, () => edit(addTarget, name));
+  for (const sym of [...elementPicks]) if (!symbols.has(sym)) elementPicks.delete(sym);
+
   const elements = el('div', 'make-row');
+  const send = button('ghost small make-send', '', 'Add every element you have picked', () => {
+    const names = [...elementPicks].map((sym) => ctx.db.elementBySymbol.get(sym)?.mat)
+      .filter((n) => n && ctx.db.byName.has(n));
+    elementPicks = new Set();
+    edit(addTargets, names);
+  });
+  const label = el('span');
+  send.append(label);
+  const refresh = () => {
+    label.textContent = elementPicks.size
+      ? `Make ${elementPicks.size === 1 ? 'it' : `these ${elementPicks.size}`}`
+      : 'Pick the ones you want';
+    send.disabled = !elementPicks.size;
+  };
   for (const e of ctx.db.elements) {
     if (!symbols.has(e.sym) || !e.mat || !ctx.db.byName.has(e.mat)) continue;
-    const chip = pick(e.mat, 'make-chip make-element', '', `Plan a way to make ${e.name}`);
+    const chip = button('make-chip make-element' + (elementPicks.has(e.sym) ? ' on' : ''),
+                        '', `Make ${e.name} too`, () => {
+      if (elementPicks.has(e.sym)) {
+        elementPicks.delete(e.sym);
+        chip.classList.remove('on');
+      } else {
+        elementPicks.add(e.sym);
+        chip.classList.add('on');
+      }
+      refresh();
+    });
     chip.append(el('span', 'make-sym', e.sym));
     chip.append(el('span', 'make-name', e.name));
     elements.append(chip);
   }
+  elements.append(send);
+  refresh();
   box.append(elements);
 
   /**
@@ -633,9 +667,11 @@ function renderMakeable() {
   if (!made.length) return;
   const list = el('div', 'make-row');
   for (const m of made) {
-    const chip = pick(m.name, 'make-chip', m.display ?? m.name,
-                      `Plan a way to make ${m.display ?? m.name}`);
-    list.append(chip);
+    // One press each: a compound is a whole answer on its own, and asking for
+    // two of them at once is a question for the plan you get from the first.
+    list.append(button('make-chip', m.display ?? m.name,
+                       `Plan a way to make ${m.display ?? m.name}`,
+                       () => edit(addTarget, m.name)));
   }
   box.append(list);
 }

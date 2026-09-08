@@ -217,11 +217,36 @@ console.log('\n--- what you can make from what you have ---');
         'and no walls or debris, which share an element and nothing else');
   check(!named.includes('Lepidolite'), 'nor the thing you already have');
 
-  // Picking one is the whole point: it turns a have into a question.
-  rest.find((c) => c.textContent === 'Glass').click();
-  check(app.getPlan().targets.some((t) => t.name === 'Glass'),
-        'picking one enters it as a want');
+  /**
+   * The elements are ticked and sent together; the compounds are one press.
+   *
+   * Sparr: asking for the potassium and the lithium out of one ore is a single
+   * decision. The plan that makes both is not the plan that makes either, so
+   * pressing them one at a time would re-plan in between and answer a
+   * different question each time.
+   */
+  const send = nodes($('#plan-steps'), 'make-send')[0];
+  check(!!send && send.disabled, 'nothing is picked to start with, so there is nothing to send');
+  els.find((c) => nodes(c, 'make-sym')[0].textContent === 'K').click();
+  check(!send.disabled, 'ticking one arms the button');
+  check(!app.getPlan().targets.length, 'and changes nothing yet');
+  els.find((c) => nodes(c, 'make-sym')[0].textContent === 'Li').click();
+  check(/these 2/.test(send.textContent), `which counts them: ${send.textContent}`);
+  els.find((c) => nodes(c, 'make-sym')[0].textContent === 'Li').click();
+  check(/Make it/.test(send.textContent), `and un-ticks: ${send.textContent}`);
+  els.find((c) => nodes(c, 'make-sym')[0].textContent === 'Li').click();
+  send.click();
+  const wanted = app.getPlan().targets.map((t) => t.name).sort();
+  check(wanted.join(', ') === 'Lithium, Potassium',
+        `sending asks for all of them at once: ${wanted.join(', ')}`);
   check(nodes($('#plan-steps'), 'plan-step').length > 0, 'and the plan comes back as steps');
+
+  // A compound is a whole answer on its own, so it stays one press.
+  app.setPlan(addHave(emptyPlan(), 'Lepidolite'));
+  nodes($('#plan-steps'), 'make-chip')
+    .find((c) => c.textContent === 'Glass').click();
+  check(app.getPlan().targets.some((t) => t.name === 'Glass'),
+        'while picking a compound enters it as a want on its own');
 }
 
 /* -------------------------------------------------------- sharing a feed */

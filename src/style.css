@@ -893,6 +893,14 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
   cursor: pointer;
 }
 .make-chip:hover { border-color: var(--accent-dim); color: var(--fg); }
+/* Ticked, and waiting for the button at the end of the row. */
+.make-chip.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-raised));
+  color: var(--fg);
+}
+.make-send { align-self: center; margin-left: 4px; }
+.make-send:disabled { opacity: .5; cursor: default; }
 .make-element { display: inline-flex; align-items: baseline; gap: 6px; }
 .make-sym { color: var(--accent); font-weight: 600; }
 .make-name { color: var(--fg-dim); }
