@@ -16,7 +16,7 @@
  *
  * Everything else is a consequence, not a rule.
  */
-import { DEFAULT_KINDS, operatingWindow } from './plan-graph.js';
+import { DEFAULT_KINDS, operatingWindow, reactorsIn } from './plan-graph.js';
 import { listed } from './prose.js';
 import { composition, elementsOf } from './composition.js';
 import { heatingNeed, coolingNeed } from './units.js';
@@ -1879,8 +1879,7 @@ function weighPlan(graph, plan) {
     units += n;
     atoms += n * (graph.db.byName.get(f.name)?.matter ?? 1);
   }
-  return [atoms / per, units / per,
-          plan.steps.filter((s) => s.process.kind !== 'phase').length];
+  return [atoms / per, units / per, reactorsIn(plan.steps)];
 }
 
 const cheaperThan = (a, b) => {
@@ -2889,7 +2888,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
     priming,
     brokenLoops: [],
     fetchTotal: rnum(rmul(fetchTotal, scale)),
-    realSteps: steps.filter((s) => s.process.kind !== 'phase').length,
+    realSteps: reactorsIn(steps),
     considered: procs.length,
     runsOf: (id) => runs.get(id) || R0,
     madeOf: (name) => made.get(name) || R0,

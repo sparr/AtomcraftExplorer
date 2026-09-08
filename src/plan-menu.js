@@ -27,6 +27,8 @@
  * a time, because in the page that has to happen without locking the tab up.
  */
 
+import { reactorsIn } from './plan-graph.js';
+
 /** Scores, and which way is better. Everything is per unit of what was asked. */
 export const SCORES = [
   { id: 'atoms', short: 'atoms', label: 'atoms fetched', dir: 1,
@@ -92,7 +94,7 @@ export function measure(plan, { matter, toNumber }) {
     atoms: atoms / batch,
     units: units / batch,
     shop: plan.frontier.length,
-    reactors: plan.steps.filter((s) => s.process.kind !== 'phase').length,
+    reactors: reactorsIn(plan.steps),
     steps: plan.steps.length,
     left: left / batch,
   };

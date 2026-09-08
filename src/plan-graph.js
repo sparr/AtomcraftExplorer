@@ -702,6 +702,29 @@ function temperatureWindow(graph, p) {
  *
  * With `avoid` off this is simply what the game states, side reactions and all.
  */
+/**
+ * How many reactors a plan has to build.
+ *
+ * A step is a vessel you stand up once and then run as often as you like, so
+ * what counts is how many distinct ones there are, not how often any of them
+ * fires. Phase changes are not among them: cooling happens in the open air,
+ * and heating happens inside whichever reactor wanted the hot form, so melting
+ * something on the way in needs no vessel of its own.
+ *
+ * Sparr: but at least one has to exist, for the material to have somewhere to
+ * be while it is heating or cooling. A phase change is free because it rides
+ * along in a reactor that is already there -- and where there is no reactor
+ * at all there is nothing to ride in. Asked for Copper, the plan came back as
+ * two phase changes and nothing else and was scored at no reactors, which
+ * would be a smelter made of thin air.
+ */
+export function reactorsIn(steps) {
+  if (!steps || !steps.length) return 0;
+  const kindOf = (s) => (s.process ? s.process.kind : s.kind);
+  const built = steps.filter((s) => kindOf(s) !== 'phase').length;
+  return built || 1;
+}
+
 export function operatingWindow(p, avoid = true) {
   if (avoid && p.window) return p.window;
   const base = firingRange(p);

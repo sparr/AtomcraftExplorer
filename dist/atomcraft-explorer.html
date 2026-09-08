@@ -4445,6 +4445,29 @@ function temperatureWindow(graph, p) {
  *
  * With `avoid` off this is simply what the game states, side reactions and all.
  */
+/**
+ * How many reactors a plan has to build.
+ *
+ * A step is a vessel you stand up once and then run as often as you like, so
+ * what counts is how many distinct ones there are, not how often any of them
+ * fires. Phase changes are not among them: cooling happens in the open air,
+ * and heating happens inside whichever reactor wanted the hot form, so melting
+ * something on the way in needs no vessel of its own.
+ *
+ * Sparr: but at least one has to exist, for the material to have somewhere to
+ * be while it is heating or cooling. A phase change is free because it rides
+ * along in a reactor that is already there -- and where there is no reactor
+ * at all there is nothing to ride in. Asked for Copper, the plan came back as
+ * two phase changes and nothing else and was scored at no reactors, which
+ * would be a smelter made of thin air.
+ */
+function reactorsIn(steps) {
+  if (!steps || !steps.length) return 0;
+  const kindOf = (s) => (s.process ? s.process.kind : s.kind);
+  const built = steps.filter((s) => kindOf(s) !== 'phase').length;
+  return built || 1;
+}
+
 function operatingWindow(p, avoid = true) {
   if (avoid && p.window) return p.window;
   const base = firingRange(p);
@@ -4531,7 +4554,7 @@ function buildProcessGraph(db) {
   return graph;
 }
 
-return { PROCESS_KINDS, KIND, DEFAULT_KINDS, FALLS_FROM_SKY, operatingWindow, buildProcessGraph };
+return { PROCESS_KINDS, KIND, DEFAULT_KINDS, FALLS_FROM_SKY, reactorsIn, operatingWindow, buildProcessGraph };
 })();
 
 const __mod_composition = (() => {
@@ -5437,7 +5460,7 @@ const __mod_plan_fresh = (() => {
  *
  * Everything else is a consequence, not a rule.
  */
-const {DEFAULT_KINDS, operatingWindow} = __mod_plan_graph;
+const {DEFAULT_KINDS, operatingWindow, reactorsIn} = __mod_plan_graph;
 const {listed} = __mod_prose;
 const {composition, elementsOf} = __mod_composition;
 const {heatingNeed, coolingNeed} = __mod_units;
@@ -7299,8 +7322,7 @@ function weighPlan(graph, plan) {
     units += n;
     atoms += n * (graph.db.byName.get(f.name)?.matter ?? 1);
   }
-  return [atoms / per, units / per,
-          plan.steps.filter((s) => s.process.kind !== 'phase').length];
+  return [atoms / per, units / per, reactorsIn(plan.steps)];
 }
 
 const cheaperThan = (a, b) => {
@@ -8309,7 +8331,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
     priming,
     brokenLoops: [],
     fetchTotal: rnum(rmul(fetchTotal, scale)),
-    realSteps: steps.filter((s) => s.process.kind !== 'phase').length,
+    realSteps: reactorsIn(steps),
     considered: procs.length,
     runsOf: (id) => runs.get(id) || R0,
     madeOf: (name) => made.get(name) || R0,
@@ -11391,6 +11413,8 @@ const __mod_plan_menu = (() => {
  * a time, because in the page that has to happen without locking the tab up.
  */
 
+const {reactorsIn} = __mod_plan_graph;
+
 /** Scores, and which way is better. Everything is per unit of what was asked. */
 const SCORES = [
   { id: 'atoms', short: 'atoms', label: 'atoms fetched', dir: 1,
@@ -11456,7 +11480,7 @@ function measure(plan, { matter, toNumber }) {
     atoms: atoms / batch,
     units: units / batch,
     shop: plan.frontier.length,
-    reactors: plan.steps.filter((s) => s.process.kind !== 'phase').length,
+    reactors: reactorsIn(plan.steps),
     steps: plan.steps.length,
     left: left / batch,
   };

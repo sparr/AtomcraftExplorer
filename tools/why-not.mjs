@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph, DEFAULT_KINDS } from '../src/plan-graph.js';
+import { reactorsIn } from '../src/plan-graph.js';
 import { solveFresh, subgraph, shortlist, model, normalizeFresh, withElements, fetchable, sourceOf, DEFAULT_SOURCES, unprovenBugs }
   from '../src/plan-fresh.js';
 import { rnum, rstr } from '../src/rational.js';
@@ -330,7 +331,7 @@ for (const c of WANTED) {
    * The raw step count is printed beside it because the plan below lists every
    * step, phase changes included, and the two numbers should be reconcilable.
    */
-  const reactors = (plan?.steps || []).filter((s) => s.process.kind !== 'phase').length;
+  const reactors = reactorsIn(plan?.steps || []);
   console.log(`\n--- ${c.id}: ${sub.processes.length} considered, ` +
     `${short ? short.processes.length : 'no'} shortlisted, ` +
     `${plan ? `${reactors} reactors in ${plan.steps.length} steps` : 'no plan'}`);
