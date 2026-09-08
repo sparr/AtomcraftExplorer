@@ -1989,6 +1989,43 @@ const cheaperThan = (a, b) => {
   return false;
 };
 
+/**
+ * What two questions have to share for their answers to be the same.
+ *
+ * The scoreboard asks one question thirty-one times, once per combination of
+ * source categories, and most of those combinations differ in ways the answer
+ * cannot see. Every one of them makes a different set of materials buyable --
+ * all thirty-one differ there -- but nearly half come out with the identical
+ * model, because the extra materials are ones no step in the candidate set
+ * would eat. Columbite has seventeen real questions in its thirty-one;
+ * Lepidolite twenty-two.
+ *
+ * The shape is the candidate set, the columns there are to buy with, and which
+ * of those materials a charge could be laid in from -- the last because the
+ * priming pass consults the sources on its own account, so two questions alike
+ * in the first two could still be charged differently. Folding it in costs
+ * nothing: it splits no group in any case measured.
+ *
+ * Null where no promise can be made. With nothing held that carries what was
+ * asked for, `solveFresh` goes looking for an ore to buy and that search reads
+ * the sources itself, so those questions are answered rather than matched.
+ */
+export function questionShape(graph, rawSpec) {
+  const spec = withElements(graph, normalizeFresh(rawSpec));
+  if (![...spec.have].some((name) => holdsATarget(graph, name, spec.wanted))) return null;
+  const sub = subgraph(graph, spec);
+  if (!sub.processes.length) return null;
+  const built = model(graph, spec, sub.processes, sub.materials);
+  if (!built) return null;
+  return [
+    sub.processes.map((p) => p.id).sort().join('|'),
+    [...built.supply.keys()].sort().join('|'),
+    [...sub.materials]
+      .filter((name) => fetchable(graph, name, spec.kinds, spec.sources, spec))
+      .sort().join('|'),
+  ].join('##');
+}
+
 export function solveFresh(graph, rawSpec) {
   /**
    * Starting from nothing: one ore may be bought, and which one is tried.

@@ -15,7 +15,7 @@ import { search } from './search.js';
 import { listed } from './prose.js';
 import { solvePlan, balanceTargets, routesFor, usesFor,
          rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
-import { solveFresh, blankFresh, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
+import { solveFresh, blankFresh, questionShape, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
 import { rnum } from './rational.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
@@ -1217,15 +1217,32 @@ const menuTools = () => ({
 
 function startSweep(ask) {
   const token = ++sweepToken;
-  sweep = { key: questionKey(ask), ask, entries: [], queue: optionSets([...SOURCES]), token };
+  sweep = { key: questionKey(ask), ask, entries: [], queue: optionSets([...SOURCES]),
+            token, shapes: new Map() };
   const turn = () => {
     if (!sweep || sweep.token !== token) return;      // a newer question won
     const options = sweep.queue.shift();
     if (!options) { sweep.queue = null; renderMenu(); return; }
+    /**
+     * Two source sets can be the same question wearing different clothes.
+     *
+     * Every one of the thirty-one makes a different set of materials buyable,
+     * but nearly half come out with the same candidate set, the same columns to
+     * buy with and the same materials a charge could come from -- because the
+     * extra materials are ones no step here would eat. Columbite has sixteen
+     * real questions in its thirty-one, and asking the other eight again gets
+     * the same answer more slowly.
+     */
     let answer = null;
-    try {
-      answer = solveFresh(ctx.graph, { ...ask, sources: options });
-    } catch { answer = null; }                        // a combination that cannot: a row of its own
+    const shape = questionShape(ctx.graph, { ...ask, sources: options });
+    if (shape !== null && sweep.shapes.has(shape)) {
+      answer = sweep.shapes.get(shape);
+    } else {
+      try {
+        answer = solveFresh(ctx.graph, { ...ask, sources: options });
+      } catch { answer = null; }                      // a combination that cannot: a row of its own
+      if (shape !== null) sweep.shapes.set(shape, answer);
+    }
     sweep.entries.push({ options, plan: answer });
     renderMenu();
     setTimeout(turn, 0);

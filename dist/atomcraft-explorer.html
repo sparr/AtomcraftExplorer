@@ -7468,6 +7468,43 @@ const cheaperThan = (a, b) => {
   return false;
 };
 
+/**
+ * What two questions have to share for their answers to be the same.
+ *
+ * The scoreboard asks one question thirty-one times, once per combination of
+ * source categories, and most of those combinations differ in ways the answer
+ * cannot see. Every one of them makes a different set of materials buyable --
+ * all thirty-one differ there -- but nearly half come out with the identical
+ * model, because the extra materials are ones no step in the candidate set
+ * would eat. Columbite has seventeen real questions in its thirty-one;
+ * Lepidolite twenty-two.
+ *
+ * The shape is the candidate set, the columns there are to buy with, and which
+ * of those materials a charge could be laid in from -- the last because the
+ * priming pass consults the sources on its own account, so two questions alike
+ * in the first two could still be charged differently. Folding it in costs
+ * nothing: it splits no group in any case measured.
+ *
+ * Null where no promise can be made. With nothing held that carries what was
+ * asked for, `solveFresh` goes looking for an ore to buy and that search reads
+ * the sources itself, so those questions are answered rather than matched.
+ */
+function questionShape(graph, rawSpec) {
+  const spec = withElements(graph, normalizeFresh(rawSpec));
+  if (![...spec.have].some((name) => holdsATarget(graph, name, spec.wanted))) return null;
+  const sub = subgraph(graph, spec);
+  if (!sub.processes.length) return null;
+  const built = model(graph, spec, sub.processes, sub.materials);
+  if (!built) return null;
+  return [
+    sub.processes.map((p) => p.id).sort().join('|'),
+    [...built.supply.keys()].sort().join('|'),
+    [...sub.materials]
+      .filter((name) => fetchable(graph, name, spec.kinds, spec.sources, spec))
+      .sort().join('|'),
+  ].join('##');
+}
+
 function solveFresh(graph, rawSpec) {
   /**
    * Starting from nothing: one ore may be bought, and which one is tried.
@@ -8609,7 +8646,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   return plan;
 }
 
-return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreCandidates, solveFresh };
+return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreCandidates, questionShape, solveFresh };
 })();
 
 const __mod_plan_state = (() => {
@@ -11819,7 +11856,7 @@ const __mod_plan_view = (() => {
 const {search} = __mod_search;
 const {listed} = __mod_prose;
 const {solvePlan, balanceTargets, routesFor, usesFor, rat, rmul, rsub, rstr, rcmp, R0} = __mod_plan_solve;
-const {solveFresh, blankFresh, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
+const {solveFresh, blankFresh, questionShape, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
 const {SCORES, optionSets, digest} = __mod_plan_menu;
 const {rnum} = __mod_rational;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
@@ -13015,15 +13052,32 @@ const menuTools = () => ({
 
 function startSweep(ask) {
   const token = ++sweepToken;
-  sweep = { key: questionKey(ask), ask, entries: [], queue: optionSets([...SOURCES]), token };
+  sweep = { key: questionKey(ask), ask, entries: [], queue: optionSets([...SOURCES]),
+            token, shapes: new Map() };
   const turn = () => {
     if (!sweep || sweep.token !== token) return;      // a newer question won
     const options = sweep.queue.shift();
     if (!options) { sweep.queue = null; renderMenu(); return; }
+    /**
+     * Two source sets can be the same question wearing different clothes.
+     *
+     * Every one of the thirty-one makes a different set of materials buyable,
+     * but nearly half come out with the same candidate set, the same columns to
+     * buy with and the same materials a charge could come from -- because the
+     * extra materials are ones no step here would eat. Columbite has sixteen
+     * real questions in its thirty-one, and asking the other eight again gets
+     * the same answer more slowly.
+     */
     let answer = null;
-    try {
-      answer = solveFresh(ctx.graph, { ...ask, sources: options });
-    } catch { answer = null; }                        // a combination that cannot: a row of its own
+    const shape = questionShape(ctx.graph, { ...ask, sources: options });
+    if (shape !== null && sweep.shapes.has(shape)) {
+      answer = sweep.shapes.get(shape);
+    } else {
+      try {
+        answer = solveFresh(ctx.graph, { ...ask, sources: options });
+      } catch { answer = null; }                      // a combination that cannot: a row of its own
+      if (shape !== null) sweep.shapes.set(shape, answer);
+    }
     sweep.entries.push({ options, plan: answer });
     renderMenu();
     setTimeout(turn, 0);
