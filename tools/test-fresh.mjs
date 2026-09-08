@@ -150,11 +150,11 @@ for (const c of CASES) {
   const ask = { targets: ['Tantalum', 'Niobium', 'Potassium', 'Lithium']
                   .map((n) => ({ name: n, amount: 1 })),
                 have: ['Columbite', 'Lepidolite'], sources: ['world'] };
-  const plain = solveFresh(graph, ask);
+  const plain = solveFresh(graph, { ...ask, primeWithWants: false });
   const lent = solveFresh(graph, { ...ask, primeWithWants: true });
   const borrowed = (lent.priming || []).filter((x) => holdsAWant(lent, x.name));
   borrowChecks.push(['the combined factory does borrow when allowed to', borrowed.length > 0]);
-  borrowChecks.push(['and does not when it is not',
+  borrowChecks.push(['and does not when it is refused',
                      !(plain.priming || []).some((x) => holdsAWant(plain, x.name))]);
   for (const x of borrowed) {
     borrowChecks.push([`what it borrows (${x.name}) it spends no more of than it makes`,

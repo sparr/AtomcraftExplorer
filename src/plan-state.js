@@ -121,9 +121,13 @@ export function emptyPlan() {
      *
      * Never fetched -- that stays refused however this is set. This is a loan:
      * something the plan makes, handed over early so the loop that needs it can
-     * take its first turn, and made back before the batch is out.
+     * take its first turn, and spent no faster than the plan makes it.
+     *
+     * On by default, so it appears in the address bar only when switched off.
+     * It cannot cost anything: the charge is worked out both ways and the
+     * lighter kept.
      */
-    primeWithWants: false,
+    primeWithWants: true,
     kinds: [...DEFAULT_KINDS],
     /**
      * Which sorts of thing the plan may go and get, for the newer solver.
@@ -185,7 +189,7 @@ export function readPlan(params) {
   if (params.get('fr') === '1') plan.fresh = true;
   if (params.get('ch') === '1') plan.takeCharges = true;
   if (params.get('lv') === '1') plan.keepLeftovers = true;
-  if (params.get('pw') === '1') plan.primeWithWants = true;
+  if (params.get('pw') === '0') plan.primeWithWants = false;
 
   for (const entry of list(params.get('pin'))) {
     const at = entry.indexOf(PAIR);
@@ -237,7 +241,7 @@ export function writePlan(plan, params) {
   if (plan.fresh) params.set('fr', '1');
   if (plan.takeCharges) params.set('ch', '1');
   if (plan.keepLeftovers) params.set('lv', '1');
-  if (plan.primeWithWants) params.set('pw', '1');
+  if (!plan.primeWithWants) params.set('pw', '0');
   put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
   put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
 

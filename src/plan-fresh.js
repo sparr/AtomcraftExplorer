@@ -1025,11 +1025,12 @@ export function normalizeFresh(spec) {
      */
     keepLeftovers: !!spec.keepLeftovers,
     /**
-     * Whether a want may be laid in to start a wheel. Never fetched -- this is
-     * a loan the plan repays on its first turn, and it is refused outright for
-     * anything the plan does not make.
+     * Whether a want may be laid in to start a wheel. On unless refused: it
+     * cannot make a plan worse -- the borrowing and the not-borrowing are both
+     * worked out and the lighter kept -- and it is refused outright for
+     * anything the plan does not make, or spends faster than it makes.
      */
-    primeWithWants: !!spec.primeWithWants,
+    primeWithWants: spec.primeWithWants !== false,
     /**
      * The one material that may be bought despite carrying the want atoms.
      * Empty unless `solveFresh` put something here; see `barredAsTarget`.
