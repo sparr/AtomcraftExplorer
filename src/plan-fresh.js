@@ -324,6 +324,21 @@ function elementsIn(graph, name) {
   return fixed || raw;
 }
 
+/**
+ * The ban on buying the answer, with the one exception Sparr allowed.
+ *
+ * Fetching the want atoms is never legitimate -- except that with nothing in
+ * hand it is the only way to start. Asked for Boron Oxide holding nothing, the
+ * only boron in the game arrives as Borax, and refusing it left the question
+ * unanswerable rather than answered honestly. So exactly one material may be
+ * let through, chosen before the solve; `spec.oreAllowed` is that choice, and
+ * it is empty whenever something held already carries what was asked for.
+ */
+function barredAsTarget(graph, name, spec) {
+  if (spec.oreAllowed?.has(name)) return false;
+  return holdsATarget(graph, name, spec.wanted);
+}
+
 function holdsATarget(graph, name, targets) {
   if (!targets || !targets.length) return false;
   const has = elementsIn(graph, name);
@@ -701,7 +716,7 @@ export function subgraph(graph, spec) {
    */
   const bottomsOut = (name) =>
     fetchable(graph, name, kinds, spec.sources, spec) &&
-    !holdsATarget(graph, name, spec.wanted) &&
+    !barredAsTarget(graph, name, spec) &&
     !alreadyInHand(graph, name, spec.held);
 
   const depth = new Map();
@@ -969,6 +984,11 @@ export function normalizeFresh(spec) {
      */
     keepLeftovers: !!spec.keepLeftovers,
     /**
+     * The one material that may be bought despite carrying the want atoms.
+     * Empty unless `solveFresh` put something here; see `barredAsTarget`.
+     */
+    oreAllowed: new Set(spec.oreAllowed || []),
+    /**
      * Not used to solve anything -- this solver has no notion of spending a
      * byproduct on purpose -- but the page reads it off the plan to mark which
      * steps are running on something spare, so it has to be here to be empty.
@@ -1208,7 +1228,7 @@ export function model(graph, spec, procs, materials) {
     if (spec.have.has(name)) { supply.set(name, next++); continue; }
     if (!eaten.has(name)) continue;
     if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
-    if (holdsATarget(graph, name, spec.wanted)) continue;
+    if (barredAsTarget(graph, name, spec)) continue;
     if (alreadyInHand(graph, name, spec.held)) continue;
     supply.set(name, next++);
   }
@@ -1815,7 +1835,100 @@ export function blankFresh(graph, rawSpec, why = null) {
   };
 }
 
+/** How many ores to try when the plan is starting from nothing. */
+const ORES_TRIED = 6;
+
+/**
+ * The ores that could start a plan that has nothing to start from.
+ *
+ * Only reached when the reader holds nothing carrying what they asked for. A
+ * candidate has to be something you could actually go and get, something some
+ * step will actually eat, and something that is not simply the answer: asked
+ * for Iron, `Iron` itself qualifies on every other count and turns the plan
+ * into "buy one", so anything in a target's own phase group is out. Molten
+ * Iron is Iron in another coat.
+ */
+export function oreCandidates(graph, spec) {
+  const targetPhases = new Set(spec.targets.map((t) => phaseGroup(graph, t.name)));
+  const eaten = new Set();
+  for (const p of graph.processes) {
+    if (!spec.kinds.has(p.kind)) continue;
+    for (const i of inputsOf(p)) eaten.add(i.name);
+  }
+  const prices = fetchPrices(graph, spec.kinds);
+  const out = [];
+  for (const m of graph.db.materials) {
+    const name = m.name;
+    if (!eaten.has(name)) continue;
+    if (targetPhases.has(phaseGroup(graph, name))) continue;
+    if (!holdsATarget(graph, name, spec.wanted)) continue;
+    if (alreadyInHand(graph, name, spec.held)) continue;
+    if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
+    out.push([name, prices.get(name) ?? Infinity]);
+  }
+  return out.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0])).map(([name]) => name);
+}
+
+/** What a finished plan costs, for choosing between them. Lower is better. */
+function weighPlan(graph, plan) {
+  const per = plan.spec.targets[0]?.amount || 1;
+  let atoms = 0;
+  let units = 0;
+  for (const f of plan.frontier) {
+    const n = rnum(f.amount);
+    units += n;
+    atoms += n * (graph.db.byName.get(f.name)?.matter ?? 1);
+  }
+  return [atoms / per, units / per,
+          plan.steps.filter((s) => s.process.kind !== 'phase').length];
+}
+
+const cheaperThan = (a, b) => {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] < b[i] - 1e-9) return true;
+    if (a[i] > b[i] + 1e-9) return false;
+  }
+  return false;
+};
+
 export function solveFresh(graph, rawSpec) {
+  /**
+   * Starting from nothing: one ore may be bought, and which one is tried.
+   *
+   * Sparr: the solver should be allowed to fetch a single material with the
+   * want atoms if nothing held has them. Which single material is not
+   * something a rule can name -- Boron Oxide has one candidate and Aluminium
+   * twenty-two -- so the cheap ones are tried and the best answer kept. Tried
+   * rather than reasoned about, because the ore that looks cheapest at the door
+   * is not always the one that leads anywhere.
+   */
+  if (!rawSpec.oreAllowed) {
+    const spec = withElements(graph, normalizeFresh(rawSpec));
+    const alreadyHolds = [...spec.have].some((n) => holdsATarget(graph, n, spec.wanted));
+    if (!alreadyHolds) {
+      const all = oreCandidates(graph, spec);
+      const tried = all.slice(0, ORES_TRIED);
+      if (all.length > tried.length && rawSpec.notes) {
+        rawSpec.notes.push(`tried the ${tried.length} cheapest of ${all.length} ores that ` +
+                           `could start this; the rest were not looked at`);
+      }
+      let best = null;
+      let bestCost = null;
+      for (const ore of tried) {
+        const plan = solveFresh(graph, { ...rawSpec, oreAllowed: [ore], notes: undefined });
+        if (!plan || plan.shortfall) continue;
+        const cost = weighPlan(graph, plan);
+        if (!best || cheaperThan(cost, bestCost)) { best = plan; bestCost = cost; }
+      }
+      if (best && rawSpec.notes) {
+        rawSpec.notes.push(`nothing held carries what was asked for, so one ore was ` +
+                           `bought: ${[...best.spec.oreAllowed].join(' or ')}`);
+      }
+      if (best) return best;
+      // Nothing worked with an ore either; fall through and fail the usual way.
+    }
+  }
+
   const barred = new Set(rawSpec.excludeProcesses || []);
   /**
    * The best answer so far, kept because barring a wheel can bar the road.
@@ -1918,7 +2031,7 @@ function planOnce(graph, rawSpec) {
     const name = m.name;
     if (reach.has(name)) continue;
     if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
-    if (holdsATarget(graph, name, spec.wanted)) continue;
+    if (barredAsTarget(graph, name, spec)) continue;
     if (alreadyInHand(graph, name, spec.held)) continue;
     reach.add(name);
   }
@@ -2720,7 +2833,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub) {
        */
       const gettable = (name) => spec.have.has(name) ||
         (fetchable(graph, name, spec.kinds, spec.sources, spec) &&
-         !holdsATarget(graph, name, spec.wanted) &&
+         !barredAsTarget(graph, name, spec) &&
          !alreadyInHand(graph, name, spec.held));
       const OUT_OF_REACH = 1e6;
       /**

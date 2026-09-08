@@ -86,6 +86,35 @@ for (const [what, ok] of chamberChecks) {
 }
 console.log('');
 
+/**
+ * Starting from nothing, where exactly one ore may be bought.
+ *
+ * Sparr: the solver should be allowed to fetch a single material with the want
+ * atoms if nothing held has them. Before this, holding nothing meant no answer
+ * at all -- the only boron in the game arrives as Borax, and Borax carries
+ * boron, so the shopping list refused it and the question had no reply.
+ */
+console.log('--- starting from nothing');
+const fromNothing = (name) => solveFresh(graph, { targets: [{ name, amount: 1 }] });
+const boron = fromNothing('Boron Oxide');
+const iron = fromNothing('Iron');
+const oreChecks = [
+  ['Boron Oxide can be made after all, from bought Borax',
+   !!boron && boron.frontier.some((f) => f.name === 'Borax')],
+  ['and exactly one thing carrying the answer is bought',
+   !!boron && boron.frontier.filter((f) => holdsAWant(boron, f.name)).length === 1],
+  ['iron too, and not by simply buying iron',
+   !!iron && iron.steps.length > 0 &&
+     !iron.frontier.some((f) => sameStuff(f.name, 'Iron'))],
+  ['and the ore still has to be worked, not just carried home',
+   !!iron && iron.steps.filter((s) => s.process.kind !== 'phase').length > 0],
+];
+for (const [what, ok] of oreChecks) {
+  console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+  if (ok) met++; else broke++;
+}
+console.log('');
+
 for (const c of CASES) {
   console.log(`\n--- ${c.id}: ${c.about}`);
   console.log(`      ${c.url}`);
