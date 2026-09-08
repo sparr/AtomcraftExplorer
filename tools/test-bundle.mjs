@@ -200,9 +200,9 @@ if (!srcBox) {
 /**
  * The options the newer solver does not read, greyed rather than live.
  *
- * Three switches that silently did nothing: feeding spare output back in,
- * narrowing a step's temperature, and laying a charge in. All three belong to
- * the older solver.
+ * Two switches that silently did nothing: feeding spare output back in, and
+ * laying a charge in. Narrowing a step's temperature used to be a third and is
+ * not any more -- it is ported, so it has to stay live in both.
  */
 for (const [hash, fresh] of [['#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1', true],
                              ['#mode=plan&t=Carbon&h=Carbon+Dioxide', false]]) {
@@ -210,12 +210,17 @@ for (const [hash, fresh] of [['#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1', true]
   app.reload();
   await new Promise((r) => setTimeout(r, 0));
   const bad = [];
-  for (const id of ['feedback', 'avoid', 'charges']) {
+  for (const id of ['feedback', 'charges']) {
     const box = document.querySelector(`#plan-${id}`);
     const label = document.querySelector(`#plan-${id}-opt`);
     if (!box || !label) { bad.push(`${id} missing`); continue; }
     if (!!box.disabled !== fresh) bad.push(`${id} disabled=${!!box.disabled}`);
     if (label.classList.contains('is-off') !== fresh) bad.push(`${id} greying wrong`);
+  }
+  const avoid = document.querySelector('#plan-avoid');
+  const avoidOpt = document.querySelector('#plan-avoid-opt');
+  if (!avoid || avoid.disabled || avoidOpt.classList.contains('is-off')) {
+    bad.push('the temperature narrowing is greyed, and both solvers read it');
   }
   if (bad.length) {
     console.log(`FAIL with the ${fresh ? 'newer' : 'older'} solver: ${bad.join(', ')}`);

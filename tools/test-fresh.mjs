@@ -128,6 +128,38 @@ for (const [what, ok] of oreChecks) {
  * not, and the plan reached for two Lithium Chloride because that charge is one
  * atom lighter than the chlorine and nothing said lighter was not the point.
  */
+/**
+ * The temperature narrowing, ported from the older planner.
+ *
+ * A reaction runs in a chamber holding its inputs and outputs, and those are
+ * the ingredients of other reactions -- hold it in one of their ranges and you
+ * get those too. This used to report each range as written with nothing
+ * dodged, which the page drew as "nothing else happens here" when it meant
+ * "nobody looked".
+ */
+console.log('--- holding the chamber');
+{
+  const ask = { targets: ['Potassium', 'Lithium', 'Aluminum', 'Silicon']
+                  .map((n) => ({ name: n, amount: 1 })), have: ['Lepidolite'] };
+  const on = solveFresh(graph, ask);
+  const off = solveFresh(graph, { ...ask, avoidSideEffects: false });
+  const narrowed = on.steps.filter((s) => s.window.narrowed).length;
+  const sig = (p) => p.steps.map((s) => `${s.process.id}x${rstr(s.runs)}`).sort().join(',');
+  const checks = [
+    ['ranges are trimmed to dodge what else would go off', narrowed > 0],
+    ['and say what they dodged', on.sideEffects.length > 0],
+    ['the apparatus knows it was narrowed', on.apparatus.narrowedBySideEffects === true],
+    ['refused, nothing is trimmed', off.steps.every((s) => !s.window.narrowed)],
+    ['and nothing is claimed to have been dodged', off.sideEffects.length === 0],
+    ['either way the plan itself is the same', sig(on) === sig(off)],
+  ];
+  for (const [what, ok] of checks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+}
+console.log('');
+
 console.log('--- what starts the wheel');
 const startChecks = [];
 {

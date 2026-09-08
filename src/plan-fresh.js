@@ -1041,6 +1041,15 @@ export function normalizeFresh(spec) {
      */
     keepLeftovers: !!spec.keepLeftovers,
     /**
+     * Whether a step's temperature range may be trimmed to set nothing else off.
+     *
+     * On unless refused, as in the older planner. It changes nothing about
+     * which steps run or how often -- it is a fact about how to hold the
+     * chamber once the plan is settled -- so it is read at the end rather than
+     * during the solve.
+     */
+    avoidSideEffects: spec.avoidSideEffects !== false,
+    /**
      * The one material that may be bought despite carrying the want atoms.
      * Empty unless `solveFresh` put something here; see `barredAsTarget`.
      */
@@ -2754,21 +2763,26 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   }
 
   /**
-   * Each step's temperature range, as stated rather than as negotiated.
+   * Each step's temperature range, trimmed to set nothing else off.
    *
-   * The older solver trims a step's window to one that sets nothing else off
-   * and records what it dodged; this reports the floor and ceiling the recipe
-   * names and nothing more. `avoided` and `unavoidable` are empty because no
-   * such trimming was attempted -- not because a step is known to be clear of
-   * side effects. The page draws the range from these three either way.
+   * A reaction runs in a chamber holding its inputs and its outputs, and those
+   * are the ingredients of other reactions: hold the chamber in one of their
+   * ranges and you get those too, wanted or not. `operatingWindow` narrows the
+   * range to dodge them where it can and names what it could not.
+   *
+   * This used to report the floor and ceiling as written, with `avoided` and
+   * `unavoidable` empty -- which the page drew as "nothing else happens here",
+   * when what it meant was "nobody looked". It is the same answer wherever
+   * nothing needed dodging and an understatement everywhere else.
+   *
+   * Read at the end, not during the solve. Which steps run and how often does
+   * not depend on it; how to hold the chamber afterwards does.
    */
-  const steps = [...runs].map(([id, n]) => {
-    const p = graph.byId.get(id);
-    const c = p.conditions || {};
-    return { process: p, runs: n,
-             window: { lo: c.temperature ?? 0, hi: c.maxTemperature ?? null,
-                       avoided: [], unavoidable: [], narrowed: false } };
-  }).sort((a, b) => a.process.id.localeCompare(b.process.id));
+  const steps = [...runs].map(([id, n]) => ({
+    process: graph.byId.get(id),
+    runs: n,
+    window: operatingWindow(graph.byId.get(id), spec.avoidSideEffects),
+  })).sort((a, b) => a.process.id.localeCompare(b.process.id));
 
   /**
    * The shopping list and the leavings, in the shape the side panel reads.
@@ -2851,16 +2865,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   }
   for (const f of frontier) node(f.name).reason = 'acquire';
 
-  /**
-   * The kit, read off what the steps state rather than off a narrowed window.
-   *
-   * The older solver works out a temperature range per step, trimmed to avoid
-   * setting anything else off, and reports the extremes of that. This has no
-   * such range, so it reports the floors and ceilings as written. That is the
-   * same answer wherever nothing was trimmed, and an understatement where
-   * something was -- so `narrowedBySideEffects` is false because no narrowing
-   * was attempted, not because none was wanted.
-   */
+  /** The kit, read off the ranges the steps will actually be held at. */
   const apparatus = { hottestFloor: 0, lowestCeiling: null,
                       hottestStep: null, coolestStep: null,
                       hottestShared: 0, coolestShared: 0,
@@ -2869,29 +2874,34 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
                       catalysts: new Map(), kinds: new Set(), slowest: null,
                       narrowedBySideEffects: false, sideEffects: false,
                       stochastic: false };
-  for (const { process: p } of steps) {
+  for (const { process: p, window: w } of steps) {
     apparatus.kinds.add(p.kind);
     const c = p.conditions || {};
-    if (c.temperature > apparatus.hottestFloor) {
-      apparatus.hottestFloor = c.temperature;
+    if (w.lo > apparatus.hottestFloor) {
+      apparatus.hottestFloor = w.lo;
       apparatus.hottestStep = p;
       apparatus.hottestShared = 1;
-    } else if (c.temperature && c.temperature === apparatus.hottestFloor) {
+    } else if (w.lo && w.lo === apparatus.hottestFloor) {
       apparatus.hottestShared++;
     }
-    if (c.maxTemperature != null) {
-      if (c.maxTemperature < (apparatus.lowestCeiling ?? Infinity)) {
-        apparatus.lowestCeiling = c.maxTemperature;
+    if (Number.isFinite(w.hi)) {
+      if (w.hi < (apparatus.lowestCeiling ?? Infinity)) {
+        apparatus.lowestCeiling = w.hi;
         apparatus.coolestStep = p;
         apparatus.coolestShared = 1;
-      } else if (c.maxTemperature === apparatus.lowestCeiling) {
+      } else if (w.hi === apparatus.lowestCeiling) {
         apparatus.coolestShared++;
       }
     }
     if (c.electrolysis) apparatus.electrolysis = true;
+    if (c.requiresSpark) apparatus.spark = true;
+    if (c.places) apparatus.byHand = true;
     for (const { name, count } of c.catalysts || []) {
       apparatus.catalysts.set(name, Math.max(apparatus.catalysts.get(name) || 0, count));
     }
+    if (w.narrowed) apparatus.narrowedBySideEffects = true;
+    if (w.unavoidable.length) apparatus.sideEffects = true;
+    if (c.stochastic) apparatus.stochastic = true;
     if (c.probability > (apparatus.slowest?.conditions?.probability ?? 0)) apparatus.slowest = p;
   }
   apparatus.heating = heatingNeed(apparatus.hottestFloor || null);
@@ -3176,6 +3186,19 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     otherSupplyOf: () => R0,
     // --- what the page reads, beyond what this solver needs for itself ---
     dag: { processes: nodes, materials, groups: new Map(), forced: new Map(), cycles: [] },
+    /**
+     * What else would go off in each chamber, dodged or not.
+     *
+     * `inPlan` because a reaction you are already running elsewhere is a
+     * different matter from a stranger: it is a problem in this chamber and
+     * the whole point in the next one.
+     */
+    sideEffects: steps.flatMap(({ process, window }) => [
+      ...window.avoided.map((e) => ({ ...e, step: process.id, avoided: true,
+                                      inPlan: nodes.has(e.id) })),
+      ...window.unavoidable.map((e) => ({ ...e, step: process.id, avoided: false,
+                                          inPlan: nodes.has(e.id) })),
+    ]),
     scale,
     apparatus,
     cycles: [],
