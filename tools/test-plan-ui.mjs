@@ -183,28 +183,45 @@ console.log('\n--- adding a material ---');
 
 /* --------------------------------------------------------- the other way */
 
-console.log('\n--- what you can do with what you have ---');
+console.log('\n--- what you can make from what you have ---');
 {
-  // Naming one thing you have is a question, and answering it with an empty
-  // table says nothing.
+  /**
+   * Sparr: a list of steps is not useful here.
+   *
+   * It was the wrong answer to a fair question. Naming something you hold
+   * asks "what is this good for", and a hundred and fifty reactions that
+   * happen to take it is not an answer, it is the search space. What the
+   * elements allow is an answer, and every row of it is a want you could ask
+   * for.
+   */
   app.setPlan(addHave(emptyPlan(), 'Lepidolite'));
   check(!$('#plan-work').hidden, 'naming something you have is enough of a plan to show');
-  check(text('#plan-steps').includes('you could do with that'),
-        'and it asks what you want to do with it');
-  const uses = nodes($('#plan-steps'), 'use-opt');
-  check(uses.length > 0, `listing the ${uses.length} processes that would take it`);
-  check(uses[0].textContent.includes('Lepidolite'), 'each one saying what it takes and makes');
-  check(uses.some((u) => u.classList.contains('ready')),
-        'and marking the ones that could be run as things stand');
+  check(/What Lepidolite is made of/.test(text('#plan-steps')),
+        'and it takes the thing apart rather than listing what eats it');
 
-  nodes(uses[0], 'route-pick')[0].click();
-  check(app.getPlan().include.length === 1, 'picking one puts it in the plan');
-  const rows = nodes($('#plan-steps'), 'plan-step');
-  check(rows.length >= 1, 'as a step');
-  // Lepidolite's decompositions share a chamber, so choosing one brings the
-  // other two with it -- they are not a choice.
-  check(rows.filter((r) => r.classList.contains('step-shared')).length === rows.length - 1,
-        'along with whatever else runs on the same feed');
+  const chips = nodes($('#plan-steps'), 'make-chip');
+  const els = nodes($('#plan-steps'), 'make-element');
+  check(els.length === 6, `the six elements of Lepidolite come first: ${els.length}`);
+  const syms = els.map((c) => nodes(c, 'make-sym')[0].textContent);
+  check(syms.join(' ') === 'Li O F Al Si K',
+        `in the order the table puts them, by atomic number: ${syms.join(' ')}`);
+
+  const rest = chips.filter((c) => !els.includes(c));
+  check(rest.length > 10, `then the ${rest.length} things made of nothing else`);
+  const named = rest.map((c) => c.textContent);
+  check(named.includes('Glass') && named.includes('Lithium Oxide'),
+        `things you would actually want among them: ${named.slice(0, 5).join(', ')}`);
+  // Only what something can make: the rest are walls, debris and bits of
+  // blender that share an element by accident and no recipe with anything.
+  check(!named.some((n) => /Bits of|Wall|Wire/.test(n)),
+        'and no walls or debris, which share an element and nothing else');
+  check(!named.includes('Lepidolite'), 'nor the thing you already have');
+
+  // Picking one is the whole point: it turns a have into a question.
+  rest.find((c) => c.textContent === 'Glass').click();
+  check(app.getPlan().targets.some((t) => t.name === 'Glass'),
+        'picking one enters it as a want');
+  check(nodes($('#plan-steps'), 'plan-step').length > 0, 'and the plan comes back as steps');
 }
 
 /* -------------------------------------------------------- sharing a feed */
@@ -698,78 +715,51 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(before(text('#plan-side')) === before(side), 'and nothing is fetched to make more of it');
 }
 
-/* --------------------------- what the newer solver does not read, shown as such */
+/* ------------------------- what the newer solver cannot hear, taken off the page */
 
-// Sparr: hide the moot ones, mark the losses in red so they can be found.
-// Two different things and they must not look alike: a control the solver
-// makes no difference to is clutter, and one it ignores is a decision waiting
-// to be taken.
+/**
+ * Sparr: hide the moot ones, mark the losses in red so they can be found.
+ *
+ * The red is gone, and that is the point of this block now. Five controls were
+ * marked. Keeping a spare was taught to the solver; the other four -- picking
+ * a route, undoing that pick, getting rid of a leftover, adding a step going
+ * forwards -- turned out to be one question wearing a control's clothes,
+ * "show me a different plan", which belongs where whole plans are compared.
+ * So what is left to check is that the moot ones are away and nothing else
+ * quietly does nothing.
+ */
 {
-  app.setPlan({
-    ...emptyPlan(), fresh: true, balance: false,
-    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
-    have: ['Columbite'],
-  });
-  check($('#plan-feedback-opt').hidden && $('#plan-charges-opt').hidden,
-        'the options it cannot change are off the panel, not greyed on it');
-  check(!$('#plan-gap-note').hidden, 'and the panel says what red means');
-
-  /**
-   * Nothing on the shopping list or the leavings is marked any more.
-   *
-   * There were two here. Keeping a spare was taught to the newer solver, and
-   * getting rid of one was dropped: what the reader wants from that is the
-   * next best plan that does not make the thing, which is a comparison
-   * between whole plans and belongs on the scoreboard. What is left of the
-   * red is in the inspector, checked below.
-   */
-  const red = nodes($('#plan-side'), 'solver-gap');
-  check(red.length === 0,
-        `the panels are clear of it: ${red.map((b) => b.textContent.trim()).join(', ') || 'nothing marked'}`);
-
-  // Feeding a leftover back is not a choice under this solver -- it always
-  // does -- so that button is gone rather than painted.
-  const gone = [...$('#plan-side').walk()]
-    .filter((n) => /^(Feed it back|Make it instead)$/.test(n.textContent || ''));
-  check(gone.length > 0 && gone.every((b) => b.hidden),
-        'while "feed it back" is taken away rather than marked');
-
-  // The one that matters most is in the inspector rather than the panels:
-  // choosing how a material is made is real steering, and the newer solver
-  // does not read it at all.
   app.setPlan({
     ...emptyPlan(), fresh: true, balance: false,
     targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
     have: ['Columbite'], selected: 'Hydrofluoric Acid',
   });
-  const picks = nodes($('#plan-side'), 'route-pick');
-  check(picks.length > 0 && picks.every((b) => !b.classList.contains('solver-gap')),
-        `nothing in the inspector is marked either: ${picks.length} rows, none of them`);
+  check($('#plan-feedback-opt').hidden && $('#plan-charges-opt').hidden,
+        'the options it cannot change are off the panel, not greyed on it');
 
-  /**
-   * One left, and it is in the other list.
-   *
-   * "Put this step in the plan" answers "what could I do with this?", which
-   * only comes up when you have named something and asked for nothing. The
-   * newer solver has no notion of a step added going forwards.
-   */
-  app.setPlan({ ...emptyPlan(), fresh: true, have: ['Lepidolite'] });
-  const forward = nodes($('#plan-steps'), 'use-opt')
-    .flatMap((u) => nodes(u, 'route-pick'));
-  check(forward.length > 0 && forward.every((b) => b.classList.contains('solver-gap')),
-        `every step you could add going forwards is marked: ${forward.length}`);
-  check(forward.every((b) => /does not read this yet/.test(b.title || '')),
-        'saying so where you would hover it');
+  // Feeding a leftover back and making a primer instead are not choices under
+  // this solver -- it always does both -- so they are gone, not greyed.
+  const gone = [...$('#plan-side').walk()]
+    .filter((n) => /^(Feed it back|Make it instead)$/.test(n.textContent || ''));
+  check(gone.length > 0 && gone.every((b) => b.hidden),
+        `and the buttons for them go with them: ${gone.length}`);
+
+  // Every button still on the page writes something the solver reads. The
+  // route rows are the exception by being no longer buttons at all.
+  const pressable = [...$('#plan-side').walk()]
+    .filter((n) => n.tagName === 'BUTTON' && !n.hidden);
+  const dead = pressable.filter((b) => /Let the planner choose|Get rid of it/.test(b.textContent));
+  check(!dead.length, `nothing left that does nothing: ${dead.map((b) => b.textContent).join(', ') || 'none'}`);
+  check(nodes($('#plan-side'), 'route-read').length > 0,
+        'the ways of making a material still being listed, to read');
 
   app.setPlan({
     ...emptyPlan(), balance: false,
     targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
     have: ['Columbite'], selected: 'Hydrofluoric Acid',
   });
-  check(!$('#plan-feedback-opt').hidden && !nodes($('#plan-side'), 'solver-gap').length,
-        'and the older solver keeps every control, unmarked');
+  check(!$('#plan-feedback-opt').hidden, 'while the older solver keeps its own options');
 }
-
 /* ------------------------------ refusing a material at the door, not outright */
 
 // Sparr: "if we allow excluding fetch and prime materials, that should be more

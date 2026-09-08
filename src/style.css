@@ -877,6 +877,27 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 }
 .route-opt.on .route-read { color: var(--accent); }
 
+/*
+ * What you have, taken apart: the elements, then everything made of only
+ * those. Chips rather than rows -- there are a few dozen, each is one word,
+ * and a wrapped row of them reads faster than a list of lines.
+ */
+.make-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; }
+.make-chip {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--fg-dim);
+  font: inherit;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.make-chip:hover { border-color: var(--accent-dim); color: var(--fg); }
+.make-element { display: inline-flex; align-items: baseline; gap: 6px; }
+.make-sym { color: var(--accent); font-weight: 600; }
+.make-name { color: var(--fg-dim); }
+.plan-make-head { margin-top: 10px; }
+
 .route-label { display: inline; }
 .route-from { display: block; font-size: 12px; color: var(--fg-faint); margin-top: 2px; }
 /* What a route would need, and how much of it you would not have to chase. */
@@ -991,22 +1012,3 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .plan-opt.is-off { color: var(--fg-faint); }
 .plan-opt.is-off input { cursor: not-allowed; }
 
-/*
- * A control the newer solver does not read.
- *
- * Outlined rather than greyed: greyed says "not available", and these are
- * available -- they are on the page, they take the press, they write the
- * question. What they do not do is change the answer. Red because the point
- * of showing them is to be found.
- */
-.solver-gap {
-  border-color: var(--danger) !important;
-  color: var(--danger) !important;
-}
-.solver-gap:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); }
-.gap-swatch {
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  padding: 0 .3em;
-}
-.plan-gap-note { color: var(--fg-dim); display: block; line-height: 1.5; }

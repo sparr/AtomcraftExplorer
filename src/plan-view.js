@@ -13,8 +13,9 @@
  */
 import { search } from './search.js';
 import { listed } from './prose.js';
+import { composition } from './composition.js';
 import { balanceTargets } from './balance.js';
-import { solvePlan, routesFor, usesFor,
+import { solvePlan, routesFor,
          rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
 import { solveFresh, blankFresh, questionShape, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
@@ -24,7 +25,7 @@ import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
          removeHave, pin, toggle, toggleKind, toggleSource, setOption,
-         selectMaterial, includeProcess, isFedBack, toggleFedBack,
+         selectMaterial, isFedBack, toggleFedBack,
          primeInstead, makeInstead, keepOutput, isKept,
          useSpare, isUsingSpare, setOption as setPlanOption,
          hasPlenty, togglePlenty } from './plan-state.js';
@@ -71,37 +72,22 @@ function button(cls, label, title, onClick) {
 }
 
 /**
- * Two ways of saying "the newer solver does not read this".
+ * Taking away a control the newer solver cannot hear.
  *
- * Every control on this page writes one field of the question, and the newer
- * solver reads eleven of the twenty. The nine it ignores are not all the same
- * sort of thing, so they are not shown the same way.
+ * The field cannot change a fresh plan because the solver already does that
+ * thing and does it always: it feeds every spare output back, it lays a charge
+ * in wherever a loop needs starting, and it has no notion of a stock running
+ * out. Offering a switch for something permanently on is worse than not
+ * offering it.
  *
- * `moot` takes the control away. The field cannot change a fresh plan because
- * the solver already does that thing and does it always: it feeds every spare
- * output back, it lays a charge in wherever a loop needs starting, and it has
- * no notion of a stock running out. Offering a switch for something that is
- * permanently on is worse than not offering it.
- *
- * `gap` leaves the control where it is and paints it red. These are the ones
- * that would really be lost -- pinning how a material is made, keeping a spare
- * as a product, planning a use for a leftover, adding a step forwards -- and
- * Sparr wants to see where they are before deciding whether the newer solver
- * should learn them or the page should stop offering them. Red means "this
- * does nothing today", not "this is broken".
+ * There was a `gap` beside this that left a control in place and painted it
+ * red, for the ones that would really be lost. It marked five and is gone.
+ * Keeping a spare was taught to the newer solver; the other four turned out to
+ * be one question wearing a control's clothes -- "show me a different plan" --
+ * which belongs where whole plans are compared, not on one row of one
+ * material. Worth rebuilding in ten lines if a sixth ever turns up.
  */
 const moot = (node) => { if (plan.fresh) node.hidden = true; return node; };
-const gap = (node, what) => {
-  if (plan.fresh) {
-    node.classList.add('solver-gap');
-    // Added to what the control already said, not written over it. "Make
-    // Hydrofluoric Acid this way" is the useful half; the warning is the
-    // footnote.
-    node.title = [node.title, `The newer solver does not read this yet — ${what}`]
-      .filter(Boolean).join(' — ');
-  }
-  return node;
-};
 
 /**
  * A material, anywhere in the plan.
@@ -569,57 +555,89 @@ function renderSteps() {
  * it, nearest first: the ones you could run right now come before the ones
  * still short of an ingredient.
  */
-function renderUses() {
+/**
+ * What you have, taken apart, and what could be put back together from it.
+ *
+ * Sparr: with just a have and no want, a list of steps is not useful. It was
+ * the wrong answer to a fair question -- naming something you hold is asking
+ * "what is this good for", and a hundred and fifty reactions that happen to
+ * take it is not an answer, it is the search space.
+ *
+ * So: the elements the haves are made of, and then everything that can be
+ * built out of nothing but those. Pick one and it becomes a want, which is a
+ * question the planner can actually answer; the leftovers of that plan can
+ * then be claimed with "Keep it" to make them outputs too.
+ *
+ * Only things something can make, which is what turns a list of 54 into a list
+ * of 30 -- the rest are walls, debris and bits of blender that share an
+ * element by accident and no recipe with anything.
+ */
+function renderMakeable() {
   const box = $('#plan-steps');
-  const available = new Set(plan.have);
-  for (const id of plan.include) {
-    for (const o of ctx.graph.byId.get(id)?.produces || []) available.add(o.name);
-  }
-  const uses = usesFor(solved, available);
+  const table = composition(ctx.graph);
+  const held = plan.have.filter((n) => table.get(n)?.elements?.size);
+
+  const symbols = new Set();
+  for (const n of held) for (const el of table.get(n).elements) symbols.add(el);
 
   const head = el('div', 'plan-steps-head plan-uses-head');
-  head.append(el('h2', null, uses.length
-    ? `${uses.length} thing${uses.length === 1 ? '' : 's'} you could do with that`
-    : 'Nothing the plan is allowed to use takes any of that'));
+  head.append(el('h2', null, symbols.size
+    ? `What ${listed(held.map((n) => ctx.db.byName.get(n)?.display ?? n))} is made of`
+    : 'Nothing here has a formula to take apart'));
   head.append(el('span', 'muted', 'or name something to make, above'));
   box.append(head);
-  if (!uses.length) return;
+  if (!symbols.size) return;
 
-  const ready = uses.filter((u) => u.ready).length;
-  if (ready) {
-    box.append(el('p', 'muted',
-      `${ready} you could run as things stand; the rest are short of something.`));
+  /**
+   * The elements themselves first, in the order the table puts them.
+   *
+   * Each is a material in its own right, and the shortest possible answer to
+   * "what could I get out of this".
+   */
+  const pick = (name, cls, label, why) =>
+    button(cls, label, why, () => edit(addTarget, name));
+  const elements = el('div', 'make-row');
+  for (const e of ctx.db.elements) {
+    if (!symbols.has(e.sym) || !e.mat || !ctx.db.byName.has(e.mat)) continue;
+    const chip = pick(e.mat, 'make-chip make-element', '', `Plan a way to make ${e.name}`);
+    chip.append(el('span', 'make-sym', e.sym));
+    chip.append(el('span', 'make-name', e.name));
+    elements.append(chip);
   }
+  box.append(elements);
 
-  const list = el('ul', 'use-list');
-  for (const u of uses.slice(0, allUses ? uses.length : USES_SHOWN)) {
-    const li = el('li', 'use-opt' + (u.ready ? ' ready' : '') + (u.included ? ' on' : ''));
-    const pick = gap(button('route-pick', '', 'Put this step in the plan',
-                        () => edit(includeProcess, u.process.id)),
-                     'it cannot yet be told to add a step going forwards');
-    pick.append(el('span', 'kind-glyph', KIND.get(u.process.kind)?.glyph || ''));
-    pick.append(el('span', 'route-label', u.process.label));
-    const eq = el('span', 'route-from');
-    u.inputs.forEach((i, k) => {
-      if (k) eq.append(' + ');
-      const tag = el('span', 'route-in' + (i.have ? ' have' : ''));
-      tag.append((i.count !== 1 ? `${i.count} ` : '') + i.name);
-      eq.append(tag);
-    });
-    eq.append(' → ');
-    u.process.produces.forEach((o, k) => {
-      if (k) eq.append(' + ');
-      eq.append(el('span', 'route-out', (o.count !== 1 ? `${o.count} ` : '') + o.name));
-    });
-    pick.append(eq);
-    li.append(pick);
-    list.append(li);
+  /**
+   * Then everything made of those and nothing else.
+   *
+   * Not "everything containing them": a compound that also wants carbon is a
+   * bigger question than the one being asked, and belongs to a different set
+   * of haves.
+   */
+  const inside = (name) => {
+    const has = table.get(name)?.elements;
+    if (!has || !has.size) return false;
+    for (const el of has) if (!symbols.has(el)) return false;
+    return true;
+  };
+  const makeable = (name) => ctx.graph.producers(name)
+    .some((p) => plan.kinds.includes(p.kind));
+  const made = ctx.db.materials
+    .filter((m) => !m.hidden && !plan.have.includes(m.name) &&
+                   !ctx.db.elements.some((e) => e.mat === m.name) &&
+                   inside(m.name) && makeable(m.name))
+    .sort((a, b) => (a.display ?? a.name).localeCompare(b.display ?? b.name));
+
+  box.append(el('h2', 'plan-make-head', made.length
+    ? `${made.length} thing${made.length === 1 ? '' : 's'} made of nothing else`
+    : 'Nothing else is made of only those'));
+  if (!made.length) return;
+  const list = el('div', 'make-row');
+  for (const m of made) {
+    const chip = pick(m.name, 'make-chip', m.display ?? m.name,
+                      `Plan a way to make ${m.display ?? m.name}`);
+    list.append(chip);
   }
   box.append(list);
-  if (uses.length > USES_SHOWN) {
-    box.append(button('ghost small', allUses ? 'Show fewer' : `Show all ${uses.length}`, null,
-                      () => { allUses = !allUses; render(); }));
-  }
 }
 
 /* ------------------------------------------------------------------- side */
@@ -627,8 +645,6 @@ function renderUses() {
 /** How many routes to show before the list has to be asked for in full. */
 const ROUTES_SHOWN = 6;
 let allRoutes = false;
-const USES_SHOWN = 12;
-let allUses = false;
 
 /**
  * One material: what it is doing here, and every other way to get it.
@@ -1235,7 +1251,6 @@ function renderOptions() {
     $(`#plan-${id}`).disabled = false;
     $(`#plan-${id}-opt`).classList.remove('is-off');
   }
-  $('#plan-gap-note').hidden = !plan.fresh;
   // Same reasoning as the source boxes: the older solver cannot read it, and a
   // control that does nothing is worse than one that is not there.
   $('#plan-leftovers-opt').hidden = !plan.fresh;
@@ -1524,7 +1539,7 @@ export function render() {
   // those leave you able to do next.
   $('#plan-steps').textContent = '';
   if (plan.targets.length || plan.include.length) renderSteps();
-  if (!plan.targets.length) renderUses();
+  if (!plan.targets.length) renderMakeable();
   renderSide();
   renderMenu();
 }
