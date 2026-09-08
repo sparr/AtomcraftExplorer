@@ -8065,14 +8065,30 @@ function planOnce(graph, rawSpec) {
   {
     const table = composition(graph);
     const elementsOfName = (name) => table.get(name)?.elements;
-    const surplus = () => {
+    const surplusOf = (x) => {
       const out = new Set();
       for (const row of rows) {
         let net = R0;
-        for (const [i, a] of row.coeffs) net = radd(net, rmul(a, base.x[i]));
+        for (const [i, a] of row.coeffs) net = radd(net, rmul(a, x[i]));
         if (rcmp(rsub(net, row.rhs), R0) > 0) out.add(row.name);
       }
       return out;
+    };
+    const surplus = () => surplusOf(base.x);
+    /** Still paying for this element at the door and still binning it. */
+    const buysAndVents = (x, el) => {
+      let vented = false;
+      for (const s of surplusOf(x)) {
+        const e = elementsOfName(s);
+        if (e && e.has(el)) { vented = true; break; }
+      }
+      if (!vented) return false;
+      for (const [name, i] of supply) {
+        if (!bought(name) || rzero(x[i])) continue;
+        const mine = elementsOfName(name);
+        if (mine && mine.has(el)) return true;
+      }
+      return false;
     };
     /**
      * By element, not by material.
@@ -8137,7 +8153,25 @@ function planOnce(graph, rawSpec) {
        */
       const closed = attempt(new Set(), [...shut, ...shutToo], inputCost);
       closedOff.add(el);
-      if (!closed) continue;
+      /**
+       * Sparr: a leftover nothing can eat should not count against the plan.
+       *
+       * Nearly. What the dead end tells you is that the leftover cannot be
+       * taken back, and this pass has two ways to stop a buy-and-vent -- take
+       * it back off the floor, or buy the element in some other shape. Reading
+       * "dead end" as "no complaint" throws the second away with the first,
+       * and on the newer data that let a plan buy Clay for carbon it binned as
+       * Ceramic, which nothing consumes.
+       *
+       * So the test is not what the leftover is, it is whether the close did
+       * anything. Shutting the cheap door on potassium sent Columbite off to
+       * buy Potassium Oxide and vent the same four Potassium Fluoride: still
+       * bought, still binned, twelve atoms where eight would do. Shutting it
+       * on carbon leaves a plan buying no carbon at all. The first is undone,
+       * the second kept, and neither needs to know whether anybody eats
+       * Potassium Fluoride.
+       */
+      if (!closed || buysAndVents(closed.x, el)) continue;
       shut.push(...shutToo);
       if (notes) {
         notes.push(`closed the ${el} loop rather than buying ` +
