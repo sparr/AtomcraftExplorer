@@ -6821,7 +6821,28 @@ function model(graph, spec, procs, materials) {
 function shortlist(graph, spec, sub, build) {
   const model = build(sub.processes, sub.materials);
   if (!model) return null;
-  const rows = model.rows.map((row) => ({
+  /**
+   * Rows that cannot fail are not worth carrying to a float solve.
+   *
+   * A material nothing in the candidate set consumes, and nobody asked for,
+   * gives a row that says "make at least none of it" with nothing but
+   * production on the left -- true for every non-negative answer there is.
+   * Fifty-five of Lepidolite's three hundred and seventy-two are like that,
+   * seventy-nine of Columbite-with-everything's.
+   *
+   * They are not free to carry. Each one is a row of the tableau and an
+   * artificial column that phase one has to drive back out, and this walk is
+   * over six hundred columns -- five hundred pivots and forty milliseconds,
+   * twice per plan, which is the largest single cost in the solver.
+   *
+   * Dropped only here. The exact models are small enough not to care, and the
+   * pass that closes a bought-and-vented loop reads these very rows to find
+   * out what is being thrown away -- so the model keeps them and this walk
+   * does not.
+   */
+  const idle = (row) => row.op === '>=' && rnum(row.rhs) <= 0 &&
+    [...row.coeffs.values()].every((a) => rnum(a) >= 0);
+  const rows = model.rows.filter((row) => !idle(row)).map((row) => ({
     coeffs: new Map([...row.coeffs].map(([i, a]) => [i, rnum(a)])),
     op: row.op,
     rhs: rnum(row.rhs),
