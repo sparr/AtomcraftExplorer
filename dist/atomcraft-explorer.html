@@ -984,6 +984,9 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .menu-row.is-current .menu-via { border-left: 2px solid var(--accent-dim); }
 .menu-note { color: var(--fg-faint); font-size: 12px; margin: 8px 0 0; max-width: 78ch; }
 .plan-menu-close { margin-left: auto; padding: 2px 8px; line-height: 1; font-size: 15px; }
+/* An option the chosen solver does not read: still there, plainly not in play. */
+.plan-opt.is-off { color: var(--fg-faint); }
+.plan-opt.is-off input { cursor: not-allowed; }
 
 </style>
 </head>
@@ -1045,12 +1048,12 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
     <h2>What the plan may use</h2>
     <div id="plan-kinds" class="plan-kinds"></div>
     <div id="plan-sources" class="plan-kinds" hidden></div>
-    <label class="plan-opt">
+    <label class="plan-opt" id="plan-feedback-opt">
       <input type="checkbox" id="plan-feedback" checked>
       Use what the plan already makes &mdash; feed every spare output back in,
       rather than fetching more of something it is throwing away
     </label>
-    <label class="plan-opt">
+    <label class="plan-opt" id="plan-avoid-opt">
       <input type="checkbox" id="plan-avoid" checked>
       Keep each step to one reaction &mdash; narrow its temperature range so
       nothing else in the chamber goes off
@@ -1062,7 +1065,7 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
       that appears without more going in is the game failing to conserve, not
       value found
     </label>
-    <label class="plan-opt">
+    <label class="plan-opt" id="plan-charges-opt">
       <input type="checkbox" id="plan-charges">
       Start with something in hand &mdash; lay a charge in once where it saves
       buying the same thing every batch, rather than adding a step that runs
@@ -1072,7 +1075,7 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
       <input type="checkbox" id="plan-fresh">
       Try the newer solver &mdash; it buys less and recycles more, but it
       reports each step's temperature as written rather than narrowed, and it
-      ignores pins
+      reads none of the greyed options below
     </label>
   </div>
 
@@ -12960,6 +12963,26 @@ function renderOptions() {
   }
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
   srcBox.hidden = !plan.fresh;
+
+  /**
+   * Greyed out, for the options the newer solver does not read.
+   *
+   * It reads the kinds and the sources and nothing else on this panel: feeding
+   * spare output back in, narrowing a step's temperature and laying a charge
+   * in are all things the older solver does and it does not. Left live they
+   * were three switches that silently did nothing.
+   *
+   * Greyed rather than taken away, unlike the source boxes above -- those
+   * belong to the newer solver and would be clutter beside the older one,
+   * whereas these are real options that this solver happens not to have yet,
+   * and saying so is more use than hiding them.
+   */
+  for (const id of ['feedback', 'avoid', 'charges']) {
+    $(`#plan-${id}`).disabled = plan.fresh;
+    const label = $(`#plan-${id}-opt`);
+    if (plan.fresh) label.classList.add('is-off'); else label.classList.remove('is-off');
+    label.title = plan.fresh ? 'The newer solver does not read this' : '';
+  }
   // Same reasoning as the source boxes: the older solver cannot read it, and a
   // control that does nothing is worse than one that is not there.
   $('#plan-leftovers-opt').hidden = !plan.fresh;

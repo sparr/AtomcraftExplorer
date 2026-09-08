@@ -1125,6 +1125,26 @@ function renderOptions() {
   }
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
   srcBox.hidden = !plan.fresh;
+
+  /**
+   * Greyed out, for the options the newer solver does not read.
+   *
+   * It reads the kinds and the sources and nothing else on this panel: feeding
+   * spare output back in, narrowing a step's temperature and laying a charge
+   * in are all things the older solver does and it does not. Left live they
+   * were three switches that silently did nothing.
+   *
+   * Greyed rather than taken away, unlike the source boxes above -- those
+   * belong to the newer solver and would be clutter beside the older one,
+   * whereas these are real options that this solver happens not to have yet,
+   * and saying so is more use than hiding them.
+   */
+  for (const id of ['feedback', 'avoid', 'charges']) {
+    $(`#plan-${id}`).disabled = plan.fresh;
+    const label = $(`#plan-${id}-opt`);
+    if (plan.fresh) label.classList.add('is-off'); else label.classList.remove('is-off');
+    label.title = plan.fresh ? 'The newer solver does not read this' : '';
+  }
   // Same reasoning as the source boxes: the older solver cannot read it, and a
   // control that does nothing is worse than one that is not there.
   $('#plan-leftovers-opt').hidden = !plan.fresh;

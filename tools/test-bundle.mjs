@@ -198,6 +198,35 @@ if (!srcBox) {
  * solver, which has its own suite.
  */
 /**
+ * The options the newer solver does not read, greyed rather than live.
+ *
+ * Three switches that silently did nothing: feeding spare output back in,
+ * narrowing a step's temperature, and laying a charge in. All three belong to
+ * the older solver.
+ */
+for (const [hash, fresh] of [['#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1', true],
+                             ['#mode=plan&t=Carbon&h=Carbon+Dioxide', false]]) {
+  globalThis.location.hash = hash;
+  app.reload();
+  await new Promise((r) => setTimeout(r, 0));
+  const bad = [];
+  for (const id of ['feedback', 'avoid', 'charges']) {
+    const box = document.querySelector(`#plan-${id}`);
+    const label = document.querySelector(`#plan-${id}-opt`);
+    if (!box || !label) { bad.push(`${id} missing`); continue; }
+    if (!!box.disabled !== fresh) bad.push(`${id} disabled=${!!box.disabled}`);
+    if (label.classList.contains('is-off') !== fresh) bad.push(`${id} greying wrong`);
+  }
+  if (bad.length) {
+    console.log(`FAIL with the ${fresh ? 'newer' : 'older'} solver: ${bad.join(', ')}`);
+    fail++;
+  } else {
+    console.log(`ok    the options it cannot read are ${fresh ? 'greyed' : 'live'} ` +
+                `for the ${fresh ? 'newer' : 'older'} solver`);
+  }
+}
+
+/**
  * Which way the leavings are wanted, which only the newer solver reads.
  *
  * Shown for it, put away for the older one, and reaching the address bar --
