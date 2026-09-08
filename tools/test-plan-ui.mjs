@@ -661,6 +661,38 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(!/ruled out/.test(text('#plan-side')), 'with nothing ruled out the panel is not there');
 }
 
+/* ------------------------------------------ claiming a spare as a product */
+
+// Sparr: would moving the material from the leftovers to the wants accomplish
+// what "Keep it" used to? It is the whole of it. The older solver did two
+// things with a claim -- moved the row, and stopped counting that byproduct
+// when it compared plans -- and the newer one now does both, the second as the
+// last tie-break rather than the third of six sort keys.
+{
+  const ask = {
+    ...emptyPlan(), fresh: true, balance: false,
+    targets: [{ name: 'Tantalum', amount: 2 }, { name: 'Niobium', amount: 2 }],
+    have: ['Columbite'],
+  };
+  app.setPlan(ask);
+  check(/left over/.test(text('#plan-side')) && !/You also get/.test(text('#plan-side')),
+        'everything spare starts out as waste');
+
+  app.setPlan({ ...ask, kept: ['Molten Silica'] });
+  const side = text('#plan-side');
+  check(/You also get/.test(side), 'claiming one gives the plan a second output panel');
+  const also = side.split('You also get')[1].split('left over')[0];
+  check(/Molten Silica/.test(also), `and the claimed row is the one in it: ${also.slice(0, 40)}`);
+  // The waste panel, not the whole side: the shopping list names Molten Silica
+  // too, as one of the things the Lepidolite is being fetched for.
+  check(!/Molten Silica/.test(side.split('left over')[1] || ''),
+        'and gone from the leavings it was in');
+  // It asks for nothing to be made: the shopping list and the steps are the
+  // plan it was already going to give you.
+  const before = (p) => p.split('to fetch')[1].split('To get it going')[0];
+  check(before(text('#plan-side')) === before(side), 'and nothing is fetched to make more of it');
+}
+
 /* --------------------------- what the newer solver does not read, shown as such */
 
 // Sparr: hide the moot ones, mark the losses in red so they can be found.
@@ -682,8 +714,12 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(red.every((b) => /does not read this yet/.test(b.title || '')),
         'each saying so where you would hover it');
   const labels = new Set(red.map((b) => b.textContent.trim()));
-  check(labels.has('Keep it') && labels.has('Get rid of it'),
-        `keeping a spare and finding it a use among them: ${[...labels].join(', ')}`);
+  check(labels.has('Get rid of it'),
+        `finding a leftover a use among them: ${[...labels].join(', ')}`);
+  // "Keep it" was in this list until the newer solver learned it: claiming a
+  // spare as a product moves the row and stops the last tie-break working to
+  // get rid of it, and neither needs the older solver.
+  check(!labels.has('Keep it'), 'and keeping a spare is no longer one of them');
 
   // Feeding a leftover back is not a choice under this solver -- it always
   // does -- so that button is gone rather than painted.

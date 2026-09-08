@@ -682,11 +682,10 @@ function renderInspector(box) {
     // stated before the batch scaling and a surplus is shown after it.
     const spare = rcmp(rsub(made, need), R0) > 0;
     if (spare) {
-      acts.append(gap(button('ghost small' + (isKept(plan, name) ? ' on' : ''),
+      acts.append(button('ghost small' + (isKept(plan, name) ? ' on' : ''),
                          isKept(plan, name) ? 'Kept' : 'Keep it',
                          'Count the spare as something you wanted, without making more',
-                         () => edit(keepOutput, name)),
-                      'it cannot yet count a spare as something you wanted'));
+                         () => edit(keepOutput, name)));
     } else {
       acts.append(button('ghost small', 'I want it', 'Plan a way to make some',
                          () => edit(addTarget, name)));
@@ -1063,13 +1062,12 @@ function renderSide() {
         li.append(note);
       }
       const acts = el('div', 'plan-item-acts');
-      acts.append(gap(button('ghost small' + (b.kept ? ' on' : ''),
+      acts.append(button('ghost small' + (b.kept ? ' on' : ''),
                          b.kept ? 'Kept' : 'Keep it',
                          b.kept ? 'Count it as waste again'
                                 : 'Count this spare output as something you wanted, ' +
                                   'without making any more',
-                         () => edit(keepOutput, b.name)),
-                      'it cannot yet count a spare as something you wanted'));
+                         () => edit(keepOutput, b.name)));
       const fed = isFedBack(plan, b.name);
       const feed = button('ghost small' + (fed ? ' on' : ''),
                           fed ? 'Fed back' : 'Feed it back',

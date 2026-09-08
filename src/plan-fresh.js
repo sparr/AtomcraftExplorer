@@ -1099,6 +1099,16 @@ export function normalizeFresh(spec) {
     /** Things the reader will not start with, though the plan may still use them. */
     noPrime: new Set(spec.noPrime || []),
     /**
+     * Spare output the reader has claimed as a product rather than waste.
+     *
+     * Asks for nothing to be made -- it is not a target, and must not become
+     * one: a target's amount is stated before the batch scaling and a leftover
+     * is shown after it, so asking for the 1 spare Water came out as a demand
+     * for 2. All it does is move the row from "left over" to "you also get",
+     * and stop the last tie-break trying to get rid of it.
+     */
+    kept: new Set(spec.kept || []),
+    /**
      * Which way to settle a draw over what is left on the floor.
      *
      * The lowest priority there is: by the time it is consulted the steps, the
@@ -2545,7 +2555,15 @@ function planOnce(graph, rawSpec) {
    * count. It breaks the last tie: same shopping list, same draw, same steps,
    * then take the one that hands back the most.
    */
-  const spoilsCost = leftoverCost(perAtom);
+  /**
+   * Except what the reader has said they want.
+   *
+   * The tie-break asks which answer hands back the least, and a material
+   * claimed with "Keep it" is not something handed back -- it is a product the
+   * plan was not asked for and gets anyway. Counting it here would have the
+   * solver quietly working to produce less of the thing just claimed.
+   */
+  const spoilsCost = leftoverCost((name) => (spec.kept.has(name) ? 0 : perAtom(name)));
   const spoilsIn = (x) => {
     let n = R0;
     for (const [i, a] of spoilsCost) n = radd(n, rmul(a, x[i]));
@@ -2958,7 +2976,8 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   }
   const byproducts = [...spare]
     .filter(([name]) => !asked.has(name))
-    .map(([name, amount]) => ({ name, amount, holds: [], kept: false, credited: false }));
+    .map(([name, amount]) =>
+      ({ name, amount, holds: [], kept: spec.kept.has(name), credited: false }));
 
   /**
    * Enough of the older solver's shape for the page to render this one.
