@@ -983,6 +983,7 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .menu-row.is-current { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .menu-row.is-current .menu-via { border-left: 2px solid var(--accent-dim); }
 .menu-note { color: var(--fg-faint); font-size: 12px; margin: 8px 0 0; max-width: 78ch; }
+.plan-menu-close { margin-left: auto; padding: 2px 8px; line-height: 1; font-size: 15px; }
 
 </style>
 </head>
@@ -1110,6 +1111,8 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
       <div class="plan-menu-head">
         <button id="plan-menu-run" class="ghost">Compare options</button>
         <span id="plan-menu-status" class="plan-menu-status"></span>
+        <button id="plan-menu-close" class="ghost plan-menu-close"
+                title="Put the comparison away" hidden>&times;</button>
       </div>
       <div id="plan-menu-body"></div>
     </section>
@@ -12942,7 +12945,10 @@ function renderMenu() {
   const run = $('#plan-menu-run');
   const status = $('#plan-menu-status');
   const body = $('#plan-menu-body');
+  const shut = $('#plan-menu-close');
   const mine = sweep && sweep.key === key;
+  // Nothing to put away until there is something on the table.
+  shut.hidden = !mine;
   const running = mine && sweep.queue !== null;
 
   run.textContent = running ? 'Stop' : (mine ? 'Compare again' : 'Compare options');
@@ -13064,6 +13070,19 @@ function initPlan(context) {
 
   $('#plan-leftovers').addEventListener('change', () =>
     edit(setOption, 'keepLeftovers', $('#plan-leftovers').checked));
+
+  /**
+   * Putting the comparison away, rather than hiding the whole panel.
+   *
+   * The rows go and the offer stays, so the same question can be asked again
+   * without hunting for where the button went. A sweep still running is
+   * stopped: it would go on solving into a table nobody is looking at.
+   */
+  $('#plan-menu-close').addEventListener('click', () => {
+    sweepToken++;
+    sweep = null;
+    renderMenu();
+  });
 
   $('#plan-menu-run').addEventListener('click', () => {
     const running = sweep && askedFor && sweep.key === questionKey(askedFor) && sweep.queue !== null;

@@ -976,3 +976,4 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .menu-row.is-current { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .menu-row.is-current .menu-via { border-left: 2px solid var(--accent-dim); }
 .menu-note { color: var(--fg-faint); font-size: 12px; margin: 8px 0 0; max-width: 78ch; }
+.plan-menu-close { margin-left: auto; padding: 2px 8px; line-height: 1; font-size: 15px; }

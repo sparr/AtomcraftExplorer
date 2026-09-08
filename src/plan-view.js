@@ -1283,7 +1283,10 @@ function renderMenu() {
   const run = $('#plan-menu-run');
   const status = $('#plan-menu-status');
   const body = $('#plan-menu-body');
+  const shut = $('#plan-menu-close');
   const mine = sweep && sweep.key === key;
+  // Nothing to put away until there is something on the table.
+  shut.hidden = !mine;
   const running = mine && sweep.queue !== null;
 
   run.textContent = running ? 'Stop' : (mine ? 'Compare again' : 'Compare options');
@@ -1405,6 +1408,19 @@ export function initPlan(context) {
 
   $('#plan-leftovers').addEventListener('change', () =>
     edit(setOption, 'keepLeftovers', $('#plan-leftovers').checked));
+
+  /**
+   * Putting the comparison away, rather than hiding the whole panel.
+   *
+   * The rows go and the offer stays, so the same question can be asked again
+   * without hunting for where the button went. A sweep still running is
+   * stopped: it would go on solving into a table nobody is looking at.
+   */
+  $('#plan-menu-close').addEventListener('click', () => {
+    sweepToken++;
+    sweep = null;
+    renderMenu();
+  });
 
   $('#plan-menu-run').addEventListener('click', () => {
     const running = sweep && askedFor && sweep.key === questionKey(askedFor) && sweep.queue !== null;

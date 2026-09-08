@@ -274,6 +274,11 @@ if (!menuBox || !menuRun) {
     console.log(`ok    comparing the options gives ${rows.length} row(s), each best at something`);
   }
 
+  // And it can be put away again, or it is a table that never leaves.
+  const shut = document.querySelector('#plan-menu-close');
+  if (!shut) { console.log('FAIL no way to close the comparison'); fail++; }
+  else if (shut.hidden) { console.log('FAIL the close control is hidden while rows are showing'); fail++; }
+
   // And picking one drives the plan, which is the whole point of the panel.
   const pick = rows.length
     ? [...rows[rows.length - 1].walk()].find((n) => n.tagName === 'BUTTON') : null;
@@ -288,6 +293,23 @@ if (!menuBox || !menuRun) {
       fail++;
     } else {
       console.log('ok    and choosing one switches the plan to it');
+    }
+  }
+
+  if (shut && !shut.hidden) {
+    shut.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const left = [...panel.walk()].filter((n) => n.classList?.contains('menu-row'));
+    const runStill = document.querySelector('#plan-menu-run');
+    if (left.length) { console.log('FAIL closing it left the rows behind'); fail++; }
+    else if (!runStill || document.querySelector('#plan-menu').hidden) {
+      console.log('FAIL closing it took the offer away too');
+      fail++;
+    } else if (!document.querySelector('#plan-menu-close').hidden) {
+      console.log('FAIL the close control is still showing with nothing to close');
+      fail++;
+    } else {
+      console.log('ok    and it can be put away, leaving the offer to ask again');
     }
   }
 }
