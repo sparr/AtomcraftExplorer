@@ -6084,7 +6084,48 @@ function knownBugs(graph) {
 /** What the gate could not judge, for a caller that wants to report it. */
 function unprovenBugs(graph) { return knownBugs(graph).unproven; }
 
+/**
+ * The same walk, asked for again and again with different numbers on it.
+ *
+ * Balancing a plan is a few dozen solves that differ only in how much of each
+ * target is wanted, and this walk never looks at an amount -- it reads names,
+ * kinds, sources and exclusions and nothing else. So forty per cent of the
+ * time balancing the Lepidolite question went on deriving the same six hundred
+ * processes twenty times over.
+ *
+ * Keyed on everything it actually reads. Nothing mutates what comes back --
+ * the shortlist filters into a new array and builds its own material set --
+ * so one answer can be handed to every caller that asks the same question.
+ *
+ * Bounded, because a page left open asks a great many different questions.
+ */
+const KEEP_SUBGRAPHS = 24;
+const subgraphCache = new WeakMap();
+
+const subgraphKey = (spec) => JSON.stringify([
+  [...spec.kinds].sort(),
+  [...spec.sources].sort(),
+  [...spec.have].sort(),
+  spec.targets.map((t) => t.name).sort(),
+  [...spec.excludeProcesses].sort(),
+  [...spec.excludeMaterials].sort(),
+  [...(spec.alsoUse || [])].sort(),
+  [...(spec.oreAllowed || [])].sort(),
+]);
+
 function subgraph(graph, spec) {
+  let store = subgraphCache.get(graph);
+  if (!store) subgraphCache.set(graph, store = new Map());
+  const key = subgraphKey(spec);
+  const had = store.get(key);
+  if (had) return had;
+  const found = walkSubgraph(graph, spec);
+  if (store.size >= KEEP_SUBGRAPHS) store.delete(store.keys().next().value);
+  store.set(key, found);
+  return found;
+}
+
+function walkSubgraph(graph, spec) {
   const kinds = spec.kinds;
   const buggy = knownBugs(graph).live;
   /**
@@ -6818,7 +6859,44 @@ function model(graph, spec, procs, materials) {
  * A shortlist that is slightly wrong costs a slightly worse plan. It cannot
  * cost a wrong quantity, because no quantity from here survives.
  */
+/**
+ * Narrowings, kept by the shape of the question rather than its size.
+ *
+ * The support of a linear programme does not change when every requirement is
+ * scaled by the same factor -- ask for twice as much of everything and the same
+ * routes serve, at twice the run counts. So two-two-two-three and eight-eight-
+ * eight-twelve narrow to the same twenty-nine processes, and balancing a plan
+ * asks for both.
+ *
+ * It very much does change when the requirements move against each other:
+ * Lepidolite narrows to twenty-nine processes at one of each and forty-three at
+ * one-two-three-four. So the ratio is in the key and the scale is not, which is
+ * exactly the difference between "the same question, bigger" and "a different
+ * question".
+ */
+const KEEP_SHORTLISTS = 24;
+const shortlistCache = new WeakMap();
+
+const ratioOf = (amounts) => {
+  const whole = amounts.map((a) => Math.round(a * 1e6));
+  const hcf = whole.reduce((a, b) => (b ? hcfOf(b, a % b) : a), 0) || 1;
+  return whole.map((n) => n / hcf);
+};
+const hcfOf = (a, b) => (b ? hcfOf(b, a % b) : a);
+
 function shortlist(graph, spec, sub, build) {
+  let store = shortlistCache.get(graph);
+  if (!store) shortlistCache.set(graph, store = new Map());
+  const key = `${subgraphKey(spec)}|${ratioOf(spec.targets.map((t) => t.amount)).join(',')}`;
+  const had = store.get(key);
+  if (had !== undefined) return had;
+  const found = narrowTo(graph, spec, sub, build);
+  if (store.size >= KEEP_SHORTLISTS) store.delete(store.keys().next().value);
+  store.set(key, found);
+  return found;
+}
+
+function narrowTo(graph, spec, sub, build) {
   const model = build(sub.processes, sub.materials);
   if (!model) return null;
   /**
