@@ -874,6 +874,16 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .route-pick:hover { background: var(--bg-sunken); color: var(--fg); }
 .route-opt.on .route-pick { color: var(--accent); }
 
+/* A route to read: the same row, without the press it no longer takes. */
+.route-read {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--fg-dim);
+  padding: 5px 6px;
+}
+.route-opt.on .route-read { color: var(--accent); }
+
 .route-label { display: inline; }
 .route-from { display: block; font-size: 12px; color: var(--fg-faint); margin-top: 2px; }
 /* What a route would need, and how much of it you would not have to chase. */
@@ -7525,6 +7535,11 @@ function shortfallOf(plan) {
 function blankFresh(graph, rawSpec, why = null) {
   const spec = normalizeFresh(rawSpec);
   return {
+    // Carried like the older solver's plans carry it: the page's inspector and
+    // its "what could I do with this" list are drawn by helpers that take a
+    // plan and reach through it to the graph, and an empty plan is exactly the
+    // one that list is drawn from.
+    graph,
     spec, fresh: true, why,
     steps: [], frontier: [], feed: [], byproducts: [],
     priming: [], brokenLoops: [], cycles: [],
@@ -11774,7 +11789,10 @@ function usesFor(plan, available) {
         ready: inputs.every((i) => i.have),
         missing: inputs.filter((i) => !i.have).length,
         cost: processCost(p, plan.spec.weights, plan.spec.avoidSideEffects),
-        included: plan.spec.include.has(p.id),
+        // The newer solver's spec has no `include`: it has no notion of a step
+        // added going forwards, which is exactly why the page paints this
+        // control red. Nothing is ever marked as already picked there.
+        included: plan.spec.include?.has(p.id) ?? false,
       });
     }
   }
@@ -12880,13 +12898,21 @@ function renderInspector(box) {
   list.append(mine);
 
   if (routes.length) {
-    const pinned = plan.pins[name];
-    const auto = el('li', 'route-opt' + (!pinned && !has ? ' on' : ''));
-    auto.append(gap(button('route-pick', 'Let the planner choose',
-                       'Undo a choice made here', () => edit(pin, name, null)),
-                    'it always chooses the route itself'));
-    list.append(auto);
-
+    /**
+     * The ways to get it, to read rather than to choose between.
+     *
+     * Sparr: this goes the same way as "Get rid of it", and gets a new
+     * interface later. Choosing a route by hand is another way of saying
+     * "show me a different plan", and the place to ask that is where whole
+     * plans are compared -- by what they fetch, what they need laying in and
+     * what they leave -- not one row of one material's inspector. "Let the
+     * planner choose" went with them, being the undo for a choice that can no
+     * longer be made.
+     *
+     * The list stays. What each route costs, what it needs, and how much of
+     * that is already to hand is worth knowing whether or not you can press
+     * it, and it is still the thing that says which way the plan went.
+     */
     const head = allRoutes ? routes : routes.slice(0, ROUTES_SHOWN);
     // A route you ruled out sorts last, so with 153 of them it falls off the
     // end and takes the only way to take it back with it. It comes along
@@ -12897,9 +12923,7 @@ function renderInspector(box) {
     for (const r of shown) {
       const li = el('li', 'route-opt' + (r.chosen || r.spare ? ' on' : '') +
                           (r.banned ? ' banned' : ''));
-      const pick = gap(button('route-pick', '', `Make ${m.display} this way`,
-                          () => edit(pin, name, r.process.id)),
-                       'it cannot yet be told which way to make a material');
+      const pick = el('div', 'route-read');
       pick.append(el('span', 'kind-glyph', KIND.get(r.process.kind)?.glyph || ''));
       pick.append(el('span', 'route-label', r.process.label));
       // Two routes can be live at once: one running on what the plan throws

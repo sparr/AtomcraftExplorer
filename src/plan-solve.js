@@ -2415,7 +2415,10 @@ export function usesFor(plan, available) {
         ready: inputs.every((i) => i.have),
         missing: inputs.filter((i) => !i.have).length,
         cost: processCost(p, plan.spec.weights, plan.spec.avoidSideEffects),
-        included: plan.spec.include.has(p.id),
+        // The newer solver's spec has no `include`: it has no notion of a step
+        // added going forwards, which is exactly why the page paints this
+        // control red. Nothing is ever marked as already picked there.
+        included: plan.spec.include?.has(p.id) ?? false,
       });
     }
   }

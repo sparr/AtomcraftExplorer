@@ -726,13 +726,21 @@ function renderInspector(box) {
   list.append(mine);
 
   if (routes.length) {
-    const pinned = plan.pins[name];
-    const auto = el('li', 'route-opt' + (!pinned && !has ? ' on' : ''));
-    auto.append(gap(button('route-pick', 'Let the planner choose',
-                       'Undo a choice made here', () => edit(pin, name, null)),
-                    'it always chooses the route itself'));
-    list.append(auto);
-
+    /**
+     * The ways to get it, to read rather than to choose between.
+     *
+     * Sparr: this goes the same way as "Get rid of it", and gets a new
+     * interface later. Choosing a route by hand is another way of saying
+     * "show me a different plan", and the place to ask that is where whole
+     * plans are compared -- by what they fetch, what they need laying in and
+     * what they leave -- not one row of one material's inspector. "Let the
+     * planner choose" went with them, being the undo for a choice that can no
+     * longer be made.
+     *
+     * The list stays. What each route costs, what it needs, and how much of
+     * that is already to hand is worth knowing whether or not you can press
+     * it, and it is still the thing that says which way the plan went.
+     */
     const head = allRoutes ? routes : routes.slice(0, ROUTES_SHOWN);
     // A route you ruled out sorts last, so with 153 of them it falls off the
     // end and takes the only way to take it back with it. It comes along
@@ -743,9 +751,7 @@ function renderInspector(box) {
     for (const r of shown) {
       const li = el('li', 'route-opt' + (r.chosen || r.spare ? ' on' : '') +
                           (r.banned ? ' banned' : ''));
-      const pick = gap(button('route-pick', '', `Make ${m.display} this way`,
-                          () => edit(pin, name, r.process.id)),
-                       'it cannot yet be told which way to make a material');
+      const pick = el('div', 'route-read');
       pick.append(el('span', 'kind-glyph', KIND.get(r.process.kind)?.glyph || ''));
       pick.append(el('span', 'route-label', r.process.label));
       // Two routes can be live at once: one running on what the plan throws

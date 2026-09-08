@@ -418,29 +418,32 @@ app.setMode('plan');
   check(panel.textContent.includes('made here'), 'saying what it is doing in the plan');
 
   const options = nodes(panel, 'route-opt');
-  const labelled = (o) => nodes(o, 'route-pick')[0].textContent;
+  // The first row is a button -- saying you have one is still a choice. The
+  // rest are `route-read`: a way of making it, to read rather than to pick.
+  const labelled = (o) => (nodes(o, 'route-pick')[0] || nodes(o, 'route-read')[0]).textContent;
   check(options.length > 2, `offering ${options.length} ways to get it`);
   // Having one is an alternative to every way of making one, so it heads the
   // list rather than sitting in a row of buttons above it.
   check(labelled(options[0]).includes('I have it'), '"I have it" is the first of them');
-  check(labelled(options[1]).includes('Let the planner choose'),
-        'then handing the choice back');
   check(panel.textContent.includes('Show all'),
         'with the rest a press away rather than 149 rows deep');
-
-  const before = nodes($('#plan-steps'), 'plan-step').length;
-  const other = options.find((o) => !/I have it|Let the planner/.test(labelled(o)) &&
-                                    !o.classList.contains('on'));
-  nodes(other, 'route-pick')[0].click();
-  check(Object.keys(app.getPlan().pins).includes('Carbon'), 'picking one pins it');
-  check(nodes($('#plan-steps'), 'plan-step').length !== before ||
-        text('#plan-steps').includes('Carbon'), 'and the plan is rebuilt around the choice');
+  /**
+   * And none of them offers to be chosen.
+   *
+   * Picking a route by hand went the way of "Get rid of it": it is another
+   * way of saying "show me a different plan", and that belongs where whole
+   * plans are compared rather than on one row of one material. What each
+   * route costs and needs is still worth reading, so the rows stay.
+   */
+  check(!panel.textContent.includes('Let the planner choose'),
+        'with no offer to hand the choice back, there being no choice to undo');
+  const ways = options.slice(1);
+  check(ways.length > 0 && ways.every((o) => !nodes(o, 'route-pick').length),
+        `and none of the ${ways.length} ways is pressable`);
 
   // And it reaches things that were never on the shopping list at all.
-  const again = nodes($('#plan-steps'), 'matlink').find((n) => n.textContent === 'Carbon');
-  if (again) again.click();
   const haveIt = nodes(nodes($('#plan-side'), 'inspector')[0], 'route-opt')
-    .map((o) => nodes(o, 'route-pick')[0])
+    .flatMap((o) => nodes(o, 'route-pick'))
     .find((b) => b.textContent.includes('I have it'));
   check(!!haveIt, 'a material the plan makes can still be declared already had');
   haveIt.click();
@@ -740,17 +743,23 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
     have: ['Columbite'], selected: 'Hydrofluoric Acid',
   });
   const picks = nodes($('#plan-side'), 'route-pick');
-  const ways = picks.filter((b) =>
-    /^(Make .* this way|Undo a choice made here)/.test(b.title || ''));
-  check(ways.length > 1 && ways.every((b) => b.classList.contains('solver-gap')),
-        `every way of making a material is marked, the undo with them: ${ways.length}`);
-  check(ways.every((b) => /does not read this yet/.test(b.title || '')),
-        'each saying so where you would hover it');
-  // Saying you have one, and running a route on the spare, are both read by
-  // the newer solver -- they must not be painted with the rest.
-  const kept = picks.filter((b) => !ways.includes(b));
-  check(kept.length > 0 && kept.every((b) => !b.classList.contains('solver-gap')),
-        `while "I have it" and the spare routes are left alone: ${kept.length}`);
+  check(picks.length > 0 && picks.every((b) => !b.classList.contains('solver-gap')),
+        `nothing in the inspector is marked either: ${picks.length} rows, none of them`);
+
+  /**
+   * One left, and it is in the other list.
+   *
+   * "Put this step in the plan" answers "what could I do with this?", which
+   * only comes up when you have named something and asked for nothing. The
+   * newer solver has no notion of a step added going forwards.
+   */
+  app.setPlan({ ...emptyPlan(), fresh: true, have: ['Lepidolite'] });
+  const forward = nodes($('#plan-steps'), 'use-opt')
+    .flatMap((u) => nodes(u, 'route-pick'));
+  check(forward.length > 0 && forward.every((b) => b.classList.contains('solver-gap')),
+        `every step you could add going forwards is marked: ${forward.length}`);
+  check(forward.every((b) => /does not read this yet/.test(b.title || '')),
+        'saying so where you would hover it');
 
   app.setPlan({
     ...emptyPlan(), balance: false,

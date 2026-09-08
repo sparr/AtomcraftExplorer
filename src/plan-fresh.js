@@ -2017,6 +2017,11 @@ function shortfallOf(plan) {
 export function blankFresh(graph, rawSpec, why = null) {
   const spec = normalizeFresh(rawSpec);
   return {
+    // Carried like the older solver's plans carry it: the page's inspector and
+    // its "what could I do with this" list are drawn by helpers that take a
+    // plan and reach through it to the graph, and an empty plan is exactly the
+    // one that list is drawn from.
+    graph,
     spec, fresh: true, why,
     steps: [], frontier: [], feed: [], byproducts: [],
     priming: [], brokenLoops: [], cycles: [],

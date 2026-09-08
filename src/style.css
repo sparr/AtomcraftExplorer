@@ -867,6 +867,16 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 .route-pick:hover { background: var(--bg-sunken); color: var(--fg); }
 .route-opt.on .route-pick { color: var(--accent); }
 
+/* A route to read: the same row, without the press it no longer takes. */
+.route-read {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--fg-dim);
+  padding: 5px 6px;
+}
+.route-opt.on .route-read { color: var(--accent); }
+
 .route-label { display: inline; }
 .route-from { display: block; font-size: 12px; color: var(--fg-faint); margin-top: 2px; }
 /* What a route would need, and how much of it you would not have to chase. */
