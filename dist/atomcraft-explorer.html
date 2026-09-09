@@ -10956,6 +10956,35 @@ function planGraph(plan, { materials = false, foldPhases = true,
     }
 
     /**
+     * Sparr: split up the spare water.
+     *
+     * Seven reactions leave water over and all seven arrows ended at one box,
+     * which is the crossroads again in its last hiding place: the box is
+     * ranked below the lowest of its feeders, so the arrow from the highest
+     * crosses the picture to reach it, and seven lines converging on one word
+     * reads as seven separate leftovers besides.
+     *
+     * One box per arrow, each beside the reaction it came from, each carrying
+     * its own share. The total is unchanged and no line travels to find it.
+     * Only the leavings: what you asked for stays in one box, because the
+     * amount you asked for is a single fact and splitting it would be telling
+     * the reader their four tantalum are two lots of two.
+     */
+    for (const end of nodes.filter((n) => n.pseudo && n.role === 'spare').slice()) {
+      const ins = edges.filter((e) => e.to === end.id);
+      if (ins.length <= 1) continue;
+      nodes.splice(nodes.indexOf(end), 1);
+      seen.delete(end.id);
+      ins.forEach((e, k) => {
+        const copy = { ...end, id: `${end.id}#${k}`,
+                       label: `${rstr(e.amount)} ${e.mat || end.name}` };
+        nodes.push(copy);
+        seen.set(copy.id, copy);
+        e.to = copy.id;
+      });
+    }
+
+    /**
      * Sparr: get rid of the arrow ends where lines come together at the
      * invisible nodes.
      *
