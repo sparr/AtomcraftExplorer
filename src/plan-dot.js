@@ -59,15 +59,26 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
       if (plan.byproducts.some((b) => b.name === name)) return 'spare';
       return 'inner';
     };
+    /**
+     * Sparr: does mat not represent primers and leftovers at all?
+     *
+     * Not primers, and barely leftovers -- they were drawn in a grey a shade
+     * off the background, which is present in the way a whisper is audible.
+     * A primed material now says so, and a leftover is drawn in something a
+     * reader can see.
+     */
+    const primedHere = new Set(plan.priming.map((c) => c.name));
     const paint = { want: '#5ec8f2', fetch: '#f0b45e', have: '#7fd08a',
-                    spare: '#1c222c', inner: '#262d38' };
+                    spare: '#8b96a6', inner: '#262d38' };
     const seen = new Set();
     for (const step of plan.steps) {
       for (const m of [...(step.process.consumes || []), ...step.process.produces]) {
         if (seen.has(m.name)) continue;
         seen.add(m.name);
-        say(`  "m:${esc(m.name)}" [label="${esc(m.name)}" shape=ellipse `
-            + `color="${paint[role(m.name)]}"];`);
+        const mark = primedHere.has(m.name) ? '\\n(primer)' : '';
+        say(`  "m:${esc(m.name)}" [label="${esc(m.name)}${mark}" shape=ellipse `
+            + `color="${paint[role(m.name)]}"`
+            + `${primedHere.has(m.name) ? ' style="filled,dashed" penwidth=2' : ''}];`);
       }
     }
     for (const step of plan.steps) {
@@ -97,9 +108,24 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
   }
   const brought = new Set([...plan.feed.map((f) => f.name), ...plan.frontier.map((f) => f.name)]);
   const primed = new Set(plan.priming.map((c) => c.name));
-  const kept = new Set([...plan.spec.targets.map((t) => t.name),
-                        ...plan.byproducts.map((b) => b.name)]);
+  const wanted = new Set(plan.spec.targets.map((t) => t.name));
+  const spare = new Set(plan.byproducts.map((b) => b.name));
 
+  /**
+   * Sparr: rx is much messier, owing to combining all the inputs, outputs and
+   * primers.
+   *
+   * It is, and that is what a hub does. Every material the reader brings
+   * arriving from one box makes that box a star of a dozen arrows, and a star
+   * has to cross everything to reach the reactions spread across the picture.
+   * Four of them, and the crossings are mostly theirs.
+   *
+   * So each end-material gets its own little node instead -- which is what
+   * made the materials drawing readable in the first place, and costs nothing
+   * here because these are the materials that already had only one end. The
+   * ones in the middle stay on the arrows, where they belong: they have a
+   * reaction at each end and need no box to hang from.
+   */
   const ends = [];
   const wires = new Map();                      // "a\u0000b" -> [labels]
   const wire = (a, b, label, colour) => {
@@ -112,21 +138,50 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
     for (const a of makers.get(name) || []) {
       for (const b of users.get(name) || []) wire(a, b, name, '#3a4553');
     }
-    if (brought.has(name)) for (const b of users.get(name) || []) wire('in', b, name, '#f0b45e');
-    if (primed.has(name)) for (const b of users.get(name) || []) wire('prime', b, name, '#7fd08a');
-    if (kept.has(name)) for (const a of makers.get(name) || []) wire(a, 'out', name, '#5ec8f2');
+    if (brought.has(name)) {
+      for (const b of users.get(name) || []) wire(`in:${name}`, b, '', '#f0b45e');
+    }
+    if (primed.has(name)) {
+      for (const b of users.get(name) || []) wire(`prime:${name}`, b, '', '#7fd08a');
+    }
+    /**
+     * What was asked for and what merely fell out are different answers.
+     *
+     * Sparr: possibly with different colours for wanted outputs against
+     * leftovers. They earn more than a colour -- they earn separate ends,
+     * because a reader looking at a plan wants to know at a glance which
+     * arrows are the point of it and which are the sweepings, and an arrow
+     * that lands somewhere labelled "Leftovers" has said so before its colour
+     * is read.
+     */
+    if (wanted.has(name)) {
+      for (const a of makers.get(name) || []) wire(a, `out:${name}`, '', '#5ec8f2');
+    } else if (spare.has(name)) {
+      for (const a of makers.get(name) || []) wire(a, `spare:${name}`, '', '#5c6675');
+    }
   }
   for (const key of wires.keys()) {
     const [a, b] = key.split('\u0000');
-    if (a === 'in' || b === 'in') ends.push('in');
-    if (a === 'prime' || b === 'prime') ends.push('prime');
-    if (a === 'out' || b === 'out') ends.push('out');
+    for (const side of [a, b]) {
+      if (/^(in|prime|out|spare):/.test(side)) ends.push(side);
+    }
   }
-  const label = { in: 'what you put in', prime: 'what you start with', out: 'what you get' };
-  const paint = { in: '#f0b45e', prime: '#7fd08a', out: '#5ec8f2' };
+  const paint = { in: '#f0b45e', prime: '#7fd08a', out: '#5ec8f2', spare: '#5c6675' };
+  const said = { in: 'in', prime: 'primer', out: 'out', spare: 'left over' };
+  const amountOf = (name) => {
+    for (const list of [plan.frontier, plan.feed, plan.priming, plan.byproducts]) {
+      const hit = list.find((x) => x.name === name);
+      if (hit) return `${rnum(hit.amount)} `;
+    }
+    return '';
+  };
   for (const end of new Set(ends)) {
-    say(`  "${end}" [label="${label[end]}" shape=box style="rounded,dashed,filled" `
-        + `color="${paint[end]}" fillcolor="#0a0d12"];`);
+    const at = end.indexOf(':');
+    const role = end.slice(0, at);
+    const name = end.slice(at + 1);
+    say(`  "${esc(end)}" [label="${esc(amountOf(name) + name)}\n(${said[role]})" `
+        + `shape=box style="rounded,dashed,filled" color="${paint[role]}" `
+        + `fillcolor="#0a0d12" fontsize=10];`);
   }
   for (const [key, names] of wires) {
     const [a, b, colour] = key.split('\u0000');

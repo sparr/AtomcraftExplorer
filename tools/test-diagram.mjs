@@ -60,11 +60,25 @@ for (const [what, ask] of plans) {
    */
   check(!state.nodes.some((n) => n.kind === 'material'),
         'no material has a box of its own');
-  const ends = state.nodes.filter((n) => n.pseudo).map((n) => n.id).sort();
+  const ends = state.nodes.filter((n) => n.pseudo).map((n) => n.label).sort();
   check(ends.length > 0, `the ends of the plan are reactions of a sort: ${ends.join(', ')}`);
-  const unlabelled = state.wires.filter((w) => !w.label);
-  check(!unlabelled.length,
-        `every one of the ${state.wires.length} arrows says what it carries`);
+  check(!ends.some((e) => /what you/.test(e)), 'named by the material rather than in a sentence');
+  /**
+   * Every arrow says what it carries -- on itself, or on the box at its end.
+   *
+   * An arrow between two reactions has to be labelled, because both its ends
+   * are reactions and nothing else says what passes. An arrow to or from an
+   * end-material does not: that box *is* the material, and writing the name
+   * twice on the same short line is noise.
+   */
+  const where = new Map(state.nodes.map((n) => [n.id, n]));
+  const anonymous = state.wires.filter((w) => {
+    if (w.label) return false;
+    const ends = [where.get(w.from), where.get(w.to)];
+    return !ends.some((n) => n?.pseudo);
+  });
+  check(!anonymous.length,
+        `each of the ${state.wires.length} arrows says what it carries, on itself or its end`);
 
   // And the other drawing is still there, with a box for every material.
   const full = layoutPlan(plan, { materials: true });
@@ -209,12 +223,29 @@ console.log('\n--- written out as DOT');
   const boxes = [...dot.matchAll(/^\s+"([^"]+)"\s+\[label=/gm)].map((m) => m[1]);
   check(boxes.filter((b) => b.startsWith('s:')).length === plan.steps.length,
         `a box for each of the ${plan.steps.length} steps`);
-  check(['in', 'out', 'prime'].every((e) => boxes.includes(e)),
-        'and one for each end of the plan');
+  check(['in:', 'out:', 'prime:', 'spare:'].every((e) => boxes.some((b) => b.startsWith(e))),
+        'and one for each material at each end of the plan');
+  // What was asked for and what merely fell out are different answers, so
+  // they land at different ends rather than the same one in two colours.
+  check(/\(out\)/.test(dot) && /\(left over\)/.test(dot),
+        'the wanted outputs and the leftovers being told apart');
+  check(/\(in\)/.test(dot) && /\(primer\)/.test(dot),
+        'and each end saying which it is');
+  // A hub is a star, and a star has to cross everything to reach the
+  // reactions spread around it. No end has more arrows than a reaction does.
+  const outgoing = new Map();
+  for (const m of dot.matchAll(/^\s+"([^"]+)" -> "([^"]+)"/gm)) {
+    for (const side of [m[1], m[2]]) outgoing.set(side, (outgoing.get(side) ?? 0) + 1);
+  }
+  const busiest = [...outgoing].filter(([k]) => /^(in|out|prime|spare):/.test(k))
+    .reduce((a, b) => (b[1] > a[1] ? b : a), ['none', 0]);
+  check(busiest[1] <= 6, `no end is a hub: the busiest has ${busiest[1]} arrows (${busiest[0]})`);
   // Every arrow says what it carries.
-  const arrows = [...dot.matchAll(/^\s+"[^"]+" -> "[^"]+" \[label="([^"]*)"/gm)].map((m) => m[1]);
-  check(arrows.length > 0 && arrows.every((a) => a.length > 0),
-        `${arrows.length} arrows, each naming what it carries`);
+  const arrows = [...dot.matchAll(/^\s+"([^"]+)" -> "([^"]+)" \[label="([^"]*)"/gm)];
+  const mute = arrows.filter(([, a, b, l]) =>
+    !l && !/^(in|out|prime|spare):/.test(a) && !/^(in|out|prime|spare):/.test(b));
+  check(arrows.length > 0 && !mute.length,
+        `each of the ${arrows.length} arrows says what it carries, on itself or its end`);
   // Quotes in a material name would end the string early; nothing in the game
   // has one today, which is exactly when an escape stops being tested.
   check(planToDot({ ...plan, steps: [] }) === 'digraph plan {}\n',

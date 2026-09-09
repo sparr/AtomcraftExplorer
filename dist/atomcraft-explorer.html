@@ -10154,10 +10154,10 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
   const seen = new Map();
 
   const amountOf = (name) => {
-    const f = plan.frontier.find((x) => x.name === name);
-    if (f) return rnum(f.amount);
-    const h = plan.feed.find((x) => x.name === name);
-    if (h) return rnum(h.amount);
+    for (const list of [plan.frontier, plan.feed, plan.priming, plan.byproducts]) {
+      const hit = list.find((x) => x.name === name);
+      if (hit) return rnum(hit.amount);
+    }
     return null;
   };
   const roleOf = (name) => {
@@ -10237,8 +10237,10 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
     }
     const brought = new Set([...plan.feed.map((f) => f.name), ...plan.frontier.map((f) => f.name)]);
     const primed = new Set(plan.priming.map((c) => c.name));
-    const kept = new Set([...plan.spec.targets.map((t) => t.name),
-                          ...plan.byproducts.map((b) => b.name)]);
+    // What was asked for and what merely fell out are different answers, so
+    // they get different ends rather than the same one in two colours.
+    const wanted = new Set(plan.spec.targets.map((t) => t.name));
+    const spare = new Set(plan.byproducts.map((b) => b.name));
 
     for (const name of new Set([...makers.keys(), ...users.keys()])) {
       const from = makers.get(name) || [];
@@ -10247,17 +10249,36 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
       for (const [a] of from) {
         for (const [b] of to) edges.push({ from: a, to: b, label, role: 'inner' });
       }
+      /**
+       * Sparr: rx is much messier, owing to combining all the inputs, outputs
+       * and primers.
+       *
+       * It is, and that is what a hub does. Every material the reader brings
+       * arriving from one box makes that box a star of a dozen arrows, and a
+       * star has to cross everything to reach reactions spread across the
+       * picture. Four of them, and the crossings were mostly theirs.
+       *
+       * So each end-material gets a little box of its own -- which is what
+       * made the materials drawing readable, and costs nothing here because
+       * these are the ones that already had a single end. The materials in
+       * the middle stay on the arrows, having a reaction at either end.
+       */
+      const amount = amountOf(name);
+      const said = amount === null ? name : `${amount} ${name}`;
       if (brought.has(name) && to.length) {
-        const src = pseudo('in', 'what you put in', 'have');
-        for (const [b] of to) edges.push({ from: src.id, to: b, label, role: roleOf(name) });
+        const src = pseudo(`in:${name}`, said, roleOf(name));
+        for (const [b] of to) edges.push({ from: src.id, to: b, role: roleOf(name) });
       }
       if (primed.has(name) && to.length) {
-        const src = pseudo('prime', 'what you start with', 'prime');
-        for (const [b] of to) edges.push({ from: src.id, to: b, label, role: 'prime' });
+        const src = pseudo(`prime:${name}`, said, 'prime');
+        for (const [b] of to) edges.push({ from: src.id, to: b, role: 'prime' });
       }
-      if (kept.has(name) && from.length) {
-        const sink = pseudo('out', 'what you get', 'want');
-        for (const [a] of from) edges.push({ from: a, to: sink.id, label, role: roleOf(name) });
+      if (wanted.has(name) && from.length) {
+        const sink = pseudo(`out:${name}`, said, 'want');
+        for (const [a] of from) edges.push({ from: a, to: sink.id, role: 'want' });
+      } else if (spare.has(name) && from.length) {
+        const sink = pseudo(`spare:${name}`, said, 'spare');
+        for (const [a] of from) edges.push({ from: a, to: sink.id, role: 'spare' });
       }
     }
   }
