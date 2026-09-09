@@ -794,6 +794,51 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
  * parameter are gone together, and the have box means one thing.
  */
 
+/* ------------------------------ when there is no plan, say where the switch is */
+
+/**
+ * Sparr: when there is no available plan, point the reader at the options.
+ *
+ * "Nothing allowed can make Charcoal" is true and unhelpful. *Allowed* is a
+ * setting, and which setting is not guessable from the material -- Charcoal,
+ * Flour and an Egg Shell all want the same one. So the page puts the question
+ * again with each category that is switched off, and names whichever ones come
+ * back with an answer.
+ */
+console.log('\n--- no plan, and what to do about it ---');
+{
+  app.setMode('plan');
+  app.setPlan(addTarget(emptyPlan(), 'Charcoal'));
+  const steps = () => text('#plan-steps');
+  check(/Nothing allowed can make/.test(steps()), 'it says nothing allowed can make it');
+  check(/There is a plan if you allow/.test(steps()),
+        `and that there is one if you allow something: ${steps().slice(0, 90)}`);
+
+  const offered = nodes($('#plan-steps'), 'small').map((b) => b.textContent);
+  check(offered.includes('Grown'), `naming the category that would do it: ${offered.join(', ')}`);
+  check(offered.includes('Options'), 'with the panel itself one press away');
+
+  // The named one is a button, not a sentence: pressing it plans.
+  nodes($('#plan-steps'), 'small').find((b) => b.textContent === 'Grown').click();
+  check(app.getPlan().sources.includes('farm'), 'pressing it switches the category on');
+  check(!/Nothing allowed can make/.test(steps()) &&
+        nodes($('#plan-steps'), 'plan-step').length > 0,
+        `and the plan comes back: ${steps().slice(0, 40)}`);
+
+  // The pointer to Options is there even when the failure has its own reason,
+  // which is the case that used to lose it.
+  app.setPlan({ ...addTarget(emptyPlan(), 'Charcoal'), kinds: [] });
+  check(/Nothing allowed can make/.test(steps()) &&
+        nodes($('#plan-steps'), 'small').some((b) => b.textContent === 'Options'),
+        'and the way to Options survives a failure that explains itself');
+  const opts = nodes($('#plan-steps'), 'small').find((b) => b.textContent === 'Options');
+  opts.click();
+  check(!$('#plan-options').hidden, 'which opens the panel');
+  // Left as it was found: the block below toggles this panel and would be
+  // toggling it shut.
+  $('#plan-options').hidden = true;
+}
+
 /* ------------------------------ what each interface actually puts on screen */
 
 /**

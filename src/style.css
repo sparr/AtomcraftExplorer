@@ -745,6 +745,8 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
   margin-bottom: 12px;
   color: var(--warm);
 }
+/* What to do about it, on the same footing as what went wrong. */
+.plan-fix { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* ---------- the side panels ---------- */
 

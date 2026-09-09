@@ -752,6 +752,8 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
   margin-bottom: 12px;
   color: var(--warm);
 }
+/* What to do about it, on the same footing as what went wrong. */
+.plan-fix { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* ---------- the side panels ---------- */
 
@@ -10114,6 +10116,39 @@ function conditions(step) {
   return out;
 }
 
+/**
+ * Which switch would make an unanswerable question answerable.
+ *
+ * "Nothing allowed can make Charcoal" is true and unhelpful: what the reader
+ * needs to know is that *allowed* is a setting, and which one. So the question
+ * is put again with each category the plan is not using, and whichever ones
+ * come back with an answer are named. Charcoal, Flour and an Egg Shell all
+ * want the same one, and it is not guessable from the material.
+ *
+ * Only on failure, and only over what is switched off -- at most four solves,
+ * and a solve that fails is a cheap one because the walk it fails on is small.
+ * Forty milliseconds each here against a plan that cannot be drawn at all.
+ */
+function wouldRescue() {
+  if (!askedFor) return [];
+  const out = [];
+  for (const k of SOURCE_KINDS) {
+    if (plan.sources.includes(k.id)) continue;
+    const sources = [...plan.sources, k.id];
+    if (solveFresh(ctx.graph, { ...askedFor, sources })) {
+      out.push({ label: k.label, take: () => edit(toggleSource, k.id) });
+    }
+  }
+  for (const k of PROCESS_KINDS) {
+    if (plan.kinds.includes(k.id)) continue;
+    const kinds = [...plan.kinds, k.id];
+    if (solveFresh(ctx.graph, { ...askedFor, kinds })) {
+      out.push({ label: k.label ?? k.id, take: () => edit(toggleKind, k.id) });
+    }
+  }
+  return out;
+}
+
 function renderSteps() {
   const box = $('#plan-steps');
 
@@ -10124,10 +10159,34 @@ function renderSteps() {
       if (i) warn.append(', ');
       warn.append(matLink(n));
     });
-    warn.append(solved.why
-      ? `. ${solved.why[0].toUpperCase()}${solved.why.slice(1)}.`
-      : '. Try switching on another kind of process under Options.');
+    warn.append(solved.why ? `. ${solved.why[0].toUpperCase()}${solved.why.slice(1)}.` : '.');
     box.append(warn);
+
+    /**
+     * And what to do about it, which the sentence above never said.
+     *
+     * The old wording ended "try switching on another kind of process under
+     * Options", and only when there was no other reason to give -- so the one
+     * question that had a specific explanation was the one that lost the
+     * pointer. Both belong: what went wrong, then where the switch is.
+     */
+    const fix = el('div', 'plan-warn plan-fix');
+    const helps = wouldRescue();
+    if (helps.length) {
+      fix.append('There is a plan if you allow ');
+      helps.forEach((h, i) => {
+        if (i) fix.append(i === helps.length - 1 ? ' or ' : ', ');
+        fix.append(button('ghost small', h.label, `Switch on ${h.label} and plan again`, h.take));
+      });
+      fix.append(' — these and the rest are under ');
+    } else {
+      fix.append('What the plan may use and how it may work is under ');
+    }
+    fix.append(button('ghost small', 'Options', 'What the plan may use', () => {
+      $('#plan-options').hidden = false;
+      $('#toggle-plan-options').setAttribute('aria-pressed', 'true');
+    }));
+    box.append(fix);
   }
   if (solved.cycles.length) {
     box.append(el('div', 'plan-warn',
