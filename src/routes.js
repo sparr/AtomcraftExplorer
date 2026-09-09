@@ -12,7 +12,7 @@
  * that question, and the solver that did is gone.
  */
 import { KIND, operatingWindow } from './plan-graph.js';
-import { rat, rsub, rcmp, rmul, rzero } from './rational.js';
+import { rat, rsub, rcmp, rmul } from './rational.js';
 
 /**
  * What each thing costs, as a preference rather than a game number. These
@@ -100,7 +100,7 @@ export function routesFor(plan, name) {
   const stock = new Set(spec.have);
 
   const routes = graph.producers(name)
-    .filter((p) => spec.kinds.has(p.kind) || p.id === chosen || spec.alsoUse.has(p.id))
+    .filter((p) => spec.kinds.has(p.kind) || p.id === chosen)
     .map((p) => {
       const inputs = [...p.consumes, ...p.requires].map((i) => ({
         ...i,
@@ -132,12 +132,6 @@ export function routesFor(plan, name) {
         cost: c,
         inputs,
         chosen: p.id === chosen,
-        /**
-         * In the plan, but only on the leavings: it makes what the spare will
-         * stretch to and the chosen route makes the rest. Both rows are then
-         * live at once, which is the truth of it.
-         */
-        spare: spec.alsoUse.has(p.id) && !rzero(runs),
         /** Enough is going spare to run it, whether or not it has been asked for. */
         runnable,
         /**

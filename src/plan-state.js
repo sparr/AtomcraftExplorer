@@ -34,14 +34,6 @@ export function emptyPlan() {
   return {
     targets: [],                  // [{name, amount}]
     have: [],                     // names
-    /**
-     * Routes to run on what the plan is already throwing away, and no further.
-     *
-     * Not a claim about how anything is made, so it composes with the rest: a
-     * route can eat the eight spare Carbon Monoxide for four Carbon while the
-     * other five are still yours to supply.
-     */
-    alsoUse: [],
     excludeProcesses: [],
     excludeMaterials: [],
     /**
@@ -135,7 +127,6 @@ export function readPlan(params) {
       : { name: entry, amount: 1 };
   });
   plan.have = list(params.get('h'));
-  plan.alsoUse = list(params.get('au'));
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
   plan.noFetch = list(params.get('xf'));
@@ -171,7 +162,6 @@ export function writePlan(plan, params) {
   put('t', plan.targets
     .map((t) => (t.amount === 1 ? t.name : `${t.name}${AMOUNT}${t.amount}`)).join(SEP));
   put('h', plan.have.join(SEP));
-  put('au', plan.alsoUse.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
   put('xf', plan.noFetch.join(SEP));
@@ -204,7 +194,6 @@ const clone = (p) => ({
   ...p,
   targets: p.targets.map((t) => ({ ...t })),
   have: [...p.have],
-  alsoUse: [...p.alsoUse],
   excludeProcesses: [...p.excludeProcesses],
   excludeMaterials: [...p.excludeMaterials],
   noFetch: [...p.noFetch],
@@ -307,12 +296,6 @@ export function removeHave(plan, name) {
   return next;
 }
 
-/** Run this route on the plan's leavings, or stop. */
-export function useSpare(plan, material, processId) {
-  return toggle(plan, 'alsoUse', processId);
-}
-
-export const isUsingSpare = (plan, id) => plan.alsoUse.includes(id);
 
 export function toggle(plan, key, value) {
   const next = clone(plan);

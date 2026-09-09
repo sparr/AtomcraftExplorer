@@ -685,7 +685,6 @@ const subgraphKey = (spec) => JSON.stringify([
   [...spec.excludeMaterials].sort(),
   [...spec.noFetch].sort(),
   [...spec.noPrime].sort(),
-  [...(spec.alsoUse || [])].sort(),
   [...(spec.oreAllowed || [])].sort(),
 ]);
 
@@ -1131,12 +1130,6 @@ export function normalizeFresh(spec) {
      * Empty unless `solveFresh` put something here; see `barredAsTarget`.
      */
     oreAllowed: new Set(spec.oreAllowed || []),
-    /**
-     * Not used to solve anything -- this solver has no notion of spending a
-     * byproduct on purpose -- but the page reads it off the plan to mark which
-     * steps are running on something spare, so it has to be here to be empty.
-     */
-    alsoUse: new Set(spec.alsoUse || []),
     ways: spec.ways ?? FRESH_DEFAULTS.ways,
     loops: spec.loops ?? FRESH_DEFAULTS.loops,
     eaters: spec.eaters ?? FRESH_DEFAULTS.eaters,

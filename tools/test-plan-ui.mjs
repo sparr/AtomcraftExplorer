@@ -524,19 +524,23 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
  * so rather than having it inferred from a pin.
  */
 
-/* --------------------------------------- running a route on the leavings */
+/* ------------------------------------ the ways to get it, and which was taken */
 
 /**
- * The route list says which way the plan went, and offers the spare where
- * there is one.
+ * There was a second thing a route could be here: a use for what the plan was
+ * already throwing away, run on the spare and no further.
  *
- * The offer itself has gone quiet. It exists for a route the plan could feed
- * from its own leavings *without having chosen it*, and the surviving solver
- * feeds every spare output back already -- so where such a route exists it is
- * usually the chosen one, and there is nothing to offer. Scanning the three
- * standing questions turns up no case at all. Worth knowing before deciding
- * whether `alsoUse` is still earning its place; for now the list itself is
- * what is checked.
+ * It wrote `alsoUse`, and the surviving solver never read it -- it stored the
+ * field and hashed it into a cache key and did nothing else with it, so the
+ * button relabelled a plan it could not alter. Measured across three questions
+ * and four routes, none of the twelve changed the plan. The instruction it
+ * carried is this solver's default, every spare output being fed back already,
+ * which is also why the offer had stopped appearing: it wanted a route the
+ * plan could feed from its own leavings without having chosen it, and here
+ * that is the chosen route.
+ *
+ * So the list is all there is, and the list is worth having: which ways exist,
+ * which was taken, what each would need.
  */
 {
   app.setMode('plan');
@@ -552,6 +556,9 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
         `with the one the plan took marked: ${chosen[0]?.textContent.slice(0, 40)}`);
   check(opts.some((li) => /Falling Snow melts into Water/.test(li.textContent)),
         'and the ones it did not, to read');
+  // Nothing on any of them offers to be run on the spare any more.
+  check(!/spare/i.test(text('#plan-side')),
+        'with nothing offering to run on the leavings, that having been a no-op');
 }
 
 /* ------------------------------------------------ taking a rejection back */
