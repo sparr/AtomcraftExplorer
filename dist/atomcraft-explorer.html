@@ -10337,7 +10337,8 @@ const SPACING = {
  * the graph *is* had to be made twice -- the ends stopped being hubs in one
  * of them a day before the other.
  */
-function planGraph(plan, { materials = false, foldPhases = true } = {}) {
+function planGraph(plan, { materials = false, foldPhases = true,
+                                  joints = true } = {}) {
   if (!plan || !plan.steps) return { nodes: [], edges: [] };
   const nodes = [];
   const edges = [];
@@ -10689,6 +10690,49 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
     }
 
     /**
+     * Sparr: can the lines curve smoothly into each other instead of turning
+     * hard at the invisible node?
+     *
+     * Not while there are two of them. Two arrows meeting at a node are two
+     * splines, each routed to the middle of it on its own, and where they meet
+     * there is a corner however small the node is made. One arrow through a
+     * rank is one spline, and a layout engine bends it smoothly because that
+     * is all a long edge ever is.
+     *
+     * Contracting was tried before and made the picture curvy, but that was
+     * when a phase change with three feeders and six eaters became eighteen
+     * arrows, each skipping a rank. It is one in and one out now -- the flow
+     * is attributed, and a crossroads was split into a joint per path -- so
+     * contracting is one arrow for one arrow, and both material names ride it.
+     *
+     * Kept as marks by default all the same. Contracting suits a phase change
+     * standing alone in a chain -- the Carbon plan and the aluminium one both
+     * come out smaller -- but the Columbite plan goes from 1454 wide to 2252,
+     * because there the joints came of splitting a crossroads and the ranks
+     * they hold are carrying other lines. So `joints: false` is offered and
+     * not taken, and the smoothing is done where the curve is drawn instead.
+     */
+    if (!joints) {
+      for (const h of nodes.filter((n) => n.hold).slice()) {
+        const ins = edges.filter((e) => e.to === h.id);
+        const outs = edges.filter((e) => e.from === h.id);
+        if (ins.length !== 1 || outs.length !== 1) continue;
+        const [a] = ins;
+        const [b] = outs;
+        if (a.from === b.to) continue;              // a wheel of one, worth nothing
+        const gone = new Set([a, b]);
+        for (let k = edges.length - 1; k >= 0; k--) if (gone.has(edges[k])) edges.splice(k, 1);
+        nodes.splice(nodes.indexOf(h), 1);
+        seen.delete(h.id);
+        edges.push({ ...a, to: b.to,
+                     through: [{ mat: a.mat, amount: a.amount },
+                               { mat: b.mat, amount: b.amount }].filter((x) => x.mat),
+                     role: b.role === 'inner' ? a.role : b.role,
+                     keepName: a.keepName || b.keepName });
+      }
+    }
+
+    /**
      * Sparr: get rid of the arrow ends where lines come together at the
      * invisible nodes.
      *
@@ -10745,9 +10789,17 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
        * and says what it is -- eight of the nine runs' worth goes this way.
        */
       const end = e.keepName ? null : [e.from, e.to].find((x) => seen.get(x)?.pseudo);
-      e.label = end
-        ? (arrowsAt.get(end) > 1 ? rstr(each) : '')
+      /**
+       * Both sides of a folded phase change, each with its own amount: one
+       * packed hydrogen goes in and two come out, and saying "1" for both
+       * would be the fold telling a lie about what it folded.
+       */
+      const per = (amount) => (src && !src.pseudo && src.runsR && rcmp(src.runsR, R0) > 0
+        ? rdiv(amount, src.runsR) : amount);
+      const names = e.through?.length
+        ? e.through.map((x) => `${rstr(per(x.amount))} ${x.mat}`).join(', ')
         : `${rstr(each)} ${e.mat || e.label}`;
+      e.label = end ? (arrowsAt.get(end) > 1 ? rstr(each) : '') : names;
     }
     join();
   }
@@ -10825,6 +10877,36 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
     const points = a === low ? [a, ...through, b] : [a, ...through.reverse(), b];
     wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
                  label: e.label, role: e.role, join: e.join, points });
+  }
+
+  /**
+   * Sparr: can the lines curve smoothly into each other rather than turning
+   * hard at the invisible node, and the same for all of them?
+   *
+   * They can, once they stop being two lines. A phase change was the end of
+   * one arrow and the start of another, and two curves meeting at a point make
+   * a corner there however small the point is. Threaded as one arrow with the
+   * joint among its waypoints there is no corner at all: the curve is drawn
+   * with its handles along the run at every stop it passes, so the piece
+   * arriving and the piece leaving share a tangent.
+   *
+   * The joint is still drawn and still holds its rank. It is only no longer a
+   * place where the drawing stops and starts again.
+   */
+  const jointAt = new Map(nodes.filter((n) => n.hold).map((n) => [n.id, n]));
+  for (const id of jointAt.keys()) {
+    const into = wires.filter((w) => w.to === id);
+    const outOf = wires.filter((w) => w.from === id);
+    if (into.length !== 1 || outOf.length !== 1) continue;
+    const [a] = into;
+    const [b] = outOf;
+    if (a.back || b.back) continue;              // read backwards, threaded apart
+    a.to = b.to;
+    a.points = [...a.points, ...b.points.slice(1)];
+    a.label = [a.label, b.label].filter(Boolean).join(', ');
+    a.role = b.role === 'inner' ? a.role : b.role;
+    a.join = false;                              // the tip belongs at the far end
+    wires.splice(wires.indexOf(b), 1);
   }
 
   const byRank = new Map();

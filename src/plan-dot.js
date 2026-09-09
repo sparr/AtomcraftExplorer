@@ -27,8 +27,8 @@ const esc = (s) => String(s).replace(/["\\]/g, '\\$&');
  * ends of the plan -- what you put in, what you start with, what you get --
  * as reactions of a sort so those arrows have somewhere to attach.
  */
-export function planToDot(plan, { materials = false, rankdir = 'LR',
-                                  engine = 'dot', foldPhases = true } = {}) {
+export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'dot',
+                                  foldPhases = true, joints = true } = {}) {
   if (!plan || !plan.steps?.length) return 'digraph plan {}\n';
   const out = [];
   const say = (s) => out.push(s);
@@ -103,7 +103,7 @@ export function planToDot(plan, { materials = false, rankdir = 'LR',
    * ends stopped being a handful of hubs in one of them a day before the
    * other. One builder, two renderers.
    */
-  const { nodes, edges } = planGraph(plan, { foldPhases });
+  const { nodes, edges } = planGraph(plan, { foldPhases, joints });
 
   // Sparr: a primer should be a different colour from an input. It is not one
   // -- you hold it once to get the wheel turning, and never again.
