@@ -6,7 +6,7 @@
  * The older one is gone and the argument stays, there being no reason for this
  * to know which solver it is driving.
  */
-import { rsub, rcmp, R0, rdiv, rnum } from './rational.js';
+import { rsub, radd, rcmp, R0, rdiv, rnum } from './rational.js';
 
 /**
  * Amounts that use the feed up rather than leaving half of it on the floor.
@@ -88,6 +88,39 @@ export function balanceTargets(graph, rawSpec, solveWith) {
     return feed;
   };
   const costsMore = (was, now) => [...now].some(([n, v]) => rcmp(v, was.get(n) ?? R0) > 0);
+
+  /**
+   * What the feed comes to per thing the plan actually makes.
+   *
+   * `feedOf` reads per unit of the order, which is what the climb wants: it is
+   * walking towards a bigger quotation of the same plan, and flat ground there
+   * means the plan is not getting worse. It cannot compare two different
+   * *proportions*, because asking for one of each of three things and being
+   * handed twelve of each reports the same feed per unit ordered as asking for
+   * two, two and one -- while the ore per thing made is 1.33 against 1.20.
+   */
+  const perThing = (p) => {
+    let made = R0;
+    for (const t of p.spec.targets) made = radd(made, p.madeOf(t.name));
+    if (rcmp(made, R0) <= 0) return Infinity;
+    /**
+     * One number, in atoms, because two held things can disagree.
+     *
+     * Two, two and one uses less Lepidolite per thing than one of each and
+     * slightly more Columbite, so a rule of "less of everything" refuses it
+     * and the better proportion is never taken. What is actually being
+     * compared is how much of the ore heap goes in for what comes out, and
+     * that is a sum -- weighed by matter, as the shopping list is, so that a
+     * Lepidolite at twenty-two atoms does not count the same as a Columbite
+     * at eight.
+     */
+    let atoms = 0;
+    for (const n of p.spec.have) {
+      const net = rsub(p.amountOf(n), p.madeOf(n));
+      if (rcmp(net, R0) > 0) atoms += rnum(net) * (p.graph?.db.byName.get(n)?.matter ?? 1);
+    }
+    return atoms / rnum(made);
+  };
   const gcdN = (a, b) => (b ? gcdN(b, a % b) : a);
   /**
    * A runaway guard, and now a load-bearing one.
@@ -125,6 +158,41 @@ export function balanceTargets(graph, rawSpec, solveWith) {
   const ratio = feed.size > 0;
   if (ratio) { amounts = names.map(() => 1); plan = solve(amounts); feed = feedOf(plan); }
 
+  /**
+   * The proportion first, before the quotation is folded in.
+   *
+   * Sparr: the balancer should prefer the ratio the feed actually gives.
+   *
+   * Folding first locks whatever proportion was typed. One Tantalum, one
+   * Niobium and one Fluorine Gas out of Columbite and Lepidolite comes back
+   * quoted at twelve, so the amounts became twelve of each and every later
+   * step asked how to make 1:1:1 bigger -- when the ore gives 2:2:1, which is
+   * four, four and two on a quarter of the feed.
+   *
+   * Raising one at a time cannot find it either: one of each costs 1.33 ore a
+   * thing, two-one-one costs 1.50, and two-two-one costs 1.20. The good
+   * proportion sits behind a worse one on every single-coordinate path, so
+   * pairs move together here, and only where that is strictly cheaper per
+   * thing made -- on flat ground a pair step walks for ever, which took
+   * Tantalum and Niobium to fifty-seven of each before this was pinned down.
+   */
+  if (ratio && names.length > 1) {
+    let per = perThing(plan);
+    for (let i = 0; i < amounts.length && budget > 0; i++) {
+      for (let j = i + 1; j < amounts.length && budget > 0; j++) {
+        for (;;) {
+          const trial = [...amounts];
+          trial[i] += 1; trial[j] += 1;
+          if (trial[i] > CEILING || trial[j] > CEILING) break;
+          const q = solve(trial);
+          if (!q || !(perThing(q) < per - 1e-9)) break;
+          amounts = trial; plan = q; per = perThing(q);
+        }
+      }
+    }
+    feed = feedOf(plan);
+  }
+
   for (let round = 0; round < 3 && plan; round++) {
     let moved = false;
     // Say what you get, not what you asked for before it was rounded up.
@@ -159,11 +227,24 @@ export function balanceTargets(graph, rawSpec, solveWith) {
       // Only where there is a ratio: with one product the number is not a
       // proportion to be reduced, it is the answer, and dividing it out puts
       // the spare straight back.
+      /**
+       * Every divisor, not just the whole of it.
+       *
+       * Four Tantalum and four Niobium is two and two said twice, and the
+       * reduction only ever tried the full common factor: four into one, which
+       * the plan quotes back at four, so it was refused and the fours stood.
+       * Halving is what was wanted, and it is the same test one step less far.
+       * Largest reduction first, so the smallest honest numbers win.
+       */
       const g = names.length > 1 ? amounts.reduce(gcdN) : 1;
-      if (g > 1) {
-        const smaller = amounts.map((a) => a / g);
+      for (let d = g; d > 1 && budget > 0; d--) {
+        if (g % d !== 0) continue;
+        const smaller = amounts.map((a) => a / d);
         const r = solve(smaller);
-        if (r && r.scale.n === 1n) { amounts = smaller; plan = r; feed = feedOf(plan); moved = true; }
+        if (r && r.scale.n === 1n) {
+          amounts = smaller; plan = r; feed = feedOf(plan); moved = true;
+          break;
+        }
       }
     }
     if (!moved) break;

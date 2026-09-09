@@ -93,7 +93,20 @@ console.log('--- starting a wheel on what it makes');
 
   const metals = ask([['Tantalum', 2], ['Niobium', 2]]);
   const andF2 = ask([['Tantalum', 2], ['Niobium', 2], ['Fluorine Gas', 1]]);
+  /**
+   * And the amounts are the proportion the ore gives, not the one typed.
+   *
+   * One of each comes back quoted at twelve of each on forty-eight Lepidolite.
+   * Two, two and one is four, four and two on twelve -- 28 atoms a thing
+   * against 33 -- and it is what the ore hands out: the Columbite chain leaves
+   * two Hydrofluoric Acid a cycle, which electrolyses to one Fluorine Gas.
+   */
+  const balanced = balanceTargets(graph,
+    { targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 },
+                { name: 'Fluorine Gas', amount: 1 }], have: both }, solveFresh);
   const wheelChecks = [
+    ['the amounts come out in the proportion the ore gives, two to two to one',
+     balanced.map((t) => t.amount).join('/') === '4/4/2'],
     ['asking for the fluorine as well adds only the electrolysis',
      andF2.steps.some((s) => /Electrolysis Hydrofluoric Acid/i.test(s.process.label)) &&
      metals.steps.every((s) => andF2.steps.some((t) => t.process.id === s.process.id))],
