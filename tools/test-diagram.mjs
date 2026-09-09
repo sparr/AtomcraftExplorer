@@ -12,6 +12,7 @@ import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
 import { solveFresh } from '../src/plan-fresh.js';
 import { layoutPlan, relax, crossings, SPACING } from '../src/plan-diagram.js';
+import { planToDot } from '../src/plan-dot.js';
 
 globalThis.fetch = async () => ({
   ok: true,
@@ -186,6 +187,42 @@ for (const [what, ask] of plans) {
   check(last < 0.02, `the springs come to rest (${last.toFixed(4)} a node still moving)`);
   check(state.nodes.map((n) => n.rank).join(',') === before,
         'and nothing changed column while they did');
+}
+
+/**
+ * And the same graph, written out for anything that speaks DOT.
+ *
+ * Sparr: try emitting DOT and letting graphviz lay it out. Worth having
+ * whichever way that goes, because it separates two questions that had got
+ * tangled: what the graph *is* is settled in one place and is the same graph
+ * whoever draws it, and where the boxes go is somebody else's problem.
+ */
+console.log('\n--- written out as DOT');
+{
+  const plan = solveFresh(graph, {
+    targets: [{ name: 'Tantalum', amount: 2 }, { name: 'Niobium', amount: 2 }],
+    have: ['Columbite', 'Lepidolite'], sources: ['world'] });
+  const dot = planToDot(plan);
+  check(dot.startsWith('digraph plan {') && dot.trimEnd().endsWith('}'),
+        'it is a digraph');
+  // Every reaction, and the three ends of the plan.
+  const boxes = [...dot.matchAll(/^\s+"([^"]+)"\s+\[label=/gm)].map((m) => m[1]);
+  check(boxes.filter((b) => b.startsWith('s:')).length === plan.steps.length,
+        `a box for each of the ${plan.steps.length} steps`);
+  check(['in', 'out', 'prime'].every((e) => boxes.includes(e)),
+        'and one for each end of the plan');
+  // Every arrow says what it carries.
+  const arrows = [...dot.matchAll(/^\s+"[^"]+" -> "[^"]+" \[label="([^"]*)"/gm)].map((m) => m[1]);
+  check(arrows.length > 0 && arrows.every((a) => a.length > 0),
+        `${arrows.length} arrows, each naming what it carries`);
+  // Quotes in a material name would end the string early; nothing in the game
+  // has one today, which is exactly when an escape stops being tested.
+  check(planToDot({ ...plan, steps: [] }) === 'digraph plan {}\n',
+        'and an empty plan is an empty graph rather than a broken one');
+
+  const withMaterials = planToDot(plan, { materials: true });
+  check(/shape=ellipse/.test(withMaterials),
+        'asked for materials, they come as nodes of their own');
 }
 
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
