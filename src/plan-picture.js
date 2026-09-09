@@ -21,11 +21,11 @@ const make = (tag, attrs = {}) => {
 const PAD = 30;
 const BOX = { w: 150, h: 34 };
 
-export function drawPlan(host, plan, { onPick, across = false } = {}) {
+export function drawPlan(host, plan, { onPick, across = false, materials = false } = {}) {
   host.textContent = '';
   // The room a box needs depends on which way the picture runs, so the layout
   // is told before it starts rather than turned afterwards.
-  const state = layoutPlan(plan, across ? SPACING.across : SPACING.down);
+  const state = layoutPlan(plan, { ...(across ? SPACING.across : SPACING.down), materials });
   if (!state.nodes.length) {
     const empty = document.createElement('p');
     empty.className = 'muted';
@@ -96,19 +96,37 @@ export function drawPlan(host, plan, { onPick, across = false } = {}) {
 
   const drawn = [];
   for (const w of state.wires) {
-    const line = make('path', { class: 'plan-wire' + (w.back ? ' plan-wire-loop' : ''),
+    const line = make('path', { class: 'plan-wire' + (w.back ? ' plan-wire-loop' : '')
+                                + (w.role ? ` plan-wire-${w.role}` : ''),
                                 'marker-end': 'url(#plan-arrow)' });
     wires.append(line);
-    drawn.push([w, line]);
+    let tag = null;
+    if (w.label) {
+      /**
+       * The material, written on the arrow that carries it.
+       *
+       * Put where the line has the most room -- at its middle waypoint if it
+       * has one, since that is a column the line was given to itself, and at
+       * the halfway mark otherwise.
+       */
+      tag = make('text', { class: 'plan-wire-label' });
+      tag.textContent = w.label.length > 22 ? `${w.label.slice(0, 21)}…` : w.label;
+      const full = make('title');
+      full.textContent = w.label;
+      tag.append(full);
+      wires.append(tag);
+    }
+    drawn.push([w, line, tag]);
   }
 
   for (const n of state.nodes) {
     if (n.kind === 'bend') continue;                 // a place for a line to stand, not a thing
-    const g = make('g', { class: `plan-node plan-${n.kind}` + (n.role ? ` plan-role-${n.role}` : '') });
+    const g = make('g', { class: `plan-node plan-${n.kind}`
+      + (n.pseudo ? ' plan-pseudo' : '') + (n.role ? ` plan-role-${n.role}` : '') });
     g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
                             width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
     const label = make('text', { class: 'plan-node-label', x: 0, y: 4 });
-    const shown = n.kind === 'step' ? `${n.runs}× ${n.label}`
+    const shown = n.pseudo ? n.label : n.kind === 'step' ? `${n.runs}× ${n.label}`
       : (n.amount !== null && n.amount !== undefined ? `${n.amount} ${n.label}` : n.label);
     label.textContent = shown.length > 24 ? `${shown.slice(0, 23)}…` : shown;
     const full = make('title');
@@ -146,7 +164,7 @@ export function drawPlan(host, plan, { onPick, across = false } = {}) {
     for (const n of state.nodes) {
       if (n.el) n.el.setAttribute('transform', `translate(${sx(n)},${sy(n)})`);
     }
-    for (const [w, line] of drawn) {
+    for (const [w, line, tag] of drawn) {
       const pts = w.points;
       const a = pts[0];
       const b = pts[pts.length - 1];
@@ -156,10 +174,24 @@ export function drawPlan(host, plan, { onPick, across = false } = {}) {
         // bowed hopefully over the top.
         const stops = [into(a), ...pts.slice(1, -1).map(mid), out(b)];
         line.setAttribute('d', thread(stops));
+        if (tag) {
+          const at = pts.length > 2 ? mid(pts[(pts.length - 1) >> 1])
+            : { x: (stops[0].x + stops[stops.length - 1].x) / 2,
+                y: (stops[0].y + stops[stops.length - 1].y) / 2 };
+          tag.setAttribute('x', at.x);
+          tag.setAttribute('y', at.y - 4);
+        }
         continue;
       }
       const stops = [out(a), ...pts.slice(1, -1).map(mid), into(b)];
       line.setAttribute('d', thread(stops));
+      if (tag) {
+        const at = pts.length > 2 ? mid(pts[(pts.length - 1) >> 1])
+          : { x: (stops[0].x + stops[stops.length - 1].x) / 2,
+              y: (stops[0].y + stops[stops.length - 1].y) / 2 };
+        tag.setAttribute('x', at.x);
+        tag.setAttribute('y', at.y - 4);
+      }
     }
     svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     svg.setAttribute('width', view.w);

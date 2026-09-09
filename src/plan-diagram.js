@@ -195,7 +195,8 @@ export const SPACING = {
   across: { gapX: 72, gapY: 176 },      // flow top to bottom, the boxes side by side
 };
 
-export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
+export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
+                                  materials = false } = {}) {
   if (!plan || !plan.steps) return { nodes: [], edges: [], width: 0, height: 0 };
   const nodes = [];
   const edges = [];
@@ -233,11 +234,106 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
                    kindOf: step.process.kind };
     seen.set(id, node);
     nodes.push(node);
-    for (const i of step.process.consumes || []) {
-      edges.push({ from: material(i.name).id, to: id, count: i.count });
+  }
+
+  if (materials) {
+    for (const step of plan.steps) {
+      const id = `s:${step.process.id}`;
+      for (const i of step.process.consumes || []) {
+        edges.push({ from: material(i.name).id, to: id, count: i.count });
+      }
+      for (const o of step.process.produces || []) {
+        edges.push({ from: id, to: material(o.name).id, count: o.count });
+      }
     }
-    for (const o of step.process.produces || []) {
-      edges.push({ from: id, to: material(o.name).id, count: o.count });
+  } else {
+    /**
+     * Sparr: a node for every material as well as every reaction may be too
+     * busy -- put the reactions on the nodes and the materials on the arrows.
+     *
+     * It is the denser drawing and it says the same thing. A material with one
+     * maker and one user was three marks and two arrows; it is now one arrow
+     * with a word on it. Where a material has several makers or several users
+     * the arrows multiply instead, which is honest: that really is a place
+     * where the reader has to decide which supply feeds which use.
+     *
+     * The three ends of a plan need somewhere to attach, so they become
+     * reactions of a sort: everything the reader brings comes out of "what you
+     * put in", everything left at the end goes into "what you get", and a
+     * charge is laid in by "what you start with". Without them the arrows that
+     * matter most -- the ore going in, the metal coming out -- would have only
+     * one end.
+     */
+    const pseudo = (id, label, role) => {
+      if (seen.has(id)) return seen.get(id);
+      const node = { id, kind: STEP, pseudo: true, label, name: label, role };
+      seen.set(id, node);
+      nodes.push(node);
+      return node;
+    };
+    const makers = new Map();
+    const users = new Map();
+    for (const step of plan.steps) {
+      const id = `s:${step.process.id}`;
+      for (const o of step.process.produces || []) {
+        if (!makers.has(o.name)) makers.set(o.name, []);
+        makers.get(o.name).push([id, o.count]);
+      }
+      for (const i of step.process.consumes || []) {
+        if (!users.has(i.name)) users.set(i.name, []);
+        users.get(i.name).push([id, i.count]);
+      }
+    }
+    const brought = new Set([...plan.feed.map((f) => f.name), ...plan.frontier.map((f) => f.name)]);
+    const primed = new Set(plan.priming.map((c) => c.name));
+    const kept = new Set([...plan.spec.targets.map((t) => t.name),
+                          ...plan.byproducts.map((b) => b.name)]);
+
+    for (const name of new Set([...makers.keys(), ...users.keys()])) {
+      const from = makers.get(name) || [];
+      const to = users.get(name) || [];
+      const label = name;
+      for (const [a] of from) {
+        for (const [b] of to) edges.push({ from: a, to: b, label, role: 'inner' });
+      }
+      if (brought.has(name) && to.length) {
+        const src = pseudo('in', 'what you put in', 'have');
+        for (const [b] of to) edges.push({ from: src.id, to: b, label, role: roleOf(name) });
+      }
+      if (primed.has(name) && to.length) {
+        const src = pseudo('prime', 'what you start with', 'prime');
+        for (const [b] of to) edges.push({ from: src.id, to: b, label, role: 'prime' });
+      }
+      if (kept.has(name) && from.length) {
+        const sink = pseudo('out', 'what you get', 'want');
+        for (const [a] of from) edges.push({ from: a, to: sink.id, label, role: roleOf(name) });
+      }
+    }
+  }
+
+  /**
+   * One arrow between any two reactions, however many things it carries.
+   *
+   * Three decompositions of the same ore all hand their steam to the same
+   * condenser, and drawn as three arrows between the same two boxes they are
+   * three lines on top of each other saying one thing. Joined into one, with
+   * both names on it, the Columbite plan drops from eighty-seven arrows to
+   * rather fewer and from three hundred crossings to something a reader can
+   * follow.
+   */
+  if (!materials) {
+    const joined = new Map();
+    for (const e of edges) {
+      const key = `${e.from}\u0000${e.to}`;
+      const had = joined.get(key);
+      if (!had) { joined.set(key, { ...e, labels: [e.label] }); continue; }
+      if (e.label && !had.labels.includes(e.label)) had.labels.push(e.label);
+    }
+    edges.length = 0;
+    for (const e of joined.values()) {
+      e.label = e.labels.filter(Boolean).join(', ');
+      delete e.labels;
+      edges.push(e);
     }
   }
 
@@ -283,7 +379,8 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
     const hi = Math.max(a.rank, b.rank);
     if (hi - lo <= 1) {
       segments.push(e);
-      wires.push({ from: e.from, to: e.to, back: e.back, count: e.count, points: [a, b] });
+      wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
+                   label: e.label, role: e.role, points: [a, b] });
       continue;
     }
     const low = a.rank < b.rank ? a : b;
@@ -300,7 +397,8 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
     segments.push({ from: last.id, to: high.id, bend: true });
     // Drawn the way the arrow is read, which for a closing edge is backwards.
     const points = a === low ? [a, ...through, b] : [a, ...through.reverse(), b];
-    wires.push({ from: e.from, to: e.to, back: e.back, count: e.count, points });
+    wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
+                 label: e.label, role: e.role, points });
   }
 
   const byRank = new Map();

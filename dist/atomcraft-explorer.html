@@ -1061,6 +1061,28 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 /* The edges that close a wheel, which are the only ones read right to left. */
 .plan-wire-loop { stroke: var(--accent-dim); stroke-dasharray: 4 3; }
 
+/*
+ * The material, written on the arrow that carries it. Small, and in the ink
+ * the arrows are drawn in, so the boxes stay the thing you read first.
+ */
+.plan-wire-label {
+  fill: var(--fg-faint);
+  font: 10px var(--mono);
+  text-anchor: middle;
+  pointer-events: none;
+}
+/* What the reader brings and what they take away, on their own arrows. */
+.plan-wire-have, .plan-wire-fetch { stroke: var(--warm); }
+.plan-wire-want { stroke: var(--accent); }
+.plan-wire-prime { stroke: var(--ok); stroke-dasharray: 2 3; }
+
+/*
+ * The three ends of a plan, drawn as reactions of a sort so the arrows that
+ * matter most have somewhere to attach.
+ */
+.plan-pseudo .plan-node-box { fill: var(--bg); stroke-dasharray: 5 3; }
+.plan-pseudo .plan-node-label { fill: var(--fg-dim); }
+
 .plan-node { cursor: grab; }
 .plan-node:active { cursor: grabbing; }
 .plan-node-box { fill: var(--bg-raised); stroke: var(--line); stroke-width: 1; }
@@ -1206,6 +1228,9 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
     </section>
     <section id="plan-picture" class="plan-picture" hidden>
       <div class="plan-picture-head">
+        <button id="plan-picture-materials" class="ghost small" aria-pressed="false"
+                title="Draw every material as its own node, rather than as a word on an arrow"
+                >Show materials</button>
         <button id="plan-picture-turn" class="ghost small"
                 title="Swap rows for columns">Turn it</button>
       </div>
@@ -10121,7 +10146,8 @@ const SPACING = {
   across: { gapX: 72, gapY: 176 },      // flow top to bottom, the boxes side by side
 };
 
-function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
+function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
+                                  materials = false } = {}) {
   if (!plan || !plan.steps) return { nodes: [], edges: [], width: 0, height: 0 };
   const nodes = [];
   const edges = [];
@@ -10159,11 +10185,106 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
                    kindOf: step.process.kind };
     seen.set(id, node);
     nodes.push(node);
-    for (const i of step.process.consumes || []) {
-      edges.push({ from: material(i.name).id, to: id, count: i.count });
+  }
+
+  if (materials) {
+    for (const step of plan.steps) {
+      const id = `s:${step.process.id}`;
+      for (const i of step.process.consumes || []) {
+        edges.push({ from: material(i.name).id, to: id, count: i.count });
+      }
+      for (const o of step.process.produces || []) {
+        edges.push({ from: id, to: material(o.name).id, count: o.count });
+      }
     }
-    for (const o of step.process.produces || []) {
-      edges.push({ from: id, to: material(o.name).id, count: o.count });
+  } else {
+    /**
+     * Sparr: a node for every material as well as every reaction may be too
+     * busy -- put the reactions on the nodes and the materials on the arrows.
+     *
+     * It is the denser drawing and it says the same thing. A material with one
+     * maker and one user was three marks and two arrows; it is now one arrow
+     * with a word on it. Where a material has several makers or several users
+     * the arrows multiply instead, which is honest: that really is a place
+     * where the reader has to decide which supply feeds which use.
+     *
+     * The three ends of a plan need somewhere to attach, so they become
+     * reactions of a sort: everything the reader brings comes out of "what you
+     * put in", everything left at the end goes into "what you get", and a
+     * charge is laid in by "what you start with". Without them the arrows that
+     * matter most -- the ore going in, the metal coming out -- would have only
+     * one end.
+     */
+    const pseudo = (id, label, role) => {
+      if (seen.has(id)) return seen.get(id);
+      const node = { id, kind: STEP, pseudo: true, label, name: label, role };
+      seen.set(id, node);
+      nodes.push(node);
+      return node;
+    };
+    const makers = new Map();
+    const users = new Map();
+    for (const step of plan.steps) {
+      const id = `s:${step.process.id}`;
+      for (const o of step.process.produces || []) {
+        if (!makers.has(o.name)) makers.set(o.name, []);
+        makers.get(o.name).push([id, o.count]);
+      }
+      for (const i of step.process.consumes || []) {
+        if (!users.has(i.name)) users.set(i.name, []);
+        users.get(i.name).push([id, i.count]);
+      }
+    }
+    const brought = new Set([...plan.feed.map((f) => f.name), ...plan.frontier.map((f) => f.name)]);
+    const primed = new Set(plan.priming.map((c) => c.name));
+    const kept = new Set([...plan.spec.targets.map((t) => t.name),
+                          ...plan.byproducts.map((b) => b.name)]);
+
+    for (const name of new Set([...makers.keys(), ...users.keys()])) {
+      const from = makers.get(name) || [];
+      const to = users.get(name) || [];
+      const label = name;
+      for (const [a] of from) {
+        for (const [b] of to) edges.push({ from: a, to: b, label, role: 'inner' });
+      }
+      if (brought.has(name) && to.length) {
+        const src = pseudo('in', 'what you put in', 'have');
+        for (const [b] of to) edges.push({ from: src.id, to: b, label, role: roleOf(name) });
+      }
+      if (primed.has(name) && to.length) {
+        const src = pseudo('prime', 'what you start with', 'prime');
+        for (const [b] of to) edges.push({ from: src.id, to: b, label, role: 'prime' });
+      }
+      if (kept.has(name) && from.length) {
+        const sink = pseudo('out', 'what you get', 'want');
+        for (const [a] of from) edges.push({ from: a, to: sink.id, label, role: roleOf(name) });
+      }
+    }
+  }
+
+  /**
+   * One arrow between any two reactions, however many things it carries.
+   *
+   * Three decompositions of the same ore all hand their steam to the same
+   * condenser, and drawn as three arrows between the same two boxes they are
+   * three lines on top of each other saying one thing. Joined into one, with
+   * both names on it, the Columbite plan drops from eighty-seven arrows to
+   * rather fewer and from three hundred crossings to something a reader can
+   * follow.
+   */
+  if (!materials) {
+    const joined = new Map();
+    for (const e of edges) {
+      const key = `${e.from}\u0000${e.to}`;
+      const had = joined.get(key);
+      if (!had) { joined.set(key, { ...e, labels: [e.label] }); continue; }
+      if (e.label && !had.labels.includes(e.label)) had.labels.push(e.label);
+    }
+    edges.length = 0;
+    for (const e of joined.values()) {
+      e.label = e.labels.filter(Boolean).join(', ');
+      delete e.labels;
+      edges.push(e);
     }
   }
 
@@ -10209,7 +10330,8 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
     const hi = Math.max(a.rank, b.rank);
     if (hi - lo <= 1) {
       segments.push(e);
-      wires.push({ from: e.from, to: e.to, back: e.back, count: e.count, points: [a, b] });
+      wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
+                   label: e.label, role: e.role, points: [a, b] });
       continue;
     }
     const low = a.rank < b.rank ? a : b;
@@ -10226,7 +10348,8 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
     segments.push({ from: last.id, to: high.id, bend: true });
     // Drawn the way the arrow is read, which for a closing edge is backwards.
     const points = a === low ? [a, ...through, b] : [a, ...through.reverse(), b];
-    wires.push({ from: e.from, to: e.to, back: e.back, count: e.count, points });
+    wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
+                 label: e.label, role: e.role, points });
   }
 
   const byRank = new Map();
@@ -10415,11 +10538,11 @@ const make = (tag, attrs = {}) => {
 const PAD = 30;
 const BOX = { w: 150, h: 34 };
 
-function drawPlan(host, plan, { onPick, across = false } = {}) {
+function drawPlan(host, plan, { onPick, across = false, materials = false } = {}) {
   host.textContent = '';
   // The room a box needs depends on which way the picture runs, so the layout
   // is told before it starts rather than turned afterwards.
-  const state = layoutPlan(plan, across ? SPACING.across : SPACING.down);
+  const state = layoutPlan(plan, { ...(across ? SPACING.across : SPACING.down), materials });
   if (!state.nodes.length) {
     const empty = document.createElement('p');
     empty.className = 'muted';
@@ -10490,19 +10613,37 @@ function drawPlan(host, plan, { onPick, across = false } = {}) {
 
   const drawn = [];
   for (const w of state.wires) {
-    const line = make('path', { class: 'plan-wire' + (w.back ? ' plan-wire-loop' : ''),
+    const line = make('path', { class: 'plan-wire' + (w.back ? ' plan-wire-loop' : '')
+                                + (w.role ? ` plan-wire-${w.role}` : ''),
                                 'marker-end': 'url(#plan-arrow)' });
     wires.append(line);
-    drawn.push([w, line]);
+    let tag = null;
+    if (w.label) {
+      /**
+       * The material, written on the arrow that carries it.
+       *
+       * Put where the line has the most room -- at its middle waypoint if it
+       * has one, since that is a column the line was given to itself, and at
+       * the halfway mark otherwise.
+       */
+      tag = make('text', { class: 'plan-wire-label' });
+      tag.textContent = w.label.length > 22 ? `${w.label.slice(0, 21)}…` : w.label;
+      const full = make('title');
+      full.textContent = w.label;
+      tag.append(full);
+      wires.append(tag);
+    }
+    drawn.push([w, line, tag]);
   }
 
   for (const n of state.nodes) {
     if (n.kind === 'bend') continue;                 // a place for a line to stand, not a thing
-    const g = make('g', { class: `plan-node plan-${n.kind}` + (n.role ? ` plan-role-${n.role}` : '') });
+    const g = make('g', { class: `plan-node plan-${n.kind}`
+      + (n.pseudo ? ' plan-pseudo' : '') + (n.role ? ` plan-role-${n.role}` : '') });
     g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
                             width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
     const label = make('text', { class: 'plan-node-label', x: 0, y: 4 });
-    const shown = n.kind === 'step' ? `${n.runs}× ${n.label}`
+    const shown = n.pseudo ? n.label : n.kind === 'step' ? `${n.runs}× ${n.label}`
       : (n.amount !== null && n.amount !== undefined ? `${n.amount} ${n.label}` : n.label);
     label.textContent = shown.length > 24 ? `${shown.slice(0, 23)}…` : shown;
     const full = make('title');
@@ -10540,7 +10681,7 @@ function drawPlan(host, plan, { onPick, across = false } = {}) {
     for (const n of state.nodes) {
       if (n.el) n.el.setAttribute('transform', `translate(${sx(n)},${sy(n)})`);
     }
-    for (const [w, line] of drawn) {
+    for (const [w, line, tag] of drawn) {
       const pts = w.points;
       const a = pts[0];
       const b = pts[pts.length - 1];
@@ -10550,10 +10691,24 @@ function drawPlan(host, plan, { onPick, across = false } = {}) {
         // bowed hopefully over the top.
         const stops = [into(a), ...pts.slice(1, -1).map(mid), out(b)];
         line.setAttribute('d', thread(stops));
+        if (tag) {
+          const at = pts.length > 2 ? mid(pts[(pts.length - 1) >> 1])
+            : { x: (stops[0].x + stops[stops.length - 1].x) / 2,
+                y: (stops[0].y + stops[stops.length - 1].y) / 2 };
+          tag.setAttribute('x', at.x);
+          tag.setAttribute('y', at.y - 4);
+        }
         continue;
       }
       const stops = [out(a), ...pts.slice(1, -1).map(mid), into(b)];
       line.setAttribute('d', thread(stops));
+      if (tag) {
+        const at = pts.length > 2 ? mid(pts[(pts.length - 1) >> 1])
+          : { x: (stops[0].x + stops[stops.length - 1].x) / 2,
+              y: (stops[0].y + stops[stops.length - 1].y) / 2 };
+        tag.setAttribute('x', at.x);
+        tag.setAttribute('y', at.y - 4);
+      }
     }
     svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     svg.setAttribute('width', view.w);
@@ -12281,6 +12436,7 @@ function render() {
 let picture = null;
 let showPicture = false;
 let acrossPicture = false;
+let materialNodes = false;
 function renderPicture() {
   const host = $('#plan-picture');
   host.hidden = !showPicture || !solved;
@@ -12289,6 +12445,7 @@ function renderPicture() {
   picture = drawPlan($('#plan-picture-canvas'), solved, {
     onPick: (name) => edit(selectMaterial, name),
     across: acrossPicture,
+    materials: materialNodes,
   });
 }
 
@@ -12373,6 +12530,12 @@ function initPlan(context) {
   });
   $('#toggle-plan-picture').addEventListener('click', togglePicture);
   // Rows or columns, since a plan is a long thin thing and a page scrolls down.
+  // Reactions with the materials written on the arrows, or a node for each.
+  $('#plan-picture-materials').addEventListener('click', () => {
+    materialNodes = !materialNodes;
+    $('#plan-picture-materials').setAttribute('aria-pressed', String(materialNodes));
+    renderPicture();
+  });
   $('#plan-picture-turn').addEventListener('click', () => {
     acrossPicture = !acrossPicture;
     $('#plan-picture-turn').setAttribute('aria-pressed', String(acrossPicture));

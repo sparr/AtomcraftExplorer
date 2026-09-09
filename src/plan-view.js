@@ -1498,6 +1498,7 @@ export function render() {
 let picture = null;
 let showPicture = false;
 let acrossPicture = false;
+let materialNodes = false;
 function renderPicture() {
   const host = $('#plan-picture');
   host.hidden = !showPicture || !solved;
@@ -1506,6 +1507,7 @@ function renderPicture() {
   picture = drawPlan($('#plan-picture-canvas'), solved, {
     onPick: (name) => edit(selectMaterial, name),
     across: acrossPicture,
+    materials: materialNodes,
   });
 }
 
@@ -1590,6 +1592,12 @@ export function initPlan(context) {
   });
   $('#toggle-plan-picture').addEventListener('click', togglePicture);
   // Rows or columns, since a plan is a long thin thing and a page scrolls down.
+  // Reactions with the materials written on the arrows, or a node for each.
+  $('#plan-picture-materials').addEventListener('click', () => {
+    materialNodes = !materialNodes;
+    $('#plan-picture-materials').setAttribute('aria-pressed', String(materialNodes));
+    renderPicture();
+  });
   $('#plan-picture-turn').addEventListener('click', () => {
     acrossPicture = !acrossPicture;
     $('#plan-picture-turn').setAttribute('aria-pressed', String(acrossPicture));

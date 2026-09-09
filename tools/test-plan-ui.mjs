@@ -925,9 +925,21 @@ console.log('\n--- the plan, drawn');
   const wires = nodes(canvas(), 'plan-wire');
   check(boxes.length > 10 && wires.length > boxes.length,
         `with ${boxes.length} things and ${wires.length} arrows between them`);
-  const steps = nodes(canvas(), 'plan-step');
-  check(steps.length === nodes($('#plan-steps'), 'plan-step').length,
-        `a box for every step in the table: ${steps.length}`);
+  // Reactions on the boxes, materials written on the arrows, and the three
+  // ends of the plan drawn as reactions of a sort so those arrows attach.
+  const real = nodes(canvas(), 'plan-step').filter((n) => !n.classList.contains('plan-pseudo'));
+  check(real.length === nodes($('#plan-steps'), 'plan-step').length,
+        `a box for every step in the table: ${real.length}`);
+  check(nodes(canvas(), 'plan-pseudo').length > 0, 'with the ends of the plan beside them');
+  check(nodes(canvas(), 'plan-wire-label').length > 0, 'and the arrows saying what they carry');
+  check(!nodes(canvas(), 'plan-material').length, 'no material having a box of its own');
+
+  // Unless asked, in which case every material gets one.
+  $('#plan-picture-materials').click();
+  check(nodes(canvas(), 'plan-material').length > 0,
+        `asked for them, materials get boxes: ${nodes(canvas(), 'plan-material').length}`);
+  $('#plan-picture-materials').click();
+  check(!nodes(canvas(), 'plan-material').length, 'and pressing again puts them away');
   // The loop-closing arrows are drawn differently, being the only ones that
   // read right to left.
   check(nodes(canvas(), 'plan-wire-loop').length > 0,

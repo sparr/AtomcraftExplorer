@@ -42,9 +42,33 @@ for (const [what, ask] of plans) {
 
   // Both halves of the plan are there: a box for every step, a chip for every
   // material any step touches.
-  const steps = state.nodes.filter((n) => n.kind === 'step');
+  const steps = state.nodes.filter((n) => n.kind === 'step' && !n.pseudo);
   check(steps.length === plan.steps.length,
         `a box for each of the ${plan.steps.length} steps`);
+
+  /**
+   * Sparr: put the reactions on the nodes and the materials on the arrows,
+   * with input, output and primer as pseudo-reactions for those connections.
+   *
+   * Which is the default drawing now. A material with one maker and one user
+   * was three marks and two arrows and is now one arrow with a word on it;
+   * where it has several of either the arrows multiply instead, which is
+   * honest, since that is a place the reader has to decide which supply feeds
+   * which use. The three ends of the plan need somewhere to attach or the
+   * arrows that matter most -- the ore in, the metal out -- have only one end.
+   */
+  check(!state.nodes.some((n) => n.kind === 'material'),
+        'no material has a box of its own');
+  const ends = state.nodes.filter((n) => n.pseudo).map((n) => n.id).sort();
+  check(ends.length > 0, `the ends of the plan are reactions of a sort: ${ends.join(', ')}`);
+  const unlabelled = state.wires.filter((w) => !w.label);
+  check(!unlabelled.length,
+        `every one of the ${state.wires.length} arrows says what it carries`);
+
+  // And the other drawing is still there, with a box for every material.
+  const full = layoutPlan(plan, { materials: true });
+  check(full.nodes.some((n) => n.kind === 'material'),
+        `asked for materials, ${full.nodes.filter((n) => n.kind === 'material').length} get boxes`);
 
   /**
    * Every arrow points right, bar the ones that close a wheel.

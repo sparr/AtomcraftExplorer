@@ -1054,6 +1054,28 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 /* The edges that close a wheel, which are the only ones read right to left. */
 .plan-wire-loop { stroke: var(--accent-dim); stroke-dasharray: 4 3; }
 
+/*
+ * The material, written on the arrow that carries it. Small, and in the ink
+ * the arrows are drawn in, so the boxes stay the thing you read first.
+ */
+.plan-wire-label {
+  fill: var(--fg-faint);
+  font: 10px var(--mono);
+  text-anchor: middle;
+  pointer-events: none;
+}
+/* What the reader brings and what they take away, on their own arrows. */
+.plan-wire-have, .plan-wire-fetch { stroke: var(--warm); }
+.plan-wire-want { stroke: var(--accent); }
+.plan-wire-prime { stroke: var(--ok); stroke-dasharray: 2 3; }
+
+/*
+ * The three ends of a plan, drawn as reactions of a sort so the arrows that
+ * matter most have somewhere to attach.
+ */
+.plan-pseudo .plan-node-box { fill: var(--bg); stroke-dasharray: 5 3; }
+.plan-pseudo .plan-node-label { fill: var(--fg-dim); }
+
 .plan-node { cursor: grab; }
 .plan-node:active { cursor: grabbing; }
 .plan-node-box { fill: var(--bg-raised); stroke: var(--line); stroke-width: 1; }
