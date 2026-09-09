@@ -8951,7 +8951,29 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
     }
 
-    let guard = steps.length * 64 + 64;
+    /**
+     * A backstop, and it has to be sized by the work and not the parts.
+     *
+     * Sparr: the electrolysis does not run a fixed sixteen times, it runs
+     * sixteen times per four Dolomite.
+     *
+     * Which is the point at which this broke. A loop yields one turn a sweep,
+     * so the sweeps needed grow with the number of runs, while this was
+     * counting steps: fourteen steps bought nine hundred and sixty sweeps
+     * whether the plan made eight aluminium or four hundred. Past about a
+     * hundred and twenty turns it ran out mid-factory, gave up on the ordering
+     * and charged for everything still owed -- three Carbon at 240, eighty-two
+     * at 320. The answer got worse as the plan got bigger, and faster, which
+     * is what giving up looks like.
+     *
+     * The pass ends on its own account: every round either turns something or
+     * lays something in, and a charge is always enough to turn what it was
+     * laid in for. This is only here in case that reasoning is wrong, so it is
+     * set well above what the work can need.
+     */
+    let totalRuns = 0;
+    for (const step of steps) totalRuns += rnum(step.runs);
+    let guard = steps.length * 64 + 64 + Math.ceil(totalRuns) * 8;
     for (;;) {
       const left = stillOwed();
       if (!left.length || guard-- <= 0) break;
