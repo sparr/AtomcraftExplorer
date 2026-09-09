@@ -1102,6 +1102,14 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .plan-role-fetch .plan-node-box { stroke: var(--warm); }
 .plan-role-want .plan-node-box { stroke: var(--accent); stroke-width: 2; }
 .plan-role-spare .plan-node-box { stroke: var(--line-soft); }
+
+/*
+ * Sparr: what you have and what you asked for get solid borders; what is
+ * fetched, left over or laid in stays dashed. A solid box is one end of the
+ * errand; a dashed one is a loose end.
+ */
+.plan-role-fetch .plan-node-box,
+.plan-role-spare .plan-node-box { stroke-dasharray: 4 3; }
 .plan-role-spare .plan-node-label { fill: var(--fg-faint); }
 
 /*

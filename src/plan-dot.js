@@ -148,8 +148,21 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
      * means. Nothing about the position carries it.
      */
     const mark = n.role === 'prime' ? '\\n(primer)' : '';
+    /**
+     * Sparr: what you have and what you asked for get solid borders; what is
+     * fetched, left over or laid in stays dashed.
+     *
+     * Which draws the line where the reader's attention goes. A solid box is
+     * one end of the errand -- the stock in hand and the thing it is for. A
+     * dashed one is a loose end: something to go and buy, something to hold
+     * before starting, something swept up afterwards. Two kinds of box for two
+     * kinds of fact, rather than one dashed outline for everything that is not
+     * a reaction.
+     */
+    const solid = n.role === 'have' || n.role === 'want';
     say(`  ${id(n.id)} [label="${esc(n.label)}${mark}" `
-        + `shape=box style="rounded,dashed,filled" color="${paint[n.role] || '#3a4553'}" `
+        + `shape=box style="rounded,${solid ? '' : 'dashed,'}filled" `
+        + `color="${paint[n.role] || '#3a4553'}" `
         + `fillcolor="#0a0d12" fontsize=10${n.role === 'prime' ? ' penwidth=2' : ''}];`);
   }
   /**
