@@ -275,8 +275,15 @@ console.log('\n--- written out as DOT');
   check(boxes.filter((b) => b.startsWith('s:')).length === drawn.length,
         `a box for each of the ${drawn.length} steps that is a reaction, and `
         + `none for the ${plan.steps.length - drawn.length} that only change state`);
-  check(['in:', 'out:', 'prime:', 'spare:'].every((e) => boxes.some((b) => b.startsWith(e))),
-        'and one for each material at each end of the plan');
+  /**
+   * The ends this plan actually has. It asks for no charge at all now -- the
+   * pass only asks for what the plant cannot make for itself, and this one
+   * makes both of its own -- so a primer end would be a box for nothing.
+   */
+  const ends = ['in:', 'out:', 'spare:'].filter((e) => !boxes.some((b) => b.startsWith(e)));
+  check(!ends.length && !boxes.some((b) => b.startsWith('prime:')),
+        'one box for each material at each end the plan has, and none for ends it '
+        + 'has not: this plan needs no charge');
   // What was asked for and what merely fell out are different answers, so
   // they land at different ends rather than the same one in two colours.
   /**
@@ -302,8 +309,15 @@ console.log('\n--- written out as DOT');
    * hangs where an input hangs, arrows out and none in, and "you need this
    * once to start" against "you feed this in forever" is the whole of it.
    */
-  check(/\(primer\)/.test(dot) && !/"(in|out|spare):[^"]*" \[label="[^"]*\\n/.test(dot),
-        'and the primers alone say so, that being the one thing position cannot');
+  /**
+   * And where there is a charge, it is the one word that stays: a primer hangs
+   * where an input hangs, and only the label separates them.
+   */
+  const primed = planToDot(solveFresh(graph, {
+    targets: [{ name: 'Aluminum', amount: 1 }], have: ['Lepidolite'], sources: ['world'] }));
+  check(/\(primer\)/.test(primed) && !/"(in|out|spare):[^"]*" \[label="[^"]*\\n/.test(primed),
+        'and where one is wanted the primer alone says so, that being the one '
+        + 'thing position cannot');
   // A hub is a star, and a star has to cross everything to reach the
   // reactions spread around it. No end has more arrows than a reaction does.
   const outgoing = new Map();

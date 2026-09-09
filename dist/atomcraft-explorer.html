@@ -973,6 +973,11 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 /* The charge a closed loop needs before it will turn over. Not a shopping
    list: none of it is spent. */
 .priming { border-color: var(--ok); }
+/*
+ * What the plant lays in for itself. Drawn like a charge because that is what
+ * it is, and dimmer because it is not the reader's errand.
+ */
+.warmup { border-color: var(--line); }
 
 /* A step that is only here because the alternative was a priming charge. */
 .step-loop { font-size: 12px; color: var(--ok); margin-top: 2px; }
@@ -1119,6 +1124,17 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
  * you need this once, to get the loop turning, not continuously. Nothing
  * about the position says so, so the box does.
  */
+/*
+ * What the plant lays in for itself, and what the first cycle costs while it
+ * does. Said quietly: it is not a warning, it is bookkeeping.
+ */
+.plan-note {
+  margin: 8px 0 0;
+  color: var(--fg-faint);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .plan-role-prime .plan-node-box {
   stroke: var(--prime);
   stroke-width: 2;
@@ -8836,6 +8852,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    */
   const priming = [];
   const primingAll = [];
+  const warmup = [];
   {
     const prices = fetchPrices(graph, spec.kinds);
     /**
@@ -9404,9 +9421,26 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      * than as part of it. The whole list stays on `primingAll` so the
      * measurement is not thrown away with it.
      */
-    const idle = priming.filter((c) => !c.holdsUp && c.lag <= 0);
+    /**
+     * Sparr: the Carbon should be acquirable through the Dolomite and
+     * Carbonated Water chain, so stop asking for it.
+     *
+     * It is, and the pass agrees: withholding it costs four aluminium whether
+     * the plan is run once or ten times, which is a plant filling its pipes
+     * and not a plant that cannot run. What the reader has to go out and find
+     * is the other kind -- the charge whose absence costs more the longer you
+     * run, because nothing outside the wheel it starts will ever turn it.
+     *
+     * So only those are asked for. The rest move to `warmup`, with what
+     * skipping them costs on the first cycle, because that cost is real even
+     * where it amortises away: the plan says eight aluminium, and the first
+     * time round it makes four while the carbon loop fills. Hidden and
+     * unsaid would be a lie; hidden and said is the useful shape.
+     */
+    const later = priming.filter((c) => !c.holdsUp);
     primingAll.push(...priming);
-    for (const c of idle) priming.splice(priming.indexOf(c), 1);
+    for (const c of later) priming.splice(priming.indexOf(c), 1);
+    warmup.push(...later);
   }
 
   const plan = {
@@ -9414,8 +9448,12 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     fresh: true,
     steps, frontier, feed, byproducts,
     priming,
-    // Every charge the pass found, including the ones that buy nothing.
+    // Every charge the pass found, including the ones it no longer asks for.
     primingAll,
+    // Charges the plant repays itself: not asked for, but the first cycle
+    // makes `warmupLag` less than the plan says while they fill.
+    warmup,
+    warmupLag: warmup.reduce((a, c) => Math.max(a, c.lag || 0), 0),
     brokenLoops: [],
     graph,
     fetchTotal: rnum(rmul(fetchTotal, scale)),
@@ -12687,6 +12725,44 @@ function renderSide() {
     }
     prime.append(ul);
     box.append(prime);
+  }
+
+  /**
+   * What the plant lays in for itself, which is not a shopping list at all.
+   *
+   * Sparr: the Carbon should be acquirable through the Dolomite and Carbonated
+   * Water chain, so stop asking for it.
+   *
+   * It is, and it stopped. But withholding it still costs four aluminium the
+   * first time round while the carbon loop fills, and a plan that quietly
+   * makes less than it says it makes would be worse than one that asks for
+   * something it need not. So the reader is not sent out for these, and is
+   * told what the first cycle costs -- which on a plant that keeps running is
+   * a one-off and on a single batch is the whole of it.
+   */
+  if (solved.warmup?.length) {
+    const warm = el('section', 'plan-panel warmup');
+    const title = el('h2', null, 'It gets going by itself on');
+    title.title = 'The plan makes all of this out of what you already put in, so it is '
+      + 'not yours to find. It just does not have any until it has run a little.';
+    warm.append(title);
+    const ul = el('ul', 'plan-list');
+    for (const item of solved.warmup) {
+      const li = el('li', 'plan-item');
+      li.dataset.material = item.name;
+      const line = el('div', 'plan-item-main');
+      line.append(el('span', 'amount', amount(item.amount)), ' ', matLink(item.name));
+      li.append(line);
+      li.append(el('div', 'plan-how', 'made on the way, not fetched'));
+      ul.append(li);
+    }
+    warm.append(ul);
+    if (solved.warmupLag > 0) {
+      warm.append(el('p', 'plan-note',
+        `The first cycle makes ${solved.warmupLag} less than the amounts above while `
+        + 'this builds up. Every cycle after that runs on what the plan makes.'));
+    }
+    box.append(warm);
   }
 
   // --- what it makes besides what was asked for --------------------------

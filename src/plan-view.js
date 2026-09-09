@@ -1049,6 +1049,44 @@ function renderSide() {
     box.append(prime);
   }
 
+  /**
+   * What the plant lays in for itself, which is not a shopping list at all.
+   *
+   * Sparr: the Carbon should be acquirable through the Dolomite and Carbonated
+   * Water chain, so stop asking for it.
+   *
+   * It is, and it stopped. But withholding it still costs four aluminium the
+   * first time round while the carbon loop fills, and a plan that quietly
+   * makes less than it says it makes would be worse than one that asks for
+   * something it need not. So the reader is not sent out for these, and is
+   * told what the first cycle costs -- which on a plant that keeps running is
+   * a one-off and on a single batch is the whole of it.
+   */
+  if (solved.warmup?.length) {
+    const warm = el('section', 'plan-panel warmup');
+    const title = el('h2', null, 'It gets going by itself on');
+    title.title = 'The plan makes all of this out of what you already put in, so it is '
+      + 'not yours to find. It just does not have any until it has run a little.';
+    warm.append(title);
+    const ul = el('ul', 'plan-list');
+    for (const item of solved.warmup) {
+      const li = el('li', 'plan-item');
+      li.dataset.material = item.name;
+      const line = el('div', 'plan-item-main');
+      line.append(el('span', 'amount', amount(item.amount)), ' ', matLink(item.name));
+      li.append(line);
+      li.append(el('div', 'plan-how', 'made on the way, not fetched'));
+      ul.append(li);
+    }
+    warm.append(ul);
+    if (solved.warmupLag > 0) {
+      warm.append(el('p', 'plan-note',
+        `The first cycle makes ${solved.warmupLag} less than the amounts above while `
+        + 'this builds up. Every cycle after that runs on what the plan makes.'));
+    }
+    box.append(warm);
+  }
+
   // --- what it makes besides what was asked for --------------------------
   //
   // Kept output and waste are the same surplus read two ways, so they are two

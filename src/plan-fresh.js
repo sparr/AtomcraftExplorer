@@ -3205,6 +3205,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    */
   const priming = [];
   const primingAll = [];
+  const warmup = [];
   {
     const prices = fetchPrices(graph, spec.kinds);
     /**
@@ -3773,9 +3774,26 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      * than as part of it. The whole list stays on `primingAll` so the
      * measurement is not thrown away with it.
      */
-    const idle = priming.filter((c) => !c.holdsUp && c.lag <= 0);
+    /**
+     * Sparr: the Carbon should be acquirable through the Dolomite and
+     * Carbonated Water chain, so stop asking for it.
+     *
+     * It is, and the pass agrees: withholding it costs four aluminium whether
+     * the plan is run once or ten times, which is a plant filling its pipes
+     * and not a plant that cannot run. What the reader has to go out and find
+     * is the other kind -- the charge whose absence costs more the longer you
+     * run, because nothing outside the wheel it starts will ever turn it.
+     *
+     * So only those are asked for. The rest move to `warmup`, with what
+     * skipping them costs on the first cycle, because that cost is real even
+     * where it amortises away: the plan says eight aluminium, and the first
+     * time round it makes four while the carbon loop fills. Hidden and
+     * unsaid would be a lie; hidden and said is the useful shape.
+     */
+    const later = priming.filter((c) => !c.holdsUp);
     primingAll.push(...priming);
-    for (const c of idle) priming.splice(priming.indexOf(c), 1);
+    for (const c of later) priming.splice(priming.indexOf(c), 1);
+    warmup.push(...later);
   }
 
   const plan = {
@@ -3783,8 +3801,12 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     fresh: true,
     steps, frontier, feed, byproducts,
     priming,
-    // Every charge the pass found, including the ones that buy nothing.
+    // Every charge the pass found, including the ones it no longer asks for.
     primingAll,
+    // Charges the plant repays itself: not asked for, but the first cycle
+    // makes `warmupLag` less than the plan says while they fill.
+    warmup,
+    warmupLag: warmup.reduce((a, c) => Math.max(a, c.lag || 0), 0),
     brokenLoops: [],
     graph,
     fetchTotal: rnum(rmul(fetchTotal, scale)),

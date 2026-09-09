@@ -105,11 +105,11 @@ console.log('--- what each charge is buying');
 {
   const alu = solveFresh(graph, { targets: [{ name: 'Aluminum', amount: 1 }],
                                   have: ['Lepidolite'], sources: ['world'] });
-  const of = (n) => alu.priming.find((c) => c.name === n);
+  const of = (n) => alu.primingAll.find((c) => c.name === n);
   const checks = [
     ['every charge says whether it is holding the plan up',
-     alu.priming.length > 0 && alu.priming.every((c) => typeof c.holdsUp === 'boolean'
-                                                     && typeof c.lag === 'number')],
+     alu.primingAll.length > 0 && alu.primingAll.every((c) => typeof c.holdsUp === 'boolean'
+                                                           && typeof c.lag === 'number')],
     /**
      * The sulfur wheel is closed -- its only maker is fed by what it makes --
      * so nothing outside ever turns it and no amount of running helps.
@@ -123,6 +123,14 @@ console.log('--- what each charge is buying');
      */
     ['the Carbon, whose chain reaches fetched Dolomite, does not',
      of('Carbon')?.holdsUp === false],
+    /**
+     * So the reader is sent out for the one and not the other, and told what
+     * the first cycle costs while the plant fills its own pipes.
+     */
+    ['only the wheel-starter is asked for',
+     alu.priming.map((c) => c.name).join() === 'Sulfur Trioxide Gas'],
+    ['the rest are the plant getting itself going, with the lag said out loud',
+     alu.warmup.some((c) => c.name === 'Carbon') && alu.warmupLag === 4],
   ];
   for (const [what, ok] of checks) {
     console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
