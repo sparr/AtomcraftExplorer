@@ -51,12 +51,30 @@ for (const [what, ask] of plans) {
    * no text, but still holding the rank their lines stop at. Contracting them
    * out let those lines skip a rank each and the picture went curvy.
    */
+  const packs = (p) => {
+    const i = p.consumes || [];
+    const o = p.produces || [];
+    return i.length === 1 && o.length === 1 &&
+      (i[0].name === `${o[0].name} x2` || o[0].name === `${i[0].name} x2`);
+  };
   const joints = steps.filter((n) => n.hold);
-  const phases = plan.steps.filter((st) => st.process.kind === 'phase');
-  check(steps.length === plan.steps.length && joints.length === phases.length
+  // A phase change, or the one packing change that behaves like one.
+  const quiet = plan.steps.filter((st) => st.process.kind === 'phase' || packs(st.process));
+  const boxes = steps.filter((n) => !n.hold);
+  /**
+   * Sparr: get rid of the combined nodes for materials in the middle -- Steam
+   * can be split into a node for each path it appears along.
+   *
+   * So a joint may stand for several paths through the same phase change and
+   * there can be more joints than there are phase changes; what has to hold is
+   * that every step that is not one of them still has exactly one box, that
+   * every quiet step has at least one joint, and that no joint carries text.
+   */
+  check(boxes.length === plan.steps.length - quiet.length
+        && joints.length >= quiet.length
         && joints.every((n) => !n.label),
-        `a node for each of the ${plan.steps.length} steps, `
-        + `${phases.length} of them joints rather than boxes`);
+        `a box for each of the ${boxes.length} reactions and none for the `
+        + `${quiet.length} phase changes, which are ${joints.length} joints`);
 
   /**
    * Sparr: put the reactions on the nodes and the materials on the arrows,
@@ -232,10 +250,17 @@ console.log('\n--- written out as DOT');
         'it is a digraph');
   // Every reaction, and the three ends of the plan.
   const boxes = [...dot.matchAll(/^\s+"([^"]+)"\s+\[label=/gm)].map((m) => m[1]);
-  const drawn = plan.steps.filter((st) => st.process.kind !== 'phase');
+  const packsDot = (p) => {
+    const i = p.consumes || [];
+    const o = p.produces || [];
+    return i.length === 1 && o.length === 1 &&
+      (i[0].name === `${o[0].name} x2` || o[0].name === `${i[0].name} x2`);
+  };
+  const drawn = plan.steps.filter(
+    (st) => st.process.kind !== 'phase' && !packsDot(st.process));
   check(boxes.filter((b) => b.startsWith('s:')).length === drawn.length,
-        `a box for each of the ${drawn.length} steps that is a reaction, `
-        + `and none for the ${plan.steps.length - drawn.length} phase changes`);
+        `a box for each of the ${drawn.length} steps that is a reaction, and `
+        + `none for the ${plan.steps.length - drawn.length} that only change state`);
   check(['in:', 'out:', 'prime:', 'spare:'].every((e) => boxes.some((b) => b.startsWith(e))),
         'and one for each material at each end of the plan');
   // What was asked for and what merely fell out are different answers, so
@@ -279,7 +304,10 @@ console.log('\n--- written out as DOT');
         `no end is a hub: the busiest has ${busiest[1]} arrows (${busiest[0]}), `
         + `no more than the busiest reaction's ${busiestStep[1]}`);
   // Every arrow says what it carries.
-  const arrows = [...dot.matchAll(/^\s+"([^"]+)" -> "([^"]+)" \[label="([^"]*)"/gm)];
+  // Sparr: put the material edge labels closer to the source end -- so the
+  // name rides on `taillabel` now, at the end it leaves from.
+  const arrows = [...dot.matchAll(/^\s+"([^"]+)" -> "([^"]+)" \[([^\]]*)\]/gm)]
+    .map(([, a, b, bits]) => [null, a, b, (bits.match(/taillabel="([^"]*)"/) || [, ''])[1]]);
   const mute = arrows.filter(([, a, b, l]) =>
     !l && !/^(in|out|prime|spare):/.test(a) && !/^(in|out|prime|spare):/.test(b));
   check(arrows.length > 0 && !mute.length,

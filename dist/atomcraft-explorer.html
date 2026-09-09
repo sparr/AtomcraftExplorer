@@ -10101,7 +10101,7 @@ const __mod_plan_diagram = (() => {
  * That order matters: relaxing before the combing undoes it, and combing
  * without the layering has nothing to comb along.
  */
-const {rnum} = __mod_rational;
+const {rnum, rat, radd, rsub, rmul, rdiv, rcmp, rmin, R0} = __mod_rational;
 
 /** A step is a box; a material is a chip. Both are nodes here. */
 const STEP = 'step';
@@ -10319,9 +10319,22 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
 
   for (const step of plan.steps) {
     const id = `s:${step.process.id}`;
+    /**
+     * Sparr: "Expansion of Hydrogen Gas x2" can be folded in as a phase change
+     * of hydrogen, as a one-off rule -- no other material has that.
+     *
+     * It is one input and one output, the same substance packed two ways, and
+     * that is what a phase change is in everything but the game's own
+     * bookkeeping. Written as the rule rather than as the name, because the
+     * rule is what makes it true; it happens to match exactly one reaction.
+     */
+    const ins = step.process.consumes || [];
+    const outs = step.process.produces || [];
+    const packs = ins.length === 1 && outs.length === 1 &&
+      (ins[0].name === `${outs[0].name} x2` || outs[0].name === `${ins[0].name} x2`);
     const node = { id, kind: STEP, name: step.process.label,
                    label: step.process.label, runs: rnum(step.runs),
-                   kindOf: step.process.kind };
+                   kindOf: step.process.kind, packs };
     seen.set(id, node);
     nodes.push(node);
   }
@@ -10343,16 +10356,16 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
      *
      * It is the denser drawing and it says the same thing. A material with one
      * maker and one user was three marks and two arrows; it is now one arrow
-     * with a word on it. Where a material has several makers or several users
-     * the arrows multiply instead, which is honest: that really is a place
-     * where the reader has to decide which supply feeds which use.
+     * with a word on it.
      *
-     * The three ends of a plan need somewhere to attach, so they become
-     * reactions of a sort: everything the reader brings comes out of "what you
-     * put in", everything left at the end goes into "what you get", and a
-     * charge is laid in by "what you start with". Without them the arrows that
-     * matter most -- the ore going in, the metal coming out -- would have only
-     * one end.
+     * Where a material has several makers and several users, though, drawing
+     * every maker to every user is a lie dressed as caution. Three reactions
+     * making steam and six spending it is not eighteen arrows of unknown size;
+     * it is a pool, and any way of dividing the pool that adds up is a true
+     * account of it. So one is picked: supply is walked against demand in
+     * order and each arrow gets the amount that actually passes along it.
+     * At most makers-plus-users-minus-one arrows survive, which is fewer than
+     * were drawn before, and every one of them now carries a number.
      */
     const pseudo = (id, label, role) => {
       if (seen.has(id)) return seen.get(id);
@@ -10361,85 +10374,107 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
       nodes.push(node);
       return node;
     };
-    const makers = new Map();
-    const users = new Map();
+
+    const supply = new Map();                 // name -> [{ id, amount }]
+    const wants = new Map();                  // name -> [{ id, amount }]
+    const put = (into, name, entry) => {
+      if (rcmp(entry.amount, R0) <= 0) return;
+      if (!into.has(name)) into.set(name, []);
+      into.get(name).push(entry);
+    };
+
     for (const step of plan.steps) {
       const id = `s:${step.process.id}`;
       for (const o of step.process.produces || []) {
-        if (!makers.has(o.name)) makers.set(o.name, []);
-        makers.get(o.name).push([id, o.count]);
+        put(supply, o.name, { id, amount: rmul(step.runs, rat(BigInt(o.count))) });
       }
       for (const i of step.process.consumes || []) {
-        if (!users.has(i.name)) users.set(i.name, []);
-        users.get(i.name).push([id, i.count]);
+        put(wants, i.name, { id, amount: rmul(step.runs, rat(BigInt(i.count))) });
       }
     }
-    const brought = new Set([...plan.feed.map((f) => f.name), ...plan.frontier.map((f) => f.name)]);
-    const primed = new Set(plan.priming.map((c) => c.name));
-    // Which reaction each charge was laid in to start, so its arrow goes there
-    // and nowhere else.
-    const primedFor = new Map();
-    for (const c of plan.priming) {
-      primedFor.set(c.name, c.forSteps?.length
-        ? c.forSteps
-        : [...new Set((users.get(c.name) || []).map(([b]) => b.slice(2)))]
-            .map((step) => ({ step, amount: c.amount })));
-    }
-    // What was asked for and what merely fell out are different answers, so
-    // they get different ends rather than the same one in two colours.
-    const wanted = new Set(plan.spec.targets.map((t) => t.name));
-    const spare = new Set(plan.byproducts.map((b) => b.name));
 
-    for (const name of new Set([...makers.keys(), ...users.keys()])) {
-      const from = makers.get(name) || [];
-      const to = users.get(name) || [];
-      const label = name;
-      for (const [a] of from) {
-        for (const [b] of to) edges.push({ from: a, to: b, label, role: 'inner' });
-      }
-      /**
-       * Sparr: rx is much messier, owing to combining all the inputs, outputs
-       * and primers.
-       *
-       * It is, and that is what a hub does. Every material the reader brings
-       * arriving from one box makes that box a star of a dozen arrows, and a
-       * star has to cross everything to reach reactions spread across the
-       * picture. Four of them, and the crossings were mostly theirs.
-       *
-       * So each end-material gets a little box of its own -- which is what
-       * made the materials drawing readable, and costs nothing here because
-       * these are the ones that already had a single end. The materials in
-       * the middle stay on the arrows, having a reaction at either end.
-       */
-      const amount = amountOf(name);
-      const said = amount === null ? name : `${amount} ${name}`;
-      if (brought.has(name) && to.length) {
-        const src = pseudo(`in:${name}`, said, roleOf(name));
-        for (const [b] of to) edges.push({ from: src.id, to: b, role: roleOf(name) });
-      }
-      /**
-       * Sparr: a separate node for each place a primer gets used, so they are
-       * not star-like.
-       *
-       * One box with five arrows out of it read as five primers, and it was
-       * not even true: the charge starts one reaction, and the other four
-       * water-eaters are fed by the plan. So each charge draws the one arrow
-       * it earns, to the reaction it was laid in for. The stars go, and what
-       * is left is what actually happens.
-       */
-      for (const put of primedFor.get(name) || []) {
-        const at = `s:${put.step}`;
+    const said = (name) => {
+      const a = amountOf(name);
+      return a === null ? name : `${a} ${name}`;
+    };
+    for (const f of [...plan.feed, ...plan.frontier]) {
+      if (!wants.has(f.name)) continue;
+      put(supply, f.name,
+          { id: pseudo(`in:${f.name}`, said(f.name), roleOf(f.name)).id, amount: f.amount });
+    }
+    for (const t of plan.spec.targets) {
+      if (!supply.has(t.name)) continue;
+      put(wants, t.name,
+          { id: pseudo(`out:${t.name}`, said(t.name), 'want').id,
+            amount: rat(BigInt(Math.round(t.amount))) });
+    }
+    for (const b of plan.byproducts) {
+      if (!supply.has(b.name)) continue;
+      put(wants, b.name,
+          { id: pseudo(`spare:${b.name}`, said(b.name), 'spare').id, amount: b.amount });
+    }
+
+    /**
+     * A charge goes straight to the reaction it was laid in to start, and is
+     * taken out of that reaction's demand before anything is shared out. It is
+     * not part of the pool: it is the one push that gets the wheel turning,
+     * and it belongs to one reaction by construction.
+     */
+    const owedTo = new Map();                 // "name\u0000stepId" -> amount charged
+    for (const c of plan.priming) {
+      for (const one of c.forSteps || []) {
+        const at = `s:${one.step}`;
         if (!seen.has(at)) continue;
-        const src = pseudo(`prime:${name}@${put.step}`,
-                           `${rnum(put.amount)} ${name}`, 'prime');
-        edges.push({ from: src.id, to: at, role: 'prime' });
+        const src = pseudo(`prime:${c.name}@${one.step}`,
+                           `${rnum(one.amount)} ${c.name}`, 'prime');
+        edges.push({ from: src.id, to: at, label: '', amount: one.amount, role: 'prime' });
+        const key = `${c.name}\u0000${at}`;
+        owedTo.set(key, radd(owedTo.get(key) || R0, one.amount));
       }
-      if (wanted.has(name) && from.length) {
-        const sink = pseudo(`out:${name}`, said, 'want');
-        for (const [a] of from) edges.push({ from: a, to: sink.id, role: 'want' });
-      } else if (spare.has(name) && from.length) {
-        const sink = pseudo(`spare:${name}`, said, 'spare');
-        for (const [a] of from) edges.push({ from: a, to: sink.id, role: 'spare' });
+    }
+    for (const [key, amount] of owedTo) {
+      const at = key.indexOf('\u0000');
+      const list = wants.get(key.slice(0, at)) || [];
+      for (const w of list) {
+        if (w.id !== key.slice(at + 1)) continue;
+        w.amount = rsub(w.amount, rmin(w.amount, amount));
+      }
+    }
+
+    /**
+     * Supply walked against demand, in a fixed order so the same plan draws
+     * the same way twice.
+     */
+    const shareOut = (from, to) => {
+      const src = from.filter((x) => rcmp(x.amount, R0) > 0)
+        .map((x) => ({ ...x })).sort((a, b) => a.id.localeCompare(b.id));
+      const dst = to.filter((x) => rcmp(x.amount, R0) > 0)
+        .map((x) => ({ ...x })).sort((a, b) => a.id.localeCompare(b.id));
+      const out = [];
+      let i = 0;
+      let j = 0;
+      while (i < src.length && j < dst.length) {
+        const take = rmin(src[i].amount, dst[j].amount);
+        if (rcmp(take, R0) > 0) out.push({ from: src[i].id, to: dst[j].id, amount: take });
+        src[i].amount = rsub(src[i].amount, take);
+        dst[j].amount = rsub(dst[j].amount, take);
+        if (rcmp(src[i].amount, R0) <= 0) i++;
+        if (rcmp(dst[j].amount, R0) <= 0) j++;
+      }
+      return out;
+    };
+
+    const roleOfEdge = (from, to) => {
+      const a = seen.get(from);
+      const b = seen.get(to);
+      if (a?.pseudo) return a.role;
+      if (b?.pseudo) return b.role;
+      return 'inner';
+    };
+    for (const name of new Set([...supply.keys(), ...wants.keys()])) {
+      for (const f of shareOut(supply.get(name) || [], wants.get(name) || [])) {
+        edges.push({ from: f.from, to: f.to, label: name, mat: name, amount: f.amount,
+                     role: roleOfEdge(f.from, f.to) });
       }
     }
   }
@@ -10471,39 +10506,113 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
       edges.push(e);
     }
   };
-  if (!materials) join();
-
-
   /**
-   * Sparr: omit the phase changes, folding each into whatever comes next and
-   * putting both material names on the joined arrow. Then: try a rank-holding
-   * box for each.
+   * Sparr: omit the phase changes, folding each into whatever comes next --
+   * then, try a rank-holding box for each.
    *
    * Melting a thing is not a reaction, it is the same thing at another
    * temperature, and a box saying "6x Steam condenses into Water" between two
    * boxes doing chemistry is a stile in the middle of a field.
    *
-   * Contracting them away cost more than it saved. Every phase change with
-   * several feeders and several eaters became a feeder-by-eater cross product
-   * -- eighty-five arrows became ninety-one -- and each of those skipped the
-   * rank the box had been holding, so the layout engine drew a long spline for
-   * every one and the ordered picture went curvy. The condensers had been
-   * doing quiet work as places for lines to stop.
-   *
-   * So the box goes and the place it held stays. The step keeps its node,
-   * marked `hold`, and is drawn as a joint rather than a box: no text, no
-   * width to speak of, still ranked. Nothing needs contracting, so the arrows
-   * stay as they were, and both material names are still on the way from one
-   * reaction to the next -- one on each half, which is where each is actually
-   * true. The steam becomes water at the joint.
+   * Contracting them away cost more than it saved: every arrow that had
+   * stopped at one skipped a rank instead, the engine drew a long spline for
+   * each, and the ordered picture went curvy. The condensers had been doing
+   * quiet work as places for lines to stop. So the box goes and the place it
+   * held stays -- the step keeps its node, drawn as a joint, still ranked.
    */
   if (!materials && foldPhases) {
     for (const n of nodes) {
-      if (n.kind !== STEP || n.pseudo || n.kindOf !== 'phase') continue;
+      if (n.kind !== STEP || n.pseudo) continue;
+      if (n.kindOf !== 'phase' && !n.packs) continue;
       n.hold = true;
       n.label = '';
     }
+
+    /**
+     * Sparr: get rid of the combined nodes for materials in the middle -- the
+     * one Steam can be split into a node for each path it appears along, each
+     * of which will also have a Water label.
+     *
+     * One condenser taking steam from three reactions and handing water to six
+     * is a crossroads every line in the middle of the plan has to go through,
+     * and it is a crossroads the plan never asked for: nothing says this
+     * reaction's steam is that reaction's water. Split along the flow already
+     * worked out, each path gets its own joint, and no line goes through
+     * anything it did not have to. Walking one side against the other keeps
+     * the count to ins-plus-outs-minus-one rather than ins-times-outs.
+     */
+    for (const h of nodes.filter((n) => n.hold)) {
+      const ins = edges.filter((e) => e.to === h.id);
+      const outs = edges.filter((e) => e.from === h.id);
+      if (ins.length <= 1 && outs.length <= 1) continue;
+      const sum = (list) => list.reduce((a, e) => radd(a, e.amount || R0), R0);
+      const totIn = sum(ins);
+      const totOut = sum(outs);
+      if (rcmp(totIn, R0) <= 0 || rcmp(totOut, R0) <= 0) continue;
+      // Each side as a share of its own total, so the two can be walked
+      // against each other however different the counts either side are.
+      const left = ins.map((e) => ({ e, share: rdiv(e.amount, totIn) }));
+      const right = outs.map((e) => ({ e, share: rdiv(e.amount, totOut) }));
+      const made = [];
+      let i = 0;
+      let j = 0;
+      while (i < left.length && j < right.length) {
+        const take = rmin(left[i].share, right[j].share);
+        if (rcmp(take, R0) > 0) made.push({ a: left[i].e, b: right[j].e, share: take });
+        left[i].share = rsub(left[i].share, take);
+        right[j].share = rsub(right[j].share, take);
+        if (rcmp(left[i].share, R0) <= 0) i++;
+        if (rcmp(right[j].share, R0) <= 0) j++;
+      }
+      if (made.length <= 1) continue;
+      const gone = new Set([...ins, ...outs]);
+      for (let k = edges.length - 1; k >= 0; k--) if (gone.has(edges[k])) edges.splice(k, 1);
+      nodes.splice(nodes.indexOf(h), 1);
+      made.forEach((m, k) => {
+        const copy = { ...h, id: `${h.id}#${k}` };
+        nodes.push(copy);
+        seen.set(copy.id, copy);
+        edges.push({ ...m.a, to: copy.id, amount: rmul(m.share, totIn) });
+        edges.push({ ...m.b, from: copy.id, amount: rmul(m.share, totOut) });
+      });
+    }
+
+    /**
+     * Sparr: get rid of the arrow ends where lines come together at the
+     * invisible nodes.
+     *
+     * An arrowhead is for saying which way a thing goes into something. A
+     * joint is not something it goes into, it is a bend in the way, so the
+     * line runs through it and only the far end is tipped.
+     */
+    for (const e of edges) if (seen.get(e.to)?.hold) e.join = true;
   }
+
+  /**
+   * Sparr: add the quantities of the materials to the edge labels.
+   *
+   * Which the arrows can now say, each carrying a definite amount rather than
+   * a share of an unknown pool. An arrow onto one of the ends says only the
+   * number, and only when the end has more than one arrow: the box beside it
+   * already gives the name and the total, and repeating both on every line
+   * into it is the picture talking over itself.
+   */
+  if (!materials) {
+    const arrowsAt = new Map();
+    for (const e of edges) {
+      arrowsAt.set(e.from, (arrowsAt.get(e.from) ?? 0) + 1);
+      arrowsAt.set(e.to, (arrowsAt.get(e.to) ?? 0) + 1);
+    }
+    for (const e of edges) {
+      if (!e.label || e.amount === undefined) { e.label = ''; continue; }
+      const end = [e.from, e.to].find((x) => seen.get(x)?.pseudo);
+      e.label = end
+        ? (arrowsAt.get(end) > 1 ? `${rnum(e.amount)}` : '')
+        : `${rnum(e.amount)} ${e.label}`;
+    }
+    join();
+  }
+
 
   return { nodes, edges };
 }
@@ -10558,7 +10667,7 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
     if (hi - lo <= 1) {
       segments.push(e);
       wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
-                   label: e.label, role: e.role, points: [a, b] });
+                   label: e.label, role: e.role, join: e.join, points: [a, b] });
       continue;
     }
     const low = a.rank < b.rank ? a : b;
@@ -10576,7 +10685,7 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
     // Drawn the way the arrow is read, which for a closing edge is backwards.
     const points = a === low ? [a, ...through, b] : [a, ...through.reverse(), b];
     wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
-                 label: e.label, role: e.role, points });
+                 label: e.label, role: e.role, join: e.join, points });
   }
 
   const byRank = new Map();
@@ -10838,20 +10947,32 @@ function drawPlan(host, plan, { onPick, across = false, materials = false } = {}
     return d;
   };
 
+  // A quarter of the way from the first stop to the last.
+  const nearSource = (stops) => {
+    const a = stops[0];
+    const b = stops[stops.length - 1];
+    return { x: a.x + (b.x - a.x) / 4, y: a.y + (b.y - a.y) / 4 };
+  };
+
   const drawn = [];
   for (const w of state.wires) {
+    // Sparr: no arrow ends where lines come together at the invisible nodes.
+    // A joint is a bend in the way, not something the line goes into.
     const line = make('path', { class: 'plan-wire' + (w.back ? ' plan-wire-loop' : '')
                                 + (w.role ? ` plan-wire-${w.role}` : ''),
-                                'marker-end': 'url(#plan-arrow)' });
+                                ...(w.join ? {} : { 'marker-end': 'url(#plan-arrow)' }) });
     wires.append(line);
     let tag = null;
     if (w.label) {
       /**
        * The material, written on the arrow that carries it.
        *
-       * Put where the line has the most room -- at its middle waypoint if it
-       * has one, since that is a column the line was given to itself, and at
-       * the halfway mark otherwise.
+       * Sparr: put the material edge labels closer to the source end.
+       *
+       * At its middle waypoint if it has one, since that is a column the line
+       * was given to itself; otherwise a quarter of the way along rather than
+       * halfway, which is near enough the box it came out of to say which one
+       * that was, and still clear of it.
        */
       tag = make('text', { class: 'plan-wire-label' });
       tag.textContent = w.label.length > 22 ? `${w.label.slice(0, 21)}…` : w.label;
@@ -10884,7 +11005,9 @@ function drawPlan(host, plan, { onPick, across = false, materials = false } = {}
     g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
                             width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
     const label = make('text', { class: 'plan-node-label', x: 0, y: 4 });
-    const shown = n.pseudo ? n.label : n.kind === 'step' ? `${n.runs}× ${n.label}`
+    // Sparr: omit the reactor step counts from the nodes, keep the material
+    // quantities. The arrows carry the amounts now.
+    const shown = n.pseudo ? n.label : n.kind === 'step' ? n.label
       : (n.amount !== null && n.amount !== undefined ? `${n.amount} ${n.label}` : n.label);
     label.textContent = shown.length > 24 ? `${shown.slice(0, 23)}…` : shown;
     const full = make('title');
@@ -10934,8 +11057,7 @@ function drawPlan(host, plan, { onPick, across = false, materials = false } = {}
         line.setAttribute('d', thread(stops));
         if (tag) {
           const at = pts.length > 2 ? mid(pts[(pts.length - 1) >> 1])
-            : { x: (stops[0].x + stops[stops.length - 1].x) / 2,
-                y: (stops[0].y + stops[stops.length - 1].y) / 2 };
+            : nearSource(stops);
           tag.setAttribute('x', at.x);
           tag.setAttribute('y', at.y - 4);
         }
@@ -10945,8 +11067,7 @@ function drawPlan(host, plan, { onPick, across = false, materials = false } = {}
       line.setAttribute('d', thread(stops));
       if (tag) {
         const at = pts.length > 2 ? mid(pts[(pts.length - 1) >> 1])
-          : { x: (stops[0].x + stops[stops.length - 1].x) / 2,
-              y: (stops[0].y + stops[stops.length - 1].y) / 2 };
+          : nearSource(stops);
         tag.setAttribute('x', at.x);
         tag.setAttribute('y', at.y - 4);
       }

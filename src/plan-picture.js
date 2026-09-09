@@ -94,20 +94,32 @@ export function drawPlan(host, plan, { onPick, across = false, materials = false
     return d;
   };
 
+  // A quarter of the way from the first stop to the last.
+  const nearSource = (stops) => {
+    const a = stops[0];
+    const b = stops[stops.length - 1];
+    return { x: a.x + (b.x - a.x) / 4, y: a.y + (b.y - a.y) / 4 };
+  };
+
   const drawn = [];
   for (const w of state.wires) {
+    // Sparr: no arrow ends where lines come together at the invisible nodes.
+    // A joint is a bend in the way, not something the line goes into.
     const line = make('path', { class: 'plan-wire' + (w.back ? ' plan-wire-loop' : '')
                                 + (w.role ? ` plan-wire-${w.role}` : ''),
-                                'marker-end': 'url(#plan-arrow)' });
+                                ...(w.join ? {} : { 'marker-end': 'url(#plan-arrow)' }) });
     wires.append(line);
     let tag = null;
     if (w.label) {
       /**
        * The material, written on the arrow that carries it.
        *
-       * Put where the line has the most room -- at its middle waypoint if it
-       * has one, since that is a column the line was given to itself, and at
-       * the halfway mark otherwise.
+       * Sparr: put the material edge labels closer to the source end.
+       *
+       * At its middle waypoint if it has one, since that is a column the line
+       * was given to itself; otherwise a quarter of the way along rather than
+       * halfway, which is near enough the box it came out of to say which one
+       * that was, and still clear of it.
        */
       tag = make('text', { class: 'plan-wire-label' });
       tag.textContent = w.label.length > 22 ? `${w.label.slice(0, 21)}…` : w.label;
@@ -140,7 +152,9 @@ export function drawPlan(host, plan, { onPick, across = false, materials = false
     g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
                             width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
     const label = make('text', { class: 'plan-node-label', x: 0, y: 4 });
-    const shown = n.pseudo ? n.label : n.kind === 'step' ? `${n.runs}× ${n.label}`
+    // Sparr: omit the reactor step counts from the nodes, keep the material
+    // quantities. The arrows carry the amounts now.
+    const shown = n.pseudo ? n.label : n.kind === 'step' ? n.label
       : (n.amount !== null && n.amount !== undefined ? `${n.amount} ${n.label}` : n.label);
     label.textContent = shown.length > 24 ? `${shown.slice(0, 23)}…` : shown;
     const full = make('title');
@@ -190,8 +204,7 @@ export function drawPlan(host, plan, { onPick, across = false, materials = false
         line.setAttribute('d', thread(stops));
         if (tag) {
           const at = pts.length > 2 ? mid(pts[(pts.length - 1) >> 1])
-            : { x: (stops[0].x + stops[stops.length - 1].x) / 2,
-                y: (stops[0].y + stops[stops.length - 1].y) / 2 };
+            : nearSource(stops);
           tag.setAttribute('x', at.x);
           tag.setAttribute('y', at.y - 4);
         }
@@ -201,8 +214,7 @@ export function drawPlan(host, plan, { onPick, across = false, materials = false
       line.setAttribute('d', thread(stops));
       if (tag) {
         const at = pts.length > 2 ? mid(pts[(pts.length - 1) >> 1])
-          : { x: (stops[0].x + stops[stops.length - 1].x) / 2,
-              y: (stops[0].y + stops[stops.length - 1].y) / 2 };
+          : nearSource(stops);
         tag.setAttribute('x', at.x);
         tag.setAttribute('y', at.y - 4);
       }

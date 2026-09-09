@@ -124,7 +124,15 @@ export function planToDot(plan, { materials = false, rankdir = 'LR',
       continue;
     }
     if (!n.pseudo) {
-      say(`  ${id(n.id)} [label="${esc(`${n.runs}× ${n.label}`)}"];`);
+      /**
+       * Sparr: omit the reactor step counts from the nodes, keep the material
+       * quantities.
+       *
+       * The arrows carry the amounts now, and a box saying it runs six times
+       * beside six arrows each saying how much they carry was the same fact
+       * twice, in the place with less room for it.
+       */
+      say(`  ${id(n.id)} [label="${esc(n.label)}"];`);
       continue;
     }
     /**
@@ -148,8 +156,19 @@ export function planToDot(plan, { materials = false, rankdir = 'LR',
         + `fillcolor="#0a0d12" fontsize=10${n.role === 'prime' ? ' penwidth=2' : ''}];`);
   }
   for (const e of edges) {
-    say(`  ${id(e.from)} -> ${id(e.to)} `
-        + `[label="${esc(e.label || '')}" color="${paint[e.role] || '#3a4553'}"];`);
+    /**
+     * Sparr: put the material edge labels closer to the source end.
+     *
+     * `taillabel` rather than `label`: a label hung at the middle of a long
+     * line is a word floating between two boxes with nothing to say which it
+     * came out of, and on a line that bends twice it can end up nearer the
+     * wrong one. At the tail it is unambiguous -- this is what leaves here.
+     */
+    const bits = [`color="${paint[e.role] || '#3a4553'}"`];
+    if (e.label) bits.push(`taillabel="${esc(e.label)}" labeldistance=2.2 labelangle=18`);
+    // Sparr: no arrow ends where lines come together at the invisible nodes.
+    if (e.join) bits.push('arrowhead=none');
+    say(`  ${id(e.from)} -> ${id(e.to)} [${bits.join(' ')}];`);
   }
   say('}');
   return `${out.join('\n')}\n`;
