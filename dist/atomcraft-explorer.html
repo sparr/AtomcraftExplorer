@@ -10761,43 +10761,28 @@ function planGraph(plan, { materials = false, foldPhases = true,
     for (const e of edges) {
       if (!e.label || e.amount === undefined) { e.label = ''; continue; }
       /**
-       * Sparr: restore the run count on the reactors, and divide the numbers
-       * on the arrows by it -- "8x Electrolysis" producing 2 Water rather than
-       * one reactor producing 16.
+       * Sparr: ditch the fractions, full numbers on the material lines.
        *
-       * Which is the recipe, and the recipe is the thing a reader can check
-       * against the game. The total was the plan's arithmetic already done and
-       * no longer checkable: sixteen water tells you nothing about whether the
-       * reaction makes one each time or four. Divided, the box says how many
-       * times and the arrow says how much per time, and the two multiply back.
+       * Dividing by the runs of the box an arrow leaves gave the recipe, which
+       * is checkable against the game, but it normalised every arrow to a
+       * different denominator. Three carbon dioxide arrives at the electrolysis
+       * from three places carrying twelve, two and two, and all three printed
+       * "1 Carbon Dioxide" because each was one per run of its own maker. The
+       * proportions -- which is where the plan's arithmetic lives -- were
+       * invisible without multiplying each arrow by the run count on the box
+       * behind it. And it was the only thing producing fractions: eight ninths
+       * of a packed hydrogen is a real quantity per run and a silly thing to
+       * read.
        *
-       * By the runs of the box it leaves, since the label sits at that end.
-       * Nothing leaves an end of the plan a number of times, so those arrows
-       * keep their total.
+       * So an arrow says what actually goes along it, whole, and the box still
+       * says how many times it runs.
        */
-      const src = seen.get(e.from);
-      const each = src && !src.pseudo && src.runsR && rcmp(src.runsR, R0) > 0
-        ? rdiv(e.amount, src.runsR)
-        : e.amount;
-      /**
-       * Written as a fraction where it will not divide, never as a decimal.
-       *
-       * A reaction does not always send all of one thing to one place: the
-       * nine packed hydrogen come out of nine runs and eight of them go to
-       * the expansion, which per run is eight ninths. "0.8888888888888888" is
-       * a lie about precision and unreadable besides; "8/9" is exact, short,
-       * and says what it is -- eight of the nine runs' worth goes this way.
-       */
+      const each = e.amount;
+      // An arrow onto one of the ends says only its number, and only where the
+      // end has more than one arrow: the box beside it already gives the name.
       const end = e.keepName ? null : [e.from, e.to].find((x) => seen.get(x)?.pseudo);
-      /**
-       * Both sides of a folded phase change, each with its own amount: one
-       * packed hydrogen goes in and two come out, and saying "1" for both
-       * would be the fold telling a lie about what it folded.
-       */
-      const per = (amount) => (src && !src.pseudo && src.runsR && rcmp(src.runsR, R0) > 0
-        ? rdiv(amount, src.runsR) : amount);
       const names = e.through?.length
-        ? e.through.map((x) => `${rstr(per(x.amount))} ${x.mat}`).join(', ')
+        ? e.through.map((x) => `${rstr(x.amount)} ${x.mat}`).join(', ')
         : `${rstr(each)} ${e.mat || e.label}`;
       e.label = end ? (arrowsAt.get(end) > 1 ? rstr(each) : '') : names;
     }
