@@ -16,7 +16,7 @@
  *
  * Everything else is a consequence, not a rule.
  */
-import { DEFAULT_KINDS, operatingWindow, reactorsIn } from './plan-graph.js';
+import { DEFAULT_KINDS, PROCESS_KINDS, operatingWindow, reactorsIn } from './plan-graph.js';
 import { listed } from './prose.js';
 import { composition, elementsOf } from './composition.js';
 import { heatingNeed, coolingNeed } from './units.js';
@@ -1099,7 +1099,11 @@ export function normalizeFresh(spec) {
     targets: (spec.targets || []).map((t) =>
       typeof t === 'string' ? { name: t, amount: 1 } : { name: t.name, amount: t.amount ?? 1 }),
     have: new Set(spec.have || []),
-    kinds: new Set(spec.kinds || DEFAULT_KINDS),
+    // The kinds that are physics rather than machinery go in whatever the
+    // reader picked, including on a link saved before they stopped being
+    // offered. See `always` in PROCESS_KINDS.
+    kinds: new Set([...(spec.kinds || DEFAULT_KINDS),
+                    ...PROCESS_KINDS.filter((k) => k.always).map((k) => k.id)]),
     /** Which sorts of thing the reader will go and get. All of them, unless said. */
     sources: new Set(spec.sources || DEFAULT_SOURCES),
     /** How many ores to try, each one a whole solve. See `ORES_TRIED`. */

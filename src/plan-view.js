@@ -1183,6 +1183,10 @@ function renderOptions() {
   const box = $('#plan-kinds');
   if (!kindBoxes.size) {
     for (const k of PROCESS_KINDS) {
+      // What a material does at a temperature is not on offer. See `always` in
+      // PROCESS_KINDS: a plan told that steam may not become water went three
+      // reactions round to do what cooling does by itself.
+      if (k.always) continue;
       const label = el('label', 'plan-kind');
       const cb = el('input');
       cb.type = 'checkbox';

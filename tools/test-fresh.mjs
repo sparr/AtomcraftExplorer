@@ -84,6 +84,28 @@ let met = 0, missed = 0, broke = 0;
  * as here, the ordinary price ranking decides and the acid at five beats the
  * salt.
  */
+/**
+ * Sparr: condensing steam to water is free if it is going into a reactor at
+ * water temperatures, just like any other phase change.
+ *
+ * So it is not something a reader can decline. Offered as a tick box, a plan
+ * told that steam may not become water went round by Sulfur Trioxide, Zinc
+ * Oxide and Zinc Sulfate Decomposition -- three reactions to do what cooling
+ * does by itself.
+ */
+console.log('--- what a material does at a temperature is not on offer');
+{
+  const withoutPhase = solveFresh(graph, {
+    targets: [{ name: 'Water', amount: 1 }], have: ['Steam'],
+    kinds: ['reaction', 'filter', 'fire', 'grow', 'decay'] });
+  const ok = withoutPhase?.steps?.length === 1 &&
+    withoutPhase.steps[0].process.kind === 'phase';
+  console.log(`      ${ok ? 'MET  ' : 'BROKE'} steam still condenses when phase changes `
+              + `are unticked (${withoutPhase?.steps?.length ?? 0} steps)`);
+  if (ok) met++; else broke++;
+  console.log('');
+}
+
 console.log('--- starting a wheel on what it makes');
 {
   const both = ['Columbite', 'Lepidolite'];

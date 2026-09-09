@@ -30,7 +30,18 @@ import { phaseChange } from './data.js';
 export const PROCESS_KINDS = [
   { id: 'reaction', label: 'Reactions',      glyph: '⚗', automatic: true,  weight: 1 },
   { id: 'filter',   label: 'Water filters',  glyph: '💧', automatic: true,  weight: 1 },
-  { id: 'phase',    label: 'Phase changes',  glyph: '♨', automatic: true,  weight: 0.5 },
+  /**
+   * Sparr: condensing steam to water is free if it is going into a reactor at
+   * water temperatures, just like any other phase change.
+   *
+   * So `always`: it is not a kind of machine the reader may decline to build,
+   * it is what the material does at a temperature. Offered as a tick box it
+   * let the plan be told that steam may not become water, and the planner
+   * dutifully went round by Sulfur Trioxide, Zinc Oxide and Zinc Sulfate
+   * Decomposition -- three reactions to do what cooling does by itself.
+   */
+  { id: 'phase',    label: 'Phase changes',  glyph: '♨', automatic: true,
+    always: true, weight: 0.5 },
   { id: 'fire',     label: 'Fire',           glyph: '\u{1f525}', automatic: true, weight: 1 },
   { id: 'grow',     label: 'Growth',         glyph: '\u{1f331}', automatic: true, weight: 2 },
   { id: 'decay',    label: 'Nuclear decay',  glyph: '☢', automatic: true,  weight: 4 },

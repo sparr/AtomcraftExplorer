@@ -3917,7 +3917,18 @@ const {phaseChange} = __mod_data;
 const PROCESS_KINDS = [
   { id: 'reaction', label: 'Reactions',      glyph: '⚗', automatic: true,  weight: 1 },
   { id: 'filter',   label: 'Water filters',  glyph: '💧', automatic: true,  weight: 1 },
-  { id: 'phase',    label: 'Phase changes',  glyph: '♨', automatic: true,  weight: 0.5 },
+  /**
+   * Sparr: condensing steam to water is free if it is going into a reactor at
+   * water temperatures, just like any other phase change.
+   *
+   * So `always`: it is not a kind of machine the reader may decline to build,
+   * it is what the material does at a temperature. Offered as a tick box it
+   * let the plan be told that steam may not become water, and the planner
+   * dutifully went round by Sulfur Trioxide, Zinc Oxide and Zinc Sulfate
+   * Decomposition -- three reactions to do what cooling does by itself.
+   */
+  { id: 'phase',    label: 'Phase changes',  glyph: '♨', automatic: true,
+    always: true, weight: 0.5 },
   { id: 'fire',     label: 'Fire',           glyph: '\u{1f525}', automatic: true, weight: 1 },
   { id: 'grow',     label: 'Growth',         glyph: '\u{1f331}', automatic: true, weight: 2 },
   { id: 'decay',    label: 'Nuclear decay',  glyph: '☢', automatic: true,  weight: 4 },
@@ -5637,7 +5648,7 @@ const __mod_plan_fresh = (() => {
  *
  * Everything else is a consequence, not a rule.
  */
-const {DEFAULT_KINDS, operatingWindow, reactorsIn} = __mod_plan_graph;
+const {DEFAULT_KINDS, PROCESS_KINDS, operatingWindow, reactorsIn} = __mod_plan_graph;
 const {listed} = __mod_prose;
 const {composition, elementsOf} = __mod_composition;
 const {heatingNeed, coolingNeed} = __mod_units;
@@ -6719,7 +6730,11 @@ function normalizeFresh(spec) {
     targets: (spec.targets || []).map((t) =>
       typeof t === 'string' ? { name: t, amount: 1 } : { name: t.name, amount: t.amount ?? 1 }),
     have: new Set(spec.have || []),
-    kinds: new Set(spec.kinds || DEFAULT_KINDS),
+    // The kinds that are physics rather than machinery go in whatever the
+    // reader picked, including on a link saved before they stopped being
+    // offered. See `always` in PROCESS_KINDS.
+    kinds: new Set([...(spec.kinds || DEFAULT_KINDS),
+                    ...PROCESS_KINDS.filter((k) => k.always).map((k) => k.id)]),
     /** Which sorts of thing the reader will go and get. All of them, unless said. */
     sources: new Set(spec.sources || DEFAULT_SOURCES),
     /** How many ores to try, each one a whole solve. See `ORES_TRIED`. */
@@ -12607,6 +12622,10 @@ function renderOptions() {
   const box = $('#plan-kinds');
   if (!kindBoxes.size) {
     for (const k of PROCESS_KINDS) {
+      // What a material does at a temperature is not on offer. See `always` in
+      // PROCESS_KINDS: a plan told that steam may not become water went three
+      // reactions round to do what cooling does by itself.
+      if (k.always) continue;
       const label = el('label', 'plan-kind');
       const cb = el('input');
       cb.type = 'checkbox';
