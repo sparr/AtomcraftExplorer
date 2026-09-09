@@ -69,6 +69,13 @@
       Keep each step to one reaction &mdash; narrow its temperature range so
       nothing else in the chamber goes off
     </label>
+    <label class="plan-opt" id="plan-ores-opt">
+      <input type="number" id="plan-ores" min="1" max="32" step="1">
+      Ores to try when starting from nothing &mdash; with nothing in hand the
+      plan may buy one material carrying what you asked for, and which one is
+      not something a rule can name, so the cheapest few are each tried in
+      full. Every one is another whole solve, so this is a budget
+    </label>
     <label class="plan-opt" id="plan-leftovers-opt">
       <input type="checkbox" id="plan-leftovers">
       Keep the leavings &mdash; where two plans are otherwise identical, prefer

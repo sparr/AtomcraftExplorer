@@ -34,6 +34,16 @@ export function emptyPlan() {
   return {
     targets: [],                  // [{name, amount}]
     have: [],                     // names
+    /**
+     * How many ores to try when the plan is starting from nothing.
+     *
+     * Each one is a whole solve, so this is a budget rather than a preference:
+     * asked for something with nothing in hand, the solver may buy one
+     * material carrying the answer, and which one is not a thing a rule can
+     * name. Six covers every question anyone has put to it; the page says so
+     * when it runs out and offers to spend more.
+     */
+    oreTries: 6,
     excludeProcesses: [],
     excludeMaterials: [],
     /**
@@ -129,6 +139,8 @@ export function readPlan(params) {
   plan.have = list(params.get('h'));
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
+  const tries = Number(params.get('ot'));
+  if (Number.isFinite(tries) && tries > 0) plan.oreTries = Math.min(Math.round(tries), ORE_TRIES_MAX);
   plan.noFetch = list(params.get('xf'));
   plan.noPrime = list(params.get('xp'));
   plan.kept = list(params.get('kp'));
@@ -164,6 +176,7 @@ export function writePlan(plan, params) {
   put('h', plan.have.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
+  if (plan.oreTries !== 6) params.set('ot', String(plan.oreTries));
   put('xf', plan.noFetch.join(SEP));
   put('xp', plan.noPrime.join(SEP));
   put('kp', plan.kept.join(SEP));
@@ -201,6 +214,15 @@ const clone = (p) => ({
   kept: [...p.kept],
   kinds: [...p.kinds],
 });
+
+/**
+ * Past this it is not a budget any more.
+ *
+ * The longest candidate list in the game is twenty-two, so anything above that
+ * is "try them all" spelled at length, and a number typed into a box should
+ * not be able to ask for a thousand solves.
+ */
+export const ORE_TRIES_MAX = 32;
 
 const drop = (arr, value) => arr.filter((x) => x !== value);
 

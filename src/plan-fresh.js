@@ -683,6 +683,7 @@ const subgraphKey = (spec) => JSON.stringify([
   spec.targets.map((t) => t.name).sort(),
   [...spec.excludeProcesses].sort(),
   [...spec.excludeMaterials].sort(),
+  spec.oreTries,
   [...spec.noFetch].sort(),
   [...spec.noPrime].sort(),
   [...(spec.oreAllowed || [])].sort(),
@@ -1091,6 +1092,8 @@ export function normalizeFresh(spec) {
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
     /** Which sorts of thing the reader will go and get. All of them, unless said. */
     sources: new Set(spec.sources || DEFAULT_SOURCES),
+    /** How many ores to try, each one a whole solve. See `ORES_TRIED`. */
+    oreTries: Math.max(1, Math.round(spec.oreTries ?? ORES_TRIED)),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /** Things the reader will not buy, though the plan may still make them. */
@@ -2071,7 +2074,7 @@ export function blankFresh(graph, rawSpec, why = null) {
   };
 }
 
-/** How many ores to try when the plan is starting from nothing. */
+/** How many ores to try when the plan is starting from nothing, unless told. */
 const ORES_TRIED = 6;
 
 /**
@@ -2084,6 +2087,22 @@ const ORES_TRIED = 6;
  * into "buy one", so anything in a target's own phase group is out. Molten
  * Iron is Iron in another coat.
  */
+/**
+ * Whether this question is one that buys an ore, and how far it will look.
+ *
+ * The page needs to know two things a note in prose cannot safely tell it:
+ * that the cap is what stopped the search, and what the numbers were. Asked
+ * here so the answer comes from the same reasoning the solver uses -- the loop
+ * only runs when nothing held carries what was asked for, and a question that
+ * never reaches it has no cap to raise.
+ */
+export function oreReach(graph, rawSpec) {
+  const spec = withElements(graph, normalizeFresh(rawSpec));
+  if ([...spec.have].some((n) => holdsATarget(graph, n, spec.wanted))) return null;
+  const all = oreCandidates(graph, spec).length;
+  return { all, tried: Math.min(all, spec.oreTries), cap: spec.oreTries };
+}
+
 export function oreCandidates(graph, spec) {
   const targetPhases = new Set(spec.targets.map((t) => phaseGroup(graph, t.name)));
   const eaten = new Set();
@@ -2179,7 +2198,7 @@ export function solveFresh(graph, rawSpec) {
     const alreadyHolds = [...spec.have].some((n) => holdsATarget(graph, n, spec.wanted));
     if (!alreadyHolds) {
       const all = oreCandidates(graph, spec);
-      const tried = all.slice(0, ORES_TRIED);
+      const tried = all.slice(0, spec.oreTries);
       if (all.length > tried.length && rawSpec.notes) {
         rawSpec.notes.push(`tried the ${tried.length} cheapest of ${all.length} ores that ` +
                            `could start this; the rest were not looked at`);

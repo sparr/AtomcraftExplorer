@@ -17,7 +17,8 @@ import { composition } from './composition.js';
 import { balanceTargets } from './balance.js';
 import { routesFor } from './routes.js';
 import { rat, rmul, rsub, rstr, rcmp, R0 } from './rational.js';
-import { solveFresh, blankFresh, questionShape, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
+import { solveFresh, blankFresh, questionShape, oreReach,
+         SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
 import { rnum } from './rational.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
@@ -26,7 +27,7 @@ import { AMBIENT, formatTemperature, formatTemperatureRange,
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
          removeHave, toggle, toggleKind, toggleSource, setOption,
          selectMaterial, addTargets, keepOutput, isKept,
-         setOption as setPlanOption } from './plan-state.js';
+         setOption as setPlanOption, ORE_TRIES_MAX } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -401,16 +402,37 @@ function renderSteps() {
      * pointer. Both belong: what went wrong, then where the switch is.
      */
     const fix = el('div', 'plan-warn plan-fix');
+
+    /**
+     * The cap that stopped the search, and an offer to spend more.
+     *
+     * Starting from nothing the solver may buy one material carrying the
+     * answer, and it tries the cheapest few in full because which one leads
+     * anywhere is not a thing a rule can name. Each is another whole solve --
+     * Lithium Oxide is 42ms at six and 355ms at twelve -- so it stops, says
+     * where it stopped, and lets the reader decide whether to pay for more.
+     */
+    const reach = askedFor ? oreReach(ctx.graph, askedFor) : null;
+    if (reach && reach.all > reach.tried) {
+      const next = Math.min(plan.oreTries * 2, ORE_TRIES_MAX, reach.all);
+      fix.append(`Only the ${reach.tried} cheapest of ${reach.all} ores that could ` +
+                 'start this were tried. ');
+      fix.append(button('ghost small', `Try ${next}`,
+        `Each one is another whole solve, so this will take longer`,
+        () => edit(setPlanOption, 'oreTries', next)));
+      fix.append(' — or ');
+    }
+
     const helps = wouldRescue();
     if (helps.length) {
-      fix.append('There is a plan if you allow ');
+      fix.append('there is a plan if you allow ');
       helps.forEach((h, i) => {
         if (i) fix.append(i === helps.length - 1 ? ' or ' : ', ');
         fix.append(button('ghost small', h.label, `Switch on ${h.label} and plan again`, h.take));
       });
       fix.append(' — these and the rest are under ');
     } else {
-      fix.append('What the plan may use and how it may work is under ');
+      fix.append('what the plan may use and how it may work is under ');
     }
     fix.append(button('ghost small', 'Options', 'What the plan may use', () => {
       $('#plan-options').hidden = false;
@@ -1193,6 +1215,7 @@ function renderOptions() {
   }
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
 
+  $('#plan-ores').value = String(plan.oreTries);
   $('#plan-leftovers').checked = plan.keepLeftovers;
   $('#plan-avoid').checked = plan.avoidSideEffects;
 }
@@ -1267,7 +1290,7 @@ let askedFor = null;
 const questionKey = (ask) => JSON.stringify({
   targets: ask.targets, have: ask.have, kinds: ask.kinds,
   excludeProcesses: ask.excludeProcesses, excludeMaterials: ask.excludeMaterials,
-  noFetch: ask.noFetch, noPrime: ask.noPrime,
+  noFetch: ask.noFetch, noPrime: ask.noPrime, oreTries: ask.oreTries,
   avoidSideEffects: ask.avoidSideEffects, kept: ask.kept, keepLeftovers: ask.keepLeftovers,
 });
 
@@ -1422,6 +1445,7 @@ export function render() {
     noPrime: plan.noPrime,
     kept: plan.kept,
     kinds: plan.kinds,
+    oreTries: plan.oreTries,
     avoidSideEffects: plan.avoidSideEffects,
     // In the question, not bolted on after: the amounts are balanced from this
     // object, and a key built from it could not see a change of sources.
@@ -1528,6 +1552,12 @@ export function initPlan(context) {
 
   $('#plan-avoid').addEventListener('change', (e) =>
     edit(setOption, 'avoidSideEffects', e.target.checked));
+  // Typed rather than ticked, since the useful answers are not two.
+  $('#plan-ores').addEventListener('change', (e) => {
+    const n = Math.round(Number(e.target.value));
+    if (Number.isFinite(n) && n > 0) edit(setOption, 'oreTries', Math.min(n, ORE_TRIES_MAX));
+    else e.target.value = String(plan.oreTries);
+  });
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;

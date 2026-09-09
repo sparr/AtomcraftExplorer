@@ -811,7 +811,7 @@ console.log('\n--- no plan, and what to do about it ---');
   app.setPlan(addTarget(emptyPlan(), 'Charcoal'));
   const steps = () => text('#plan-steps');
   check(/Nothing allowed can make/.test(steps()), 'it says nothing allowed can make it');
-  check(/There is a plan if you allow/.test(steps()),
+  check(/there is a plan if you allow/i.test(steps()),
         `and that there is one if you allow something: ${steps().slice(0, 90)}`);
 
   const offered = nodes($('#plan-steps'), 'small').map((b) => b.textContent);
@@ -837,6 +837,63 @@ console.log('\n--- no plan, and what to do about it ---');
   // Left as it was found: the block below toggles this panel and would be
   // toggling it shut.
   $('#plan-options').hidden = true;
+}
+
+/* ------------------------------ raising the cap on how many ores are tried */
+
+/**
+ * Sparr: expose the cap in Options to be set outright, and beside the message
+ * as a button that doubles it.
+ *
+ * Lithium Oxide is the case. Fourteen materials carry lithium and oxygen, the
+ * six cheapest lead nowhere, and one further down is two Lithium Carbonate.
+ * Each candidate is a whole solve -- 42ms at six, 355ms at twelve -- so the
+ * search stops, says where it stopped, and lets the reader decide whether to
+ * pay for more.
+ */
+console.log('\n--- trying more ores than the cap allows ---');
+{
+  app.setMode('plan');
+  app.setPlan(addTarget(emptyPlan(), 'Lithium Oxide'));
+  const steps = () => text('#plan-steps');
+  check(/Nothing allowed can make/.test(steps()), 'six ores in, there is no plan');
+  check(/Only the 6 cheapest of 14 ores/.test(steps()),
+        `and the page says the cap is why: ${steps().slice(0, 100)}`);
+
+  const more = nodes($('#plan-steps'), 'small').find((b) => /^Try \d+$/.test(b.textContent));
+  check(!!more && more.textContent === 'Try 12',
+        `with a button offering twice as many: ${more?.textContent}`);
+  more.click();
+  check(app.getPlan().oreTries === 12, 'pressing it doubles the setting');
+  check(!/Nothing allowed can make/.test(steps()) &&
+        /Lithium Carbonate/.test(text('#plan-side')),
+        `and the plan is found: ${text('#plan-side').slice(0, 60)}`);
+
+  // The same setting, said outright.
+  app.setPlan(addTarget(emptyPlan(), 'Lithium Oxide'));
+  check($('#plan-ores').value === '6', `Options shows the cap in force: ${$('#plan-ores').value}`);
+  $('#plan-ores').value = '14';
+  $('#plan-ores').dispatch('change');
+  check(app.getPlan().oreTries === 14, 'and typing a number sets it');
+  check(!/Nothing allowed can make/.test(steps()), 'which finds the plan too');
+
+  // A number nobody means is not taken as read.
+  app.setPlan({ ...addTarget(emptyPlan(), 'Lithium Oxide'), oreTries: 6 });
+  $('#plan-ores').value = '9999';
+  $('#plan-ores').dispatch('change');
+  check(app.getPlan().oreTries === 32,
+        `held to a budget rather than a thousand solves: ${app.getPlan().oreTries}`);
+
+  // And it rides in the URL, since the default is the interesting exception.
+  const params = new URLSearchParams();
+  writePlan({ ...emptyPlan(), targets: [{ name: 'Lithium Oxide', amount: 1 }], oreTries: 12 },
+            params);
+  check(params.get('ot') === '12' && readPlan(params).oreTries === 12,
+        'a raised cap survives a reload');
+  const plain = new URLSearchParams();
+  writePlan({ ...emptyPlan(), targets: [{ name: 'Lithium Oxide', amount: 1 }] }, plain);
+  check(!plain.get('ot') && readPlan(plain).oreTries === 6,
+        'and the usual six is not written down');
 }
 
 /* ------------------------------ what each interface actually puts on screen */

@@ -1092,6 +1092,13 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
       Keep each step to one reaction &mdash; narrow its temperature range so
       nothing else in the chamber goes off
     </label>
+    <label class="plan-opt" id="plan-ores-opt">
+      <input type="number" id="plan-ores" min="1" max="32" step="1">
+      Ores to try when starting from nothing &mdash; with nothing in hand the
+      plan may buy one material carrying what you asked for, and which one is
+      not something a rule can name, so the cheapest few are each tried in
+      full. Every one is another whole solve, so this is a budget
+    </label>
     <label class="plan-opt" id="plan-leftovers-opt">
       <input type="checkbox" id="plan-leftovers">
       Keep the leavings &mdash; where two plans are otherwise identical, prefer
@@ -6187,6 +6194,7 @@ const subgraphKey = (spec) => JSON.stringify([
   spec.targets.map((t) => t.name).sort(),
   [...spec.excludeProcesses].sort(),
   [...spec.excludeMaterials].sort(),
+  spec.oreTries,
   [...spec.noFetch].sort(),
   [...spec.noPrime].sort(),
   [...(spec.oreAllowed || [])].sort(),
@@ -6595,6 +6603,8 @@ function normalizeFresh(spec) {
     kinds: new Set(spec.kinds || DEFAULT_KINDS),
     /** Which sorts of thing the reader will go and get. All of them, unless said. */
     sources: new Set(spec.sources || DEFAULT_SOURCES),
+    /** How many ores to try, each one a whole solve. See `ORES_TRIED`. */
+    oreTries: Math.max(1, Math.round(spec.oreTries ?? ORES_TRIED)),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /** Things the reader will not buy, though the plan may still make them. */
@@ -7575,7 +7585,7 @@ function blankFresh(graph, rawSpec, why = null) {
   };
 }
 
-/** How many ores to try when the plan is starting from nothing. */
+/** How many ores to try when the plan is starting from nothing, unless told. */
 const ORES_TRIED = 6;
 
 /**
@@ -7588,6 +7598,22 @@ const ORES_TRIED = 6;
  * into "buy one", so anything in a target's own phase group is out. Molten
  * Iron is Iron in another coat.
  */
+/**
+ * Whether this question is one that buys an ore, and how far it will look.
+ *
+ * The page needs to know two things a note in prose cannot safely tell it:
+ * that the cap is what stopped the search, and what the numbers were. Asked
+ * here so the answer comes from the same reasoning the solver uses -- the loop
+ * only runs when nothing held carries what was asked for, and a question that
+ * never reaches it has no cap to raise.
+ */
+function oreReach(graph, rawSpec) {
+  const spec = withElements(graph, normalizeFresh(rawSpec));
+  if ([...spec.have].some((n) => holdsATarget(graph, n, spec.wanted))) return null;
+  const all = oreCandidates(graph, spec).length;
+  return { all, tried: Math.min(all, spec.oreTries), cap: spec.oreTries };
+}
+
 function oreCandidates(graph, spec) {
   const targetPhases = new Set(spec.targets.map((t) => phaseGroup(graph, t.name)));
   const eaten = new Set();
@@ -7683,7 +7709,7 @@ function solveFresh(graph, rawSpec) {
     const alreadyHolds = [...spec.have].some((n) => holdsATarget(graph, n, spec.wanted));
     if (!alreadyHolds) {
       const all = oreCandidates(graph, spec);
-      const tried = all.slice(0, ORES_TRIED);
+      const tried = all.slice(0, spec.oreTries);
       if (all.length > tried.length && rawSpec.notes) {
         rawSpec.notes.push(`tried the ${tried.length} cheapest of ${all.length} ores that ` +
                            `could start this; the rest were not looked at`);
@@ -8937,7 +8963,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   return plan;
 }
 
-return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreCandidates, questionShape, solveFresh };
+return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreReach, oreCandidates, questionShape, solveFresh };
 })();
 
 const __mod_plan_state = (() => {
@@ -8977,6 +9003,16 @@ function emptyPlan() {
   return {
     targets: [],                  // [{name, amount}]
     have: [],                     // names
+    /**
+     * How many ores to try when the plan is starting from nothing.
+     *
+     * Each one is a whole solve, so this is a budget rather than a preference:
+     * asked for something with nothing in hand, the solver may buy one
+     * material carrying the answer, and which one is not a thing a rule can
+     * name. Six covers every question anyone has put to it; the page says so
+     * when it runs out and offers to spend more.
+     */
+    oreTries: 6,
     excludeProcesses: [],
     excludeMaterials: [],
     /**
@@ -9072,6 +9108,8 @@ function readPlan(params) {
   plan.have = list(params.get('h'));
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
+  const tries = Number(params.get('ot'));
+  if (Number.isFinite(tries) && tries > 0) plan.oreTries = Math.min(Math.round(tries), ORE_TRIES_MAX);
   plan.noFetch = list(params.get('xf'));
   plan.noPrime = list(params.get('xp'));
   plan.kept = list(params.get('kp'));
@@ -9107,6 +9145,7 @@ function writePlan(plan, params) {
   put('h', plan.have.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
+  if (plan.oreTries !== 6) params.set('ot', String(plan.oreTries));
   put('xf', plan.noFetch.join(SEP));
   put('xp', plan.noPrime.join(SEP));
   put('kp', plan.kept.join(SEP));
@@ -9144,6 +9183,15 @@ const clone = (p) => ({
   kept: [...p.kept],
   kinds: [...p.kinds],
 });
+
+/**
+ * Past this it is not a budget any more.
+ *
+ * The longest candidate list in the game is twenty-two, so anything above that
+ * is "try them all" spelled at length, and a number typed into a box should
+ * not be able to ask for a thousand solves.
+ */
+const ORE_TRIES_MAX = 32;
 
 const drop = (arr, value) => arr.filter((x) => x !== value);
 
@@ -9277,7 +9325,7 @@ function planProcess(plan, process) {
   return next;
 }
 
-return { emptyPlan, isEmptyPlan, readPlan, writePlan, addTargets, addTarget, setTargetAmount, keepOutput, isKept, selectMaterial, removeTarget, addHave, removeHave, toggle, toggleKind, toggleSource, setOption, planProcess };
+return { emptyPlan, isEmptyPlan, readPlan, writePlan, ORE_TRIES_MAX, addTargets, addTarget, setTargetAmount, keepOutput, isKept, selectMaterial, removeTarget, addHave, removeHave, toggle, toggleKind, toggleSource, setOption, planProcess };
 })();
 
 const __mod_balance = (() => {
@@ -9828,12 +9876,12 @@ const {composition} = __mod_composition;
 const {balanceTargets} = __mod_balance;
 const {routesFor} = __mod_routes;
 const {rat, rmul, rsub, rstr, rcmp, R0} = __mod_rational;
-const {solveFresh, blankFresh, questionShape, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
+const {solveFresh, blankFresh, questionShape, oreReach, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
 const {SCORES, optionSets, digest} = __mod_plan_menu;
 const {rnum} = __mod_rational;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
 const {AMBIENT, formatTemperature, formatTemperatureRange, formatTemperatureDelta} = __mod_units;
-const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, toggle, toggleKind, toggleSource, setOption, selectMaterial, addTargets, keepOutput, isKept, setOption: setPlanOption} = __mod_plan_state;
+const {emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave, removeHave, toggle, toggleKind, toggleSource, setOption, selectMaterial, addTargets, keepOutput, isKept, setOption: setPlanOption, ORE_TRIES_MAX} = __mod_plan_state;
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -10208,16 +10256,37 @@ function renderSteps() {
      * pointer. Both belong: what went wrong, then where the switch is.
      */
     const fix = el('div', 'plan-warn plan-fix');
+
+    /**
+     * The cap that stopped the search, and an offer to spend more.
+     *
+     * Starting from nothing the solver may buy one material carrying the
+     * answer, and it tries the cheapest few in full because which one leads
+     * anywhere is not a thing a rule can name. Each is another whole solve --
+     * Lithium Oxide is 42ms at six and 355ms at twelve -- so it stops, says
+     * where it stopped, and lets the reader decide whether to pay for more.
+     */
+    const reach = askedFor ? oreReach(ctx.graph, askedFor) : null;
+    if (reach && reach.all > reach.tried) {
+      const next = Math.min(plan.oreTries * 2, ORE_TRIES_MAX, reach.all);
+      fix.append(`Only the ${reach.tried} cheapest of ${reach.all} ores that could ` +
+                 'start this were tried. ');
+      fix.append(button('ghost small', `Try ${next}`,
+        `Each one is another whole solve, so this will take longer`,
+        () => edit(setPlanOption, 'oreTries', next)));
+      fix.append(' — or ');
+    }
+
     const helps = wouldRescue();
     if (helps.length) {
-      fix.append('There is a plan if you allow ');
+      fix.append('there is a plan if you allow ');
       helps.forEach((h, i) => {
         if (i) fix.append(i === helps.length - 1 ? ' or ' : ', ');
         fix.append(button('ghost small', h.label, `Switch on ${h.label} and plan again`, h.take));
       });
       fix.append(' — these and the rest are under ');
     } else {
-      fix.append('What the plan may use and how it may work is under ');
+      fix.append('what the plan may use and how it may work is under ');
     }
     fix.append(button('ghost small', 'Options', 'What the plan may use', () => {
       $('#plan-options').hidden = false;
@@ -11000,6 +11069,7 @@ function renderOptions() {
   }
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
 
+  $('#plan-ores').value = String(plan.oreTries);
   $('#plan-leftovers').checked = plan.keepLeftovers;
   $('#plan-avoid').checked = plan.avoidSideEffects;
 }
@@ -11074,7 +11144,7 @@ let askedFor = null;
 const questionKey = (ask) => JSON.stringify({
   targets: ask.targets, have: ask.have, kinds: ask.kinds,
   excludeProcesses: ask.excludeProcesses, excludeMaterials: ask.excludeMaterials,
-  noFetch: ask.noFetch, noPrime: ask.noPrime,
+  noFetch: ask.noFetch, noPrime: ask.noPrime, oreTries: ask.oreTries,
   avoidSideEffects: ask.avoidSideEffects, kept: ask.kept, keepLeftovers: ask.keepLeftovers,
 });
 
@@ -11229,6 +11299,7 @@ function render() {
     noPrime: plan.noPrime,
     kept: plan.kept,
     kinds: plan.kinds,
+    oreTries: plan.oreTries,
     avoidSideEffects: plan.avoidSideEffects,
     // In the question, not bolted on after: the amounts are balanced from this
     // object, and a key built from it could not see a change of sources.
@@ -11335,6 +11406,12 @@ function initPlan(context) {
 
   $('#plan-avoid').addEventListener('change', (e) =>
     edit(setOption, 'avoidSideEffects', e.target.checked));
+  // Typed rather than ticked, since the useful answers are not two.
+  $('#plan-ores').addEventListener('change', (e) => {
+    const n = Math.round(Number(e.target.value));
+    if (Number.isFinite(n) && n > 0) edit(setOption, 'oreTries', Math.min(n, ORE_TRIES_MAX));
+    else e.target.value = String(plan.oreTries);
+  });
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;
