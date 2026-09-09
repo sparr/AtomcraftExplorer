@@ -39,7 +39,7 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
   say('  splines=true;');
   say('  overlap=false;');
   say('  nodesep=0.35;');
-  say('  ranksep=0.8;');
+  say('  ranksep=0.4;');   // half, there being twice as many ranks now
   say('  node [shape=box style="rounded,filled" fillcolor="#161b22" color="#262d38" '
       + 'fontcolor="#d6dde8" fontname="Helvetica" fontsize=11 margin="0.14,0.07"];');
   say('  edge [color="#3a4553" fontcolor="#8b96a6" fontname="Helvetica" fontsize=9 '
@@ -224,6 +224,20 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
      */
     const bits = [`color="${paint[e.role] || '#3a4553'}"`];
     if (closes.has(e)) bits.push('dir=back');
+    /**
+     * Sparr: can the two steps through a condensation be half a level each
+     * rather than a whole one?
+     *
+     * Ranks are whole numbers, so a joint on a rank of its own puts two full
+     * levels between the reactions either side of it, where an arrow that goes
+     * straight across spends one. There is no half rank to put it on -- but
+     * there is no rule that a plain arrow must span only one. Give every arrow
+     * that misses a joint a span of two and the joint's halves keep theirs of
+     * one, and the two are the same height again with the joint in the middle
+     * of it. The gap between ranks is halved to keep the picture the size it
+     * was.
+     */
+    if (!joint.has(e.from) && !joint.has(e.to)) bits.push('minlen=2');
     if (e.label) bits.push(`label="${esc(e.label)}"`);
     // Sparr: no arrow ends where lines come together at the invisible nodes.
     if (e.join) bits.push('arrowhead=none');

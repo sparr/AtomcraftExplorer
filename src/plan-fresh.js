@@ -248,6 +248,9 @@ function sourceUncached(graph, name, seen, followPhase) {
   }
 
   if (own === 'deposit' || own === 'terrain') return 'world';
+  // And what is simply lying there: the world put it on the ground, so it is
+  // world stuff however many recipes also make it. See `LOOSE_ON_THE_GROUND`.
+  if (graph.lyingAbout?.(name)) return 'world';
 
   /**
    * Follow the melt as well as the mine.
@@ -469,6 +472,9 @@ export function fetchable(graph, name, kinds, sources = null, spec = null) {
    * swing the pick, any more than Hematite stops existing when mining is off.
    */
   if (dugUp(graph, name)) return true;
+  // And what is simply lying there. See `LOOSE_ON_THE_GROUND`: no mining step
+  // stands between the player and a handful of sand.
+  if (graph.lyingAbout?.(name)) return true;
   if (graph.isManufactured(name)) return false;
 
   /**

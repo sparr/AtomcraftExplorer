@@ -149,6 +149,34 @@ console.log('--- what each charge is buying');
  * bought Dolomite instead at twenty atoms for the same carbon, to crack the
  * gravel out of it.
  */
+/**
+ * Sparr: Sand and Dirt spawn loose on the ground, limited like an ore but with
+ * no mining step in between.
+ *
+ * Nothing in the material table says so, so it is written down beside the rain
+ * for the same reason. Without it a plan for Glass could not buy sand -- every
+ * route to sand is a reaction -- and bought seven Bertrandite to crack two out
+ * of instead.
+ */
+console.log('--- what is lying on the ground can be picked up');
+{
+  const kinds = new Set(['reaction', 'filter', 'phase', 'fire', 'grow', 'decay']);
+  const world = new Set(['world']);
+  const glass = solveFresh(graph, { targets: [{ name: 'Glass', amount: 1 }],
+                                    have: [], sources: ['world'] });
+  const checks = [
+    ['sand may be picked up, though every recipe for it is a reaction',
+     fetchable(graph, 'Sand', kinds, world)],
+    ['so Glass melts sand rather than cracking it out of Bertrandite',
+     glass.steps.length === 2 && glass.frontier.every((f) => f.name === 'Sand')],
+  ];
+  for (const [what, ok] of checks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+  console.log('');
+}
+
 console.log('--- what comes out of the ground can be bought, recipe or no');
 {
   const kinds = new Set(['reaction', 'filter', 'phase', 'fire', 'grow', 'decay']);

@@ -81,6 +81,27 @@ export const FALLS_FROM_SKY = new Set([
 ]);
 
 /**
+ * Lying loose on the ground, to be picked up rather than dug out.
+ *
+ * Sparr: Sand and Dirt spawn loose on the ground. Limited in quantity like an
+ * ore, but with no static-to-solid mining step in between.
+ *
+ * Nothing in the material table says so -- Sand and Dirt read as ordinary
+ * solids, indistinguishable from Iron Oxide, which is a thing you make. The
+ * knowledge is in worldgen and not in the data we bake, the same way the rain
+ * is in `Simulation.cs` and not in the material list, so it is written down
+ * here for the same reason `FALLS_FROM_SKY` is.
+ *
+ * Without it a plan for Glass could not buy sand -- every route to sand is a
+ * reaction, so the door refused it -- and bought Bertrandite to crack sand out
+ * of instead.
+ */
+export const LOOSE_ON_THE_GROUND = new Set([
+  'Sand',
+  'Dirt',
+]);
+
+/**
  * Pulling the water back out of something aqueous.
  *
  * A Water Filter or a Block Water splits a material into its dry half and
@@ -793,6 +814,7 @@ export function buildProcessGraph(db) {
     stateOf: (name) => state.get(name) || null,
     /** Does the weather deliver this one? */
     fallsFromSky: (name) => FALLS_FROM_SKY.has(name),
+    lyingAbout: (name) => LOOSE_ON_THE_GROUND.has(name),
     isManufactured: (name) => manufactured.has(name),
     producersOf,
     consumersOf,
