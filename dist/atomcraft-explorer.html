@@ -8855,7 +8855,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      * with a shorter or cheaper list, the refusal stands. A charge survives
      * only by being needed under a rule that tried to do without it.
      */
-    const layIn = (refuse) => {
+    const layIn = (refuse, cap = new Map()) => {
     const said = [];
     const unlimited = (name) => spec.have.has(name) || drawn.has(name);
     const stock = new Map();
@@ -9125,7 +9125,25 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       let best = null;
       for (const step of candidates) {
         const short = missing(step);
-        const forbidden = short.some(([name]) => carriesAWant(name));
+        /**
+         * And a ceiling on how much of a thing may be laid in at all.
+         *
+         * Sparr: it is always losing that carbon, not once at the beginning.
+         *
+         * True, and the loss is paid for by the dolomite. What the charge buys
+         * is the stock that has to be going round before the first turn can
+         * turn, and the pass arrived at it a unit at a time without ever
+         * asking whether one of them had stopped being needed. Two Carbon and
+         * one Carbon Monoxide start this factory; it was asking for three.
+         *
+         * Refusing a material outright could never find that -- Carbon is
+         * needed, just less of it -- so the ceiling is what makes the question
+         * askable, and it is ranked with the other refusals rather than
+         * enforced, for the same reason they are.
+         */
+        const overCap = ([name, amount]) => cap.has(name) &&
+          rnum(radd(charge.get(name) || R0, amount)) > cap.get(name);
+        const forbidden = short.some((s) => carriesAWant(s[0]) || overCap(s));
         const price = short.reduce((a, [name, amount]) =>
           a + (gettable(name) ? (prices.get(name) ?? 1) : OUT_OF_REACH) * rnum(amount), 0);
         const outside = short.every(([name]) => fetched.has(name) || !pending.has(name));
@@ -9224,13 +9242,14 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      */
     const tried = new Map();
     let spent = 1;
-    const LOOKS = 48;
-    const ask = (names) => {
-      const key = [...names].sort().join('\u0000');
+    const LOOKS = 80;
+    const ask = (names, cap = new Map()) => {
+      const key = `${[...names].sort().join('\u0000')}|`
+        + [...cap].sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => `${k}=${v}`).join(',');
       if (tried.has(key)) return tried.get(key);
       if (spent >= LOOKS) return null;
       spent++;
-      const got = layIn(new Set(names));
+      const got = layIn(new Set(names), cap);
       tried.set(key, got);
       return got;
     };
@@ -9265,6 +9284,32 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       laid = best.got;
       for (const n of best.add) refused.add(n);
     }
+    /**
+     * Then pare each amount down while the whole stays cheaper.
+     *
+     * The refusal search asks whether a thing is needed. This asks how much of
+     * it is, which is a different question and the one left over: a charge is
+     * built a unit at a time at successive stalls, and nothing ever went back
+     * to see whether a later unit had been made redundant by an earlier one.
+     * One at a time from the top, since the amounts are small and a ceiling
+     * that is too low simply comes back dearer and is dropped.
+     */
+    let caps = new Map();
+    for (const name of [...laid.charge.keys()].sort()) {
+      for (;;) {
+        const now = rnum(laid.charge.get(name) || R0);
+        if (now <= 0) break;
+        const trim = new Map([...caps, [name, now - 1]]);
+        const got = ask([...refused], trim);
+        if (!got) break;
+        const [p1, n1] = worth(got);
+        const [p0, n0] = worth(laid);
+        if (!(p1 < p0 || (p1 === p0 && n1 < n0))) break;
+        laid = got;
+        caps = trim;
+      }
+    }
+
     if (notes) notes.push(...laid.said);
 
     for (const [name, amount] of laid.charge) {
