@@ -9189,25 +9189,66 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     let laid = layIn(new Set());
     const refused = new Set();
     /**
-     * And refusing one thing turns up others to refuse.
+     * Refusing one thing turns up others to refuse, and sometimes the first
+     * step has to be uphill.
      *
-     * Refusing the Carbon Monoxide puts Carbon on the list, and Carbon was not
-     * on the list to begin with, so a single pass over the first answer never
-     * reaches it -- it stops at nine Carbon where three will do. Each round
-     * tries every charge now standing, and rounds run until one changes
-     * nothing.
+     * Sparr: why prime with hydrogen when there are steam leftovers and a
+     * water electrolysis already?
+     *
+     * Because refusing the hydrogen on its own makes it worse -- eighteen
+     * Carbon Monoxide, forty atoms, against the eighteen it started at -- so a
+     * rule that only ever steps downhill stops there and keeps the hydrogen.
+     * Refuse the hydrogen *and* the Carbon Monoxide and it comes back with
+     * nine Carbon, one Carbon Monoxide and one Sulfur Trioxide: fifteen. The
+     * good answer is over a hill.
+     *
+     * So each round tries every single refusal, and if none of them is an
+     * improvement it tries every pair before giving up. Only the weight
+     * decides, only a strict improvement is taken, and the number of runs is
+     * capped, since each is a full pass over the factory.
      */
+    const tried = new Map();
+    let spent = 1;
+    const LOOKS = 48;
+    const ask = (names) => {
+      const key = [...names].sort().join('\u0000');
+      if (tried.has(key)) return tried.get(key);
+      if (spent >= LOOKS) return null;
+      spent++;
+      const got = layIn(new Set(names));
+      tried.set(key, got);
+      return got;
+    };
+    const namesIn = (got) => [...got.charge.keys()];
     for (let round = 0; round < 8; round++) {
-      let moved = false;
-      for (const name of [...laid.charge.keys()].sort()) {
-        if (refused.has(name)) continue;
-        const without = layIn(new Set([...refused, name]));
-        if (without.charge.has(name)) continue;     // it would not do without
-        const [p0, n0] = worth(laid);
-        const [p1, n1] = worth(without);
-        if (p1 < p0 || (p1 === p0 && n1 < n0)) { laid = without; refused.add(name); moved = true; }
+      const candidates = [...new Set([...namesIn(laid), ...refused])]
+        .filter((n) => !refused.has(n)).sort();
+      let best = null;
+      for (const name of candidates) {
+        const got = ask([...refused, name]);
+        if (!got) continue;
+        const [p1] = worth(got);
+        if (!best || p1 < best.price) best = { price: p1, got, add: [name] };
       }
-      if (!moved) break;
+      // Uphill once, if no single step goes down.
+      if (!best || best.price >= worth(laid)[0]) {
+        for (let i = 0; i < candidates.length; i++) {
+          for (let j = i + 1; j < candidates.length; j++) {
+            const got = ask([...refused, candidates[i], candidates[j]]);
+            if (!got) continue;
+            const [p1] = worth(got);
+            if (!best || p1 < best.price) {
+              best = { price: p1, got, add: [candidates[i], candidates[j]] };
+            }
+          }
+        }
+      }
+      const [p0, n0] = worth(laid);
+      if (!best) break;
+      const [p1, n1] = worth(best.got);
+      if (!(p1 < p0 || (p1 === p0 && n1 < n0))) break;
+      laid = best.got;
+      for (const n of best.add) refused.add(n);
     }
     if (notes) notes.push(...laid.said);
 
