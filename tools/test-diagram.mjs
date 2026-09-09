@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
 import { solveFresh } from '../src/plan-fresh.js';
-import { layoutPlan, relax, crossings } from '../src/plan-diagram.js';
+import { layoutPlan, relax, crossings, SPACING } from '../src/plan-diagram.js';
 
 globalThis.fetch = async () => ({
   ok: true,
@@ -106,6 +106,45 @@ for (const [what, ask] of plans) {
   check(!mixed.length,
         `nothing with further use sits below a dead end (${mixed.length} columns mixed)`);
 
+  /**
+   * The closing arrows are routed like the rest.
+   *
+   * Sparr: the dotted loop lines intersect many things and probably need their
+   * own invisible nodes. They do -- a line drawn straight from a step back to
+   * something five columns behind passes over everything between, and nothing
+   * between knows it is there.
+   */
+  const loopWires = state.wires.filter((w) => w.back);
+  const straightLoops = loopWires.filter((w) => {
+    const span = Math.abs(byId.get(w.to).rank - byId.get(w.from).rank);
+    return span > 1 && w.points.length !== span + 1;
+  });
+  check(!straightLoops.length,
+        `each of the ${loopWires.length} closing arrows has standing room in every column it crosses`);
+
+  /**
+   * And both ways round fit the boxes they hold.
+   *
+   * A box is 150 wide and 34 tall, so which gap needs to be the big one
+   * depends entirely on which way the picture runs. One pair of numbers for
+   * both made the turned picture a column of overlapping boxes with vast gaps
+   * between the rows.
+   */
+  for (const [way, gaps] of [['in columns', SPACING.down], ['in rows', SPACING.across]]) {
+    const turned = layoutPlan(plan, gaps);
+    const layers = new Map();
+    for (const n of turned.nodes) {
+      if (!layers.has(n.rank)) layers.set(n.rank, []);
+      layers.get(n.rank).push(n);
+    }
+    const boxAcross = way === 'in columns' ? 34 : 150;
+    const tooClose = [...layers.values()].some((layer) => {
+      const ys = layer.filter((n) => n.kind !== 'bend').map((n) => n.y).sort((a, b) => a - b);
+      return ys.some((y, i) => i > 0 && y - ys[i - 1] < boxAcross);
+    });
+    check(!tooClose, `${way}, nothing in a column overlaps its neighbour`);
+  }
+
   // The combing earns its place.
   const raw = crossings(layoutPlan(plan, { rounds: 0 }));
   const combed = crossings(state);
@@ -120,7 +159,7 @@ for (const [what, ask] of plans) {
   const before = state.nodes.map((n) => n.rank).join(',');
   let last = Infinity;
   for (let i = 0; i < 400; i++) last = relax(state);
-  check(last < 1, `the springs come to rest (${last.toFixed(3)} left moving)`);
+  check(last < 0.02, `the springs come to rest (${last.toFixed(4)} a node still moving)`);
   check(state.nodes.map((n) => n.rank).join(',') === before,
         'and nothing changed column while they did');
 }

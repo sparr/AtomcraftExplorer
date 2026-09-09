@@ -9,7 +9,7 @@
  * A plan is a graph, and the question a reader has -- where does this come
  * from, what is waiting on it -- is a question about edges.
  */
-import { layoutPlan, relax } from './plan-diagram.js';
+import { layoutPlan, relax, SPACING } from './plan-diagram.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const make = (tag, attrs = {}) => {
@@ -23,7 +23,9 @@ const BOX = { w: 150, h: 34 };
 
 export function drawPlan(host, plan, { onPick, across = false } = {}) {
   host.textContent = '';
-  const state = layoutPlan(plan);
+  // The room a box needs depends on which way the picture runs, so the layout
+  // is told before it starts rather than turned afterwards.
+  const state = layoutPlan(plan, across ? SPACING.across : SPACING.down);
   if (!state.nodes.length) {
     const empty = document.createElement('p');
     empty.className = 'muted';
@@ -67,6 +69,30 @@ export function drawPlan(host, plan, { onPick, across = false } = {}) {
   const out = (n) => (across ? { x: sx(n), y: sy(n) + half() } : { x: sx(n) + half(), y: sy(n) });
   const into = (n) => (across ? { x: sx(n), y: sy(n) - half() } : { x: sx(n) - half(), y: sy(n) });
   const mid = (n) => ({ x: sx(n), y: sy(n) });
+
+  /**
+   * A line through its waypoints, leaving and arriving straight.
+   *
+   * Sparr: the combing for the Columbite line is good but it needs tighter
+   * curves at the end so it stops clipping the Hydrofluoric Acid. Control
+   * points at the halfway mark make every segment a wide sweep, and the sweep
+   * nearest a box is the one that bulges across whatever is beside it. Held to
+   * a short reach instead -- a third of the step, and never more than forty --
+   * the line leaves its box along the flow, runs where the comb put it, and
+   * arrives the same way.
+   */
+  const thread = (stops) => {
+    let d = `M ${stops[0].x} ${stops[0].y}`;
+    for (let i = 1; i < stops.length; i++) {
+      const p = stops[i - 1];
+      const q = stops[i];
+      const reach = Math.min(40, Math.abs(across ? q.y - p.y : q.x - p.x) / 3);
+      d += across
+        ? ` C ${p.x} ${p.y + reach}, ${q.x} ${q.y - reach}, ${q.x} ${q.y}`
+        : ` C ${p.x + reach} ${p.y}, ${q.x - reach} ${q.y}, ${q.x} ${q.y}`;
+    }
+    return d;
+  };
 
   const drawn = [];
   for (const w of state.wires) {
@@ -125,27 +151,15 @@ export function drawPlan(host, plan, { onPick, across = false } = {}) {
       const a = pts[0];
       const b = pts[pts.length - 1];
       if (w.back) {
-        // The one arrow that reads backwards, bowed clear of everything else.
-        const from = into(a);
-        const to = out(b);
-        const lift = across ? 0 : -46;
-        const shift = across ? -46 : 0;
-        const cx = (from.x + to.x) / 2 + shift;
-        const cy = (from.y + to.y) / 2 + lift;
-        line.setAttribute('d', `M ${from.x} ${from.y} C ${cx} ${from.y + lift}, ${cx} ${to.y + lift}, ${to.x} ${to.y}`);
+        // Read backwards, and now routed like everything else: it has standing
+        // room in each column it crosses, so it can be threaded rather than
+        // bowed hopefully over the top.
+        const stops = [into(a), ...pts.slice(1, -1).map(mid), out(b)];
+        line.setAttribute('d', thread(stops));
         continue;
       }
       const stops = [out(a), ...pts.slice(1, -1).map(mid), into(b)];
-      let d = `M ${stops[0].x} ${stops[0].y}`;
-      for (let i = 1; i < stops.length; i++) {
-        const p = stops[i - 1];
-        const q = stops[i];
-        const mx = (p.x + q.x) / 2;
-        const my = (p.y + q.y) / 2;
-        d += across ? ` C ${p.x} ${my}, ${q.x} ${my}, ${q.x} ${q.y}`
-                    : ` C ${mx} ${p.y}, ${mx} ${q.y}, ${q.x} ${q.y}`;
-      }
-      line.setAttribute('d', d);
+      line.setAttribute('d', thread(stops));
     }
     svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     svg.setAttribute('width', view.w);
@@ -160,7 +174,7 @@ export function drawPlan(host, plan, { onPick, across = false } = {}) {
     const moved = relax(state);
     draw();
     ticks += 1;
-    if (moved > 0.4 && ticks < 600) frame(settle);
+    if (moved > 0.01 && ticks < 600) frame(settle);
   };
 
   let holding = null;

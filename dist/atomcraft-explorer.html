@@ -10029,7 +10029,7 @@ function rank(nodes, edges, back) {
  * cradle into something with legible strands, and it costs a few passes over
  * the edge list.
  */
-function comb(layers, edges, rounds = 4) {
+function comb(layers, edges, rounds = 4, settle = null) {
   const near = new Map();
   const add = (a, b) => { if (!near.has(a)) near.set(a, []); near.get(a).push(b); };
   for (const e of edges) { add(e.to, e.from); add(e.from, e.to); }
@@ -10071,6 +10071,7 @@ function comb(layers, edges, rounds = 4) {
    * one from twelve to three to two. Running more rounds and taking whatever
    * fell out last was leaving the picture worse than one round would have.
    */
+  if (settle) layers.forEach(settle);
   let best = layers.map((layer) => [...layer]);
   let fewest = tangled();
   for (let round = 0; round < rounds; round++) {
@@ -10086,6 +10087,7 @@ function comb(layers, edges, rounds = 4) {
       list[i].sort((a, b) => median(a) - median(b));
       list[i].forEach((n, k) => { n.at = k; });
     }
+    if (settle) layers.forEach(settle);
     const now = tangled();
     if (now < fewest) { fewest = now; best = layers.map((layer) => [...layer]); }
   }
@@ -10105,6 +10107,20 @@ function comb(layers, edges, rounds = 4) {
  * carry a label saying which material it stood for, and a reader chasing one
  * material through five reactions would have nothing to follow.
  */
+/**
+ * How far apart, along the flow and across it.
+ *
+ * A box is 150 wide and 34 tall, so the room it needs depends entirely on
+ * which way the picture runs. Drawn in columns, the flow needs the width and
+ * the layer needs the height; turned on its side those swap, and using one
+ * pair of numbers for both is what made the turned picture a column of
+ * overlapping boxes with vast gaps between the rows.
+ */
+const SPACING = {
+  down: { gapX: 190, gapY: 58 },        // flow left to right
+  across: { gapX: 72, gapY: 176 },      // flow top to bottom, the boxes side by side
+};
+
 function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
   if (!plan || !plan.steps) return { nodes: [], edges: [], width: 0, height: 0 };
   const nodes = [];
@@ -10178,23 +10194,39 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
     const a = byId0.get(e.from);
     const b = byId0.get(e.to);
     if (!a || !b) continue;
-    if (e.back || b.rank - a.rank <= 1) {
+    /**
+     * The arrows that close a wheel need standing room too.
+     *
+     * Sparr: the dotted lines intersect many things and probably need their
+     * own invisible nodes. They do, and for the same reason the forward ones
+     * did -- a line drawn straight from a step back to something five columns
+     * behind it passes over everything in between, and nothing in between
+     * knows. The only difference is which way it is read: the waypoints are
+     * laid down along the columns it crosses exactly as before, and the line
+     * is drawn through them backwards.
+     */
+    const lo = Math.min(a.rank, b.rank);
+    const hi = Math.max(a.rank, b.rank);
+    if (hi - lo <= 1) {
       segments.push(e);
       wires.push({ from: e.from, to: e.to, back: e.back, count: e.count, points: [a, b] });
       continue;
     }
-    const points = [a];
-    let last = a;
-    for (let r = a.rank + 1; r < b.rank; r++) {
+    const low = a.rank < b.rank ? a : b;
+    const high = a.rank < b.rank ? b : a;
+    const through = [];
+    let last = low;
+    for (let r = lo + 1; r < hi; r++) {
       const bend = { id: `b:${bends++}`, kind: 'bend', rank: r, label: '' };
       nodes.push(bend);
-      points.push(bend);
+      through.push(bend);
       segments.push({ from: last.id, to: bend.id, bend: true });
       last = bend;
     }
-    segments.push({ from: last.id, to: b.id, bend: true });
-    points.push(b);
-    wires.push({ from: e.from, to: e.to, back: false, count: e.count, points });
+    segments.push({ from: last.id, to: high.id, bend: true });
+    // Drawn the way the arrow is read, which for a closing edge is backwards.
+    const points = a === low ? [a, ...through, b] : [a, ...through.reverse(), b];
+    wires.push({ from: e.from, to: e.to, back: e.back, count: e.count, points });
   }
 
   const byRank = new Map();
@@ -10204,33 +10236,33 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
   }
   const layers = [...byRank.keys()].sort((a, b) => a - b).map((r) => byRank.get(r));
   layers.forEach((layer) => layer.forEach((n, i) => { n.at = i; }));
-  comb(layers, segments, rounds);
-
   /**
    * Sparr: the oxide leftovers are spread among the useful outputs; they
    * should be together at one end, and the ones with further use grouped.
    *
-   * Right, and it is worth doing after the combing rather than instead of it.
-   * A leftover is the end of its line -- nothing downstream waits on it -- so
-   * the comb has no opinion about where it goes and drops it wherever the
-   * median landed, which is to say among the things that do matter. Sorting
-   * them to the bottom of their column costs no crossings that the comb was
-   * avoiding, because an edge that ends there ends there whatever height it
-   * ends at, and it gives the reader one place to look for the waste.
+   * Nothing waits on a leftover, so the comb has no opinion about where one
+   * goes and drops it wherever the median landed -- among the things that do
+   * matter. Sorted to the end of its column it costs no crossing the comb was
+   * avoiding, because an arrow that ends there ends there whatever height it
+   * ends at.
    *
-   * Only the dead ends move, and only relative to each other's neighbours:
-   * everything with somewhere to go keeps the order the comb worked out.
+   * Applied inside the sweep rather than after it, which is where it started:
+   * the comb keeps its best round, and a round rearranged afterwards is not
+   * the round it measured. On the smallest plan that turned one crossing into
+   * three.
    */
   const feedsOn = new Set();
   for (const e of segments) feedsOn.add(e.from);
-  for (const layer of layers) {
-    const going = layer.filter((n) => feedsOn.has(n.id) || n.kind === 'bend');
-    const ending = layer.filter((n) => !feedsOn.has(n.id) && n.kind !== 'bend');
-    if (!ending.length || !going.length) continue;
+  const endsHere = (n) => !feedsOn.has(n.id) && n.kind !== 'bend';
+  const groupDeadEnds = (layer) => {
+    const going = layer.filter((n) => !endsHere(n));
+    const ending = layer.filter(endsHere);
+    if (!ending.length || !going.length) return;
     layer.length = 0;
     layer.push(...going, ...ending);
     layer.forEach((n, i) => { n.at = i; });
-  }
+  };
+  comb(layers, segments, rounds, groupDeadEnds);
 
   const tallest = Math.max(1, ...layers.map((l) => l.length));
   for (const layer of layers) {
@@ -10246,6 +10278,8 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
     nodes,
     edges: segments,
     wires,
+    gapX,
+    gapY,
     width: (layers.length - 1) * gapX,
     height: (tallest - 1) * gapY,
   };
@@ -10263,8 +10297,9 @@ function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
  *
  * A dragged node is pinned and pushes; that is the whole of the interaction.
  */
-function relax(state, { spring = 0.05, repel = 26, reach = 64,
+function relax(state, { spring = 0.05, repel = 26, reach = null,
                                damp = 0.78, cap = 14 } = {}) {
+  reach = reach ?? (state.gapY ? state.gapY * 1.1 : 64);
   const { nodes, edges } = state;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   for (const n of nodes) n.vy = n.vy ?? 0;
@@ -10312,14 +10347,24 @@ function relax(state, { spring = 0.05, repel = 26, reach = 64,
     }
   }
 
+  /**
+   * Reported per node, because a total says nothing about a picture's size.
+   *
+   * The Lepidolite plan carries a hundred and forty invisible waypoints
+   * alongside its fifty real nodes, and a total of one and a third pixels
+   * across all of them is seven thousandths each -- which is still. Judged by
+   * the total it looked like a simulation that would not settle.
+   */
   let moved = 0;
+  let free = 0;
   for (const n of nodes) {
     if (n.held) { n.vy = 0; continue; }
     n.vy = Math.max(-cap, Math.min(cap, n.vy * damp));
     n.y += n.vy;
     moved += Math.abs(n.vy);
+    free += 1;
   }
-  return moved;
+  return free ? moved / free : 0;
 }
 
 /** How many edges cross, for saying whether the combing did anything. */
@@ -10343,7 +10388,7 @@ function crossings(state) {
   return n;
 }
 
-return { layoutPlan, relax, crossings };
+return { SPACING, layoutPlan, relax, crossings };
 })();
 
 const __mod_plan_picture = (() => {
@@ -10358,7 +10403,7 @@ const __mod_plan_picture = (() => {
  * A plan is a graph, and the question a reader has -- where does this come
  * from, what is waiting on it -- is a question about edges.
  */
-const {layoutPlan, relax} = __mod_plan_diagram;
+const {layoutPlan, relax, SPACING} = __mod_plan_diagram;
 
 const NS = 'http://www.w3.org/2000/svg';
 const make = (tag, attrs = {}) => {
@@ -10372,7 +10417,9 @@ const BOX = { w: 150, h: 34 };
 
 function drawPlan(host, plan, { onPick, across = false } = {}) {
   host.textContent = '';
-  const state = layoutPlan(plan);
+  // The room a box needs depends on which way the picture runs, so the layout
+  // is told before it starts rather than turned afterwards.
+  const state = layoutPlan(plan, across ? SPACING.across : SPACING.down);
   if (!state.nodes.length) {
     const empty = document.createElement('p');
     empty.className = 'muted';
@@ -10416,6 +10463,30 @@ function drawPlan(host, plan, { onPick, across = false } = {}) {
   const out = (n) => (across ? { x: sx(n), y: sy(n) + half() } : { x: sx(n) + half(), y: sy(n) });
   const into = (n) => (across ? { x: sx(n), y: sy(n) - half() } : { x: sx(n) - half(), y: sy(n) });
   const mid = (n) => ({ x: sx(n), y: sy(n) });
+
+  /**
+   * A line through its waypoints, leaving and arriving straight.
+   *
+   * Sparr: the combing for the Columbite line is good but it needs tighter
+   * curves at the end so it stops clipping the Hydrofluoric Acid. Control
+   * points at the halfway mark make every segment a wide sweep, and the sweep
+   * nearest a box is the one that bulges across whatever is beside it. Held to
+   * a short reach instead -- a third of the step, and never more than forty --
+   * the line leaves its box along the flow, runs where the comb put it, and
+   * arrives the same way.
+   */
+  const thread = (stops) => {
+    let d = `M ${stops[0].x} ${stops[0].y}`;
+    for (let i = 1; i < stops.length; i++) {
+      const p = stops[i - 1];
+      const q = stops[i];
+      const reach = Math.min(40, Math.abs(across ? q.y - p.y : q.x - p.x) / 3);
+      d += across
+        ? ` C ${p.x} ${p.y + reach}, ${q.x} ${q.y - reach}, ${q.x} ${q.y}`
+        : ` C ${p.x + reach} ${p.y}, ${q.x - reach} ${q.y}, ${q.x} ${q.y}`;
+    }
+    return d;
+  };
 
   const drawn = [];
   for (const w of state.wires) {
@@ -10474,27 +10545,15 @@ function drawPlan(host, plan, { onPick, across = false } = {}) {
       const a = pts[0];
       const b = pts[pts.length - 1];
       if (w.back) {
-        // The one arrow that reads backwards, bowed clear of everything else.
-        const from = into(a);
-        const to = out(b);
-        const lift = across ? 0 : -46;
-        const shift = across ? -46 : 0;
-        const cx = (from.x + to.x) / 2 + shift;
-        const cy = (from.y + to.y) / 2 + lift;
-        line.setAttribute('d', `M ${from.x} ${from.y} C ${cx} ${from.y + lift}, ${cx} ${to.y + lift}, ${to.x} ${to.y}`);
+        // Read backwards, and now routed like everything else: it has standing
+        // room in each column it crosses, so it can be threaded rather than
+        // bowed hopefully over the top.
+        const stops = [into(a), ...pts.slice(1, -1).map(mid), out(b)];
+        line.setAttribute('d', thread(stops));
         continue;
       }
       const stops = [out(a), ...pts.slice(1, -1).map(mid), into(b)];
-      let d = `M ${stops[0].x} ${stops[0].y}`;
-      for (let i = 1; i < stops.length; i++) {
-        const p = stops[i - 1];
-        const q = stops[i];
-        const mx = (p.x + q.x) / 2;
-        const my = (p.y + q.y) / 2;
-        d += across ? ` C ${p.x} ${my}, ${q.x} ${my}, ${q.x} ${q.y}`
-                    : ` C ${mx} ${p.y}, ${mx} ${q.y}, ${q.x} ${q.y}`;
-      }
-      line.setAttribute('d', d);
+      line.setAttribute('d', thread(stops));
     }
     svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     svg.setAttribute('width', view.w);
@@ -10509,7 +10568,7 @@ function drawPlan(host, plan, { onPick, across = false } = {}) {
     const moved = relax(state);
     draw();
     ticks += 1;
-    if (moved > 0.4 && ticks < 600) frame(settle);
+    if (moved > 0.01 && ticks < 600) frame(settle);
   };
 
   let holding = null;
