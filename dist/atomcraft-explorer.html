@@ -9158,20 +9158,56 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      * charge no worse than leaving it alone, and a refusal that the pass works
      * around by asking for something dearer is dropped on the floor.
      */
+    /**
+     * What a charge costs, which is what it is made of and not how many
+     * entries it has.
+     *
+     * Sparr: why does this want eighteen Carbon Monoxide for a Boudouard that
+     * runs twelve times, and why Carbon Monoxide rather than Carbon into the
+     * reduction, and why enough for all four turns of the loop instead of one?
+     *
+     * Three questions with one answer, and counting entries was half of it.
+     * Refusing the Carbon Monoxide gives three Carbon and one Carbon Monoxide
+     * -- three entries against two, so a count-first rule kept the eighteen.
+     * Eighteen Carbon Monoxide is thirty-six atoms and the other is five. What
+     * the reader has to lay their hands on is stuff, so stuff is what is
+     * weighed, and the number of entries only settles a tie.
+     */
+    /**
+     * What a charge costs is what it is made of, full stop.
+     *
+     * Sparr: no toll on the number of entries -- the scoreboard will let the
+     * reader pick between one errand and two. So the only question here is how
+     * much stuff has to be found, and the entry count is kept solely to settle
+     * a tie between two answers that weigh the same.
+     */
     const worth = (got) => {
       let paid = 0;
       for (const [name, amount] of got.charge) paid += (prices.get(name) ?? 1) * rnum(amount);
-      return [got.charge.size, paid];
+      return [paid, got.charge.size];
     };
     let laid = layIn(new Set());
     const refused = new Set();
-    for (const name of [...laid.charge.keys()].sort()) {
-      if (!laid.charge.has(name)) continue;         // an earlier refusal took it
-      const without = layIn(new Set([...refused, name]));
-      if (without.charge.has(name)) continue;       // it would not do without
-      const [n0, p0] = worth(laid);
-      const [n1, p1] = worth(without);
-      if (n1 < n0 || (n1 === n0 && p1 < p0)) { laid = without; refused.add(name); }
+    /**
+     * And refusing one thing turns up others to refuse.
+     *
+     * Refusing the Carbon Monoxide puts Carbon on the list, and Carbon was not
+     * on the list to begin with, so a single pass over the first answer never
+     * reaches it -- it stops at nine Carbon where three will do. Each round
+     * tries every charge now standing, and rounds run until one changes
+     * nothing.
+     */
+    for (let round = 0; round < 8; round++) {
+      let moved = false;
+      for (const name of [...laid.charge.keys()].sort()) {
+        if (refused.has(name)) continue;
+        const without = layIn(new Set([...refused, name]));
+        if (without.charge.has(name)) continue;     // it would not do without
+        const [p0, n0] = worth(laid);
+        const [p1, n1] = worth(without);
+        if (p1 < p0 || (p1 === p0 && n1 < n0)) { laid = without; refused.add(name); moved = true; }
+      }
+      if (!moved) break;
     }
     if (notes) notes.push(...laid.said);
 

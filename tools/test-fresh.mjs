@@ -90,6 +90,10 @@ console.log('--- starting a wheel on what it makes');
   const ask = (names) => solveFresh(graph, {
     targets: names.map(([name, amount]) => ({ name, amount })), have: both });
   const primes = (p) => p.priming.map((c) => c.name);
+  // What a charge weighs, which is the only thing the pass is trying to make
+  // small: atoms the reader has to lay their hands on before starting.
+  const weigh = (charge) => charge.reduce(
+    (a, c) => a + Number(c.amount.n) / Number(c.amount.d) * (graph.db.byName.get(c.name)?.matter ?? 0), 0);
 
   const metals = ask([['Tantalum', 2], ['Niobium', 2]]);
   const andF2 = ask([['Tantalum', 2], ['Niobium', 2], ['Fluorine Gas', 1]]);
@@ -138,8 +142,22 @@ console.log('--- starting a wheel on what it makes');
     ['nothing is both asked for at the start and left at the end',
      !metals.priming.some((c) => metals.byproducts.some((b) => b.name === c.name)) &&
      !andF2.priming.some((c) => andF2.byproducts.some((b) => b.name === c.name))],
-    ['and the whole factory starts on one thing, not four',
-     primes(metals).length === 1],
+    /**
+     * Sparr: no toll on the number of entries, the scoreboard will let the
+     * reader pick between one errand and two.
+     *
+     * So the charge is weighed as stuff and nothing else, and what it has to
+     * be is a bottom: refusing any one thing on the list must not come back
+     * with a lighter list. This is the property the pass claims, checked
+     * against the pass rather than against a remembered answer.
+     */
+    ['refusing any one thing it asks for gives nothing lighter',
+     metals.priming.every((c) => {
+       const other = solveFresh(graph, {
+         targets: [{ name: 'Tantalum', amount: 2 }, { name: 'Niobium', amount: 2 }],
+         have: both, noPrime: [c.name] });
+       return !other || weigh(other.priming) >= weigh(metals.priming);
+     })],
     /**
      * Each charge knows the reaction it starts, which is what lets the picture
      * draw one arrow instead of one per eater of the stuff.
