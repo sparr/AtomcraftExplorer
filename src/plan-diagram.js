@@ -398,44 +398,32 @@ export function planGraph(plan, { materials = false, foldPhases = true } = {}) {
 
   /**
    * Sparr: omit the phase changes, folding each into whatever comes next and
-   * putting both material names on the joined arrow.
+   * putting both material names on the joined arrow. Then: try a rank-holding
+   * box for each.
    *
    * Melting a thing is not a reaction, it is the same thing at another
-   * temperature -- and a box saying "6× Steam condenses into Water" between
-   * two boxes that do chemistry is a stile in the middle of a field. Folded
-   * away, the arrow carries both names, which is more information in less
-   * room: "Steam, Water" tells you the steam is condensed on the way.
+   * temperature, and a box saying "6x Steam condenses into Water" between two
+   * boxes doing chemistry is a stile in the middle of a field.
    *
-   * Done by contraction rather than by leaving them out, because a phase step
-   * is a real link and dropping it would break the chain. Repeated until none
-   * is left, since a solid can melt and then boil.
+   * Contracting them away cost more than it saved. Every phase change with
+   * several feeders and several eaters became a feeder-by-eater cross product
+   * -- eighty-five arrows became ninety-one -- and each of those skipped the
+   * rank the box had been holding, so the layout engine drew a long spline for
+   * every one and the ordered picture went curvy. The condensers had been
+   * doing quiet work as places for lines to stop.
+   *
+   * So the box goes and the place it held stays. The step keeps its node,
+   * marked `hold`, and is drawn as a joint rather than a box: no text, no
+   * width to speak of, still ranked. Nothing needs contracting, so the arrows
+   * stay as they were, and both material names are still on the way from one
+   * reaction to the next -- one on each half, which is where each is actually
+   * true. The steam becomes water at the joint.
    */
   if (!materials && foldPhases) {
-    const isPhase = (n) => n.kind === STEP && !n.pseudo && n.kindOf === 'phase';
-    for (;;) {
-      const fold = nodes.find(isPhase);
-      if (!fold) break;
-      const inTo = edges.filter((e) => e.to === fold.id);
-      const outOf = edges.filter((e) => e.from === fold.id);
-      const rest = edges.filter((e) => e.from !== fold.id && e.to !== fold.id);
-      edges.length = 0;
-      edges.push(...rest);
-      for (const a of inTo) {
-        for (const b of outOf) {
-          if (a.from === b.to) continue;               // a wheel of one, worth nothing
-          const label = [...new Set([a.label, b.label].filter(Boolean))].join(', ');
-          edges.push({ from: a.from, to: b.to, label, role: a.role ?? b.role });
-        }
-      }
-      nodes.splice(nodes.indexOf(fold), 1);
-    }
-    join();     // contraction makes arrows parallel that were not before
-    // Anything left with nothing at either end was only ever there for a phase
-    // change that has gone.
-    const touched = new Set();
-    for (const e of edges) { touched.add(e.from); touched.add(e.to); }
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      if (!touched.has(nodes[i].id)) nodes.splice(i, 1);
+    for (const n of nodes) {
+      if (n.kind !== STEP || n.pseudo || n.kindOf !== 'phase') continue;
+      n.hold = true;
+      n.label = '';
     }
   }
 

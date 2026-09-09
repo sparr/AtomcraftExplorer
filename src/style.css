@@ -1098,6 +1098,15 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .plan-role-want .plan-node-box { stroke: var(--accent); stroke-width: 2; }
 .plan-role-spare .plan-node-box { stroke: var(--line-soft); }
 .plan-role-spare .plan-node-label { fill: var(--fg-faint); }
+
+/*
+ * A phase change: the place its lines stop at, without the box. Hovering
+ * still says which one it is.
+ */
+.plan-node-joint {
+  fill: var(--line);
+  stroke: var(--line-soft);
+}
 /*
  * A primer, which sits exactly where an input sits and means something else:
  * you need this once, to get the loop turning, not continuously. Nothing

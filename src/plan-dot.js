@@ -111,6 +111,18 @@ export function planToDot(plan, { materials = false, rankdir = 'LR',
                   want: '#5ec8f2', spare: '#5c6675', inner: '#3a4553' };
 
   for (const n of nodes) {
+    /**
+     * A phase change, drawn as the joint it is rather than a box.
+     *
+     * It still holds its rank, which is the whole point: contracting these
+     * away let the arrows that had stopped here skip a rank each, and every
+     * skipped rank is a long spline. Sparr: try a rank-holding box for each.
+     */
+    if (n.hold) {
+      say(`  ${id(n.id)} [shape=point width=0.06 color="#3a4553" `
+          + `fillcolor="#3a4553" label=""];`);
+      continue;
+    }
     if (!n.pseudo) {
       say(`  ${id(n.id)} [label="${esc(`${n.runs}× ${n.label}`)}"];`);
       continue;

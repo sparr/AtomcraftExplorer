@@ -122,7 +122,21 @@ export function drawPlan(host, plan, { onPick, across = false, materials = false
   for (const n of state.nodes) {
     if (n.kind === 'bend') continue;                 // a place for a line to stand, not a thing
     const g = make('g', { class: `plan-node plan-${n.kind}`
+      + (n.hold ? ' plan-hold' : '')
       + (n.pseudo ? ' plan-pseudo' : '') + (n.role ? ` plan-role-${n.role}` : '') });
+    /**
+     * A phase change is a joint, not a box: it holds the place its lines stop
+     * at without spending a box on saying that steam is water when it cools.
+     */
+    if (n.hold) {
+      g.append(make('circle', { class: 'plan-node-joint', cx: 0, cy: 0, r: 4 }));
+      const full = make('title');
+      full.textContent = `${n.runs}× ${n.name}`;
+      g.append(full);
+      boxes.append(g);
+      n.el = g;
+      continue;
+    }
     g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
                             width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
     const label = make('text', { class: 'plan-node-label', x: 0, y: 4 });

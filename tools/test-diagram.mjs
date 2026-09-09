@@ -44,11 +44,19 @@ for (const [what, ask] of plans) {
   // Both halves of the plan are there: a box for every step, a chip for every
   // material any step touches.
   const steps = state.nodes.filter((n) => n.kind === 'step' && !n.pseudo);
-  // Sparr: omit the phase changes, folding each into whatever comes next.
-  const drawn = plan.steps.filter((st) => st.process.kind !== 'phase');
-  check(steps.length === drawn.length,
-        `a box for each of the ${drawn.length} steps that is a reaction, `
-        + `and none for the ${plan.steps.length - drawn.length} phase changes`);
+  /**
+   * Sparr: omit the phase changes -- then, try a rank-holding box for each.
+   *
+   * So every step still has a node, and the phase changes are joints: no box,
+   * no text, but still holding the rank their lines stop at. Contracting them
+   * out let those lines skip a rank each and the picture went curvy.
+   */
+  const joints = steps.filter((n) => n.hold);
+  const phases = plan.steps.filter((st) => st.process.kind === 'phase');
+  check(steps.length === plan.steps.length && joints.length === phases.length
+        && joints.every((n) => !n.label),
+        `a node for each of the ${plan.steps.length} steps, `
+        + `${phases.length} of them joints rather than boxes`);
 
   /**
    * Sparr: put the reactions on the nodes and the materials on the arrows,
