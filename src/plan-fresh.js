@@ -3373,7 +3373,18 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
        * priced out of reach here too, so it is charged only if nothing else
        * will do.
        */
-      const gettable = (name) => spec.have.has(name) ||
+      /**
+       * What the plan makes, which is not the same as what you can go and buy.
+       *
+       * Sparr: it is fine to prime a loop with something the reactor produces
+       * indefinitely, as long as it is not needed before it is ever produced.
+       * A charge of that kind is borrowed from the wheel and repaid on the
+       * first turn -- the reader is not supplying it, they are starting it.
+       */
+      const makesItself = new Set();
+      for (const step of steps) for (const o of step.process.produces) makesItself.add(o.name);
+
+      const gettable = (name) => spec.have.has(name) || makesItself.has(name) ||
         (fetchable(graph, name, spec.kinds, spec.sources, spec) &&
          !barredAsTarget(graph, name, spec) &&
          !alreadyInHand(graph, name, spec.held));
@@ -3418,6 +3429,12 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
        * plan that cannot begin is worse than one that begins awkwardly. The
        * notes say which it was.
        */
+      /**
+       * Still ranked last, which the chlorine says is right: the Lepidolite
+       * wheel has a member carrying no lithium and that is the one to start
+       * on. What changed is only whether a want-bearing charge is *affordable*
+       * once it is reached -- see `gettable` above.
+       */
       const carriesAWant = (name) =>
         holdsATarget(graph, name, spec.wanted) || spec.noPrime.has(name);
       let best = null;
@@ -3435,7 +3452,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
       if (best && best.forbidden && notes) {
         notes.push(`nothing but ${listed(best.short.map(([n]) => n))} would start ` +
-                   `this, and that is made of what was asked for`);
+                   `this, and the plan never makes any to give back`);
       }
       if (!best || !best.short.length) break;
       for (const [name, amount] of best.short) {

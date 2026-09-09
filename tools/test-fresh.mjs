@@ -65,6 +65,51 @@ let met = 0, missed = 0, broke = 0;
  * than about any one question put to it.
  */
 /**
+ * A charge borrowed from the wheel, not fetched from outside.
+ *
+ * Sparr: it is fine to prime a loop with something the reactor produces
+ * indefinitely, as long as it is not needed before it is ever produced. The
+ * reactor can use some of the Hydrofluoric Acid the Lepidolite hands back to
+ * prime the acid loop that reduces the niobium and tantalum salts.
+ *
+ * It could not, because a charge was priced as a purchase: out of reach unless
+ * you could go and buy it, and Hydrofluoric Acid with Fluorine Gas on the
+ * order is barred from being bought. So the acid the plan makes every cycle
+ * cost a million, and the plan laid in Aqueous Potassium Heptafluoroniobate(V)
+ * instead -- a niobium salt, to make niobium.
+ *
+ * What the plan makes is now affordable to start with. Wanting a want is still
+ * ranked last, which is what keeps the Lepidolite wheel starting on chlorine
+ * rather than lithium chloride; when every member of a wheel carries a want,
+ * as here, the ordinary price ranking decides and the acid at five beats the
+ * salt.
+ */
+console.log('--- starting a wheel on what it makes');
+{
+  const both = ['Columbite', 'Lepidolite'];
+  const ask = (names) => solveFresh(graph, {
+    targets: names.map(([name, amount]) => ({ name, amount })), have: both });
+  const primes = (p) => p.priming.map((c) => c.name);
+
+  const metals = ask([['Tantalum', 2], ['Niobium', 2]]);
+  const andF2 = ask([['Tantalum', 2], ['Niobium', 2], ['Fluorine Gas', 1]]);
+  const wheelChecks = [
+    ['asking for the fluorine as well adds only the electrolysis',
+     andF2.steps.some((s) => /Electrolysis Hydrofluoric Acid/i.test(s.process.label)) &&
+     metals.steps.every((s) => andF2.steps.some((t) => t.process.id === s.process.id))],
+    ['and the acid loop is started on the acid the ore hands back',
+     primes(andF2).includes('Hydrofluoric Acid')],
+    ['not on a niobium or tantalum salt, to make niobium and tantalum',
+     !primes(andF2).some((n) => /Heptafluoro/.test(n))],
+  ];
+  for (const [what, ok] of wheelChecks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+  console.log('');
+}
+
+/**
  * The same substance, in a state you can get back from.
  *
  * Sparr: "same stuff" should follow burning and extinguishing if it is a loop,
