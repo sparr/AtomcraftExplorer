@@ -3301,9 +3301,37 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       if (!left.length || guard-- <= 0) break;
 
       const ask = stirred === null ? left : left.filter((step) => stirred.has(step));
+      /**
+       * What something else is waiting on goes first.
+       *
+       * Sparr: it should be priming that loop from the Hydrofluoric Acid it is
+       * generating, and outputting one fewer.
+       *
+       * It had the acid and spent it on the wrong thing. Firing whatever could
+       * afford to run, in whatever order they came, let `Electrolysis
+       * Hydrofluoric Acid` -- which makes the fluorine and feeds nothing --
+       * take four of the acid before `Hydrofluoric Acid Dissolves Columbite`,
+       * which the rest of the factory waits on. Six were then wanted where
+       * four were left, and the reader was asked for two.
+       *
+       * There is an order with no charge at all: the twelve the ore hands back
+       * dissolve the Columbite, the hydrolyses give four more, and the
+       * electrolysis takes those. What separates them is not which is nearer
+       * the end of a chain -- the electrolysis feeds its hydrogen onward like
+       * anything else -- but how much of the scarce thing each still has to
+       * get through. The dissolution wants twelve acid before it is done and
+       * the electrolysis four, so the dissolution has the better claim on
+       * what there is, and going hungriest-first is enough to give it.
+       */
+      const hungriest = (step) => {
+        let n = 0;
+        for (const i of step.process.consumes) n += i.count * rnum(owed.get(step));
+        return n;
+      };
+      const inOrder = [...ask].sort((a, b) => hungriest(b) - hungriest(a));
       let moved = false;
       const woke = new Set();
-      for (const step of ask) {
+      for (const step of inOrder) {
         const times = affordable(step);
         if (rcmp(times, R0) <= 0) continue;
         fire(step, times);

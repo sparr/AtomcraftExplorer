@@ -110,9 +110,21 @@ console.log('--- starting a wheel on what it makes');
     ['asking for the fluorine as well adds only the electrolysis',
      andF2.steps.some((s) => /Electrolysis Hydrofluoric Acid/i.test(s.process.label)) &&
      metals.steps.every((s) => andF2.steps.some((t) => t.process.id === s.process.id))],
-    ['and the acid loop is started on the acid the ore hands back',
-     primes(andF2).includes('Hydrofluoric Acid')],
-    ['not on a niobium or tantalum salt, to make niobium and tantalum',
+    /**
+     * And nothing fluorine-bearing is asked for at all.
+     *
+     * First it wanted a niobium salt, which is the answer laid in to make the
+     * answer. Making what the plan produces affordable to start with got it
+     * down to two Hydrofluoric Acid, which was fair -- the acid is on the
+     * wheel and comes back every turn. Sparr: it should be priming that loop
+     * from the acid it is generating. It has twelve of it from the ore, and
+     * was spending four on the electrolysis before the dissolution that the
+     * rest of the factory waits on. Ordered by which step has the most left to
+     * get through, the dissolution takes what it needs and the charge goes.
+     */
+    ['and the acid loop needs no charge at all, being fed by the ore',
+     !primes(andF2).some((n) => /Hydrofluoric/.test(n))],
+    ['nor a niobium or tantalum salt, to make niobium and tantalum',
      !primes(andF2).some((n) => /Heptafluoro/.test(n))],
   ];
   for (const [what, ok] of wheelChecks) {
