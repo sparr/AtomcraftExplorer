@@ -126,6 +126,27 @@ console.log('--- starting a wheel on what it makes');
      !primes(andF2).some((n) => /Hydrofluoric/.test(n))],
     ['nor a niobium or tantalum salt, to make niobium and tantalum',
      !primes(andF2).some((n) => /Heptafluoro/.test(n))],
+    /**
+     * Sparr: why does this need water primers when it has water leftovers?
+     *
+     * It did not. The plan makes twenty-three water and spends twenty; the
+     * one it asked to be handed bought a way out of a stall that a different
+     * push earlier would have covered anyway, and the pass never looked back.
+     * Now each charge is refused in turn and the whole thing re-run, and one
+     * stands only if doing without it costs more. Four charges became one.
+     */
+    ['nothing is both asked for at the start and left at the end',
+     !metals.priming.some((c) => metals.byproducts.some((b) => b.name === c.name)) &&
+     !andF2.priming.some((c) => andF2.byproducts.some((b) => b.name === c.name))],
+    ['and the whole factory starts on one thing, not four',
+     primes(metals).length === 1],
+    /**
+     * Each charge knows the reaction it starts, which is what lets the picture
+     * draw one arrow instead of one per eater of the stuff.
+     */
+    ['each charge says which reaction it was laid in for',
+     metals.priming.every((c) => c.forSteps?.length
+       && c.forSteps.every((f) => metals.steps.some((st) => st.process.id === f.step)))],
   ];
   for (const [what, ok] of wheelChecks) {
     console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);

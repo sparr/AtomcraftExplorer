@@ -8801,10 +8801,31 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   const priming = [];
   {
     const prices = fetchPrices(graph, spec.kinds);
+    /**
+     * One go at starting the factory, refusing to be started on `refuse`.
+     *
+     * Sparr: why does this need water primers when it has water leftovers?
+     *
+     * It does not. The plan makes twenty-three water and spends twenty, and
+     * the one it asked to be handed was never needed -- refuse it and the same
+     * twenty-one steps come out with the same three water left at the end and
+     * one charge fewer. The charge is an artefact of the order: the pass fires
+     * what it can, reaches a moment when nothing turns, and buys the cheapest
+     * way out. Cheapest at that moment, and it never looks back to see that a
+     * different push at an earlier stall would have covered this one too.
+     *
+     * So it is asked more than once. Each thing it wanted to be handed is
+     * refused in turn and the whole pass run again; where the run comes back
+     * with a shorter or cheaper list, the refusal stands. A charge survives
+     * only by being needed under a rule that tried to do without it.
+     */
+    const layIn = (refuse) => {
+    const said = [];
     const unlimited = (name) => spec.have.has(name) || drawn.has(name);
     const stock = new Map();
     const held = (name) => stock.get(name) || R0;
     const charge = new Map();
+    const chargedFor = new Map();             // name -> step id -> amount
     /**
      * Runs still owed, not steps still to do.
      *
@@ -9063,7 +9084,8 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
        * once it is reached -- see `gettable` above.
        */
       const carriesAWant = (name) =>
-        holdsATarget(graph, name, spec.wanted) || spec.noPrime.has(name);
+        holdsATarget(graph, name, spec.wanted) || spec.noPrime.has(name) ||
+        refuse.has(name);
       let best = null;
       for (const step of candidates) {
         const short = missing(step);
@@ -9077,19 +9099,67 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
           : price < best.price;
         if (better) best = { step, short, price, outside, forbidden };
       }
-      if (best && best.forbidden && notes) {
-        notes.push(`nothing but ${listed(best.short.map(([n]) => n))} would start ` +
-                   `this, and the plan never makes any to give back`);
+      if (best && best.forbidden) {
+        said.push(`nothing but ${listed(best.short.map(([n]) => n))} would start ` +
+                  `this, and the plan never makes any to give back`);
       }
       if (!best || !best.short.length) break;
       for (const [name, amount] of best.short) {
         charge.set(name, radd(charge.get(name) || R0, amount));
         stock.set(name, radd(held(name), amount));
+        /**
+         * And which reaction it was laid in for.
+         *
+         * Sparr: make a separate node for each place a primer gets used, so
+         * they are not star-like.
+         *
+         * Which needs knowing where each one goes, and the charge map knew
+         * only the material. So the picture drew an arrow from the primer to
+         * every reaction that eats the stuff -- five, for the water -- when
+         * the charge was laid in to start exactly one of them and the other
+         * four are fed by the plan. The star was not just ugly, it was four
+         * arrows that are not true.
+         */
+        if (!chargedFor.has(name)) chargedFor.set(name, new Map());
+        const where = chargedFor.get(name);
+        where.set(best.step.process.id,
+                  radd(where.get(best.step.process.id) || R0, amount));
       }
       stirred = null;                         // a charge can wake anything
     }
-    for (const [name, amount] of charge) {
-      if (rcmp(amount, R0) > 0) priming.push({ name, amount });
+      return { charge, chargedFor, said };
+    };
+
+    /**
+     * Ask once, then ask again without each thing it asked for.
+     *
+     * Only a strictly shorter or cheaper list is taken, so this can make the
+     * charge no worse than leaving it alone, and a refusal that the pass works
+     * around by asking for something dearer is dropped on the floor.
+     */
+    const worth = (got) => {
+      let paid = 0;
+      for (const [name, amount] of got.charge) paid += (prices.get(name) ?? 1) * rnum(amount);
+      return [got.charge.size, paid];
+    };
+    let laid = layIn(new Set());
+    const refused = new Set();
+    for (const name of [...laid.charge.keys()].sort()) {
+      if (!laid.charge.has(name)) continue;         // an earlier refusal took it
+      const without = layIn(new Set([...refused, name]));
+      if (without.charge.has(name)) continue;       // it would not do without
+      const [n0, p0] = worth(laid);
+      const [n1, p1] = worth(without);
+      if (n1 < n0 || (n1 === n0 && p1 < p0)) { laid = without; refused.add(name); }
+    }
+    if (notes) notes.push(...laid.said);
+
+    for (const [name, amount] of laid.charge) {
+      if (rcmp(amount, R0) > 0) {
+        priming.push({ name, amount,
+                       forSteps: [...(laid.chargedFor.get(name) || new Map())]
+                         .map(([step, part]) => ({ step, amount: part })) });
+      }
     }
     priming.sort((a, b) => a.name.localeCompare(b.name));
   }
