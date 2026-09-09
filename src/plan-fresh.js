@@ -684,6 +684,16 @@ const subgraphKey = (spec) => JSON.stringify([
   [...spec.excludeProcesses].sort(),
   [...spec.excludeMaterials].sort(),
   spec.oreTries,
+  /**
+   * The knobs, which decide the shape of the walk and were not in this key.
+   *
+   * Tuning one and asking again returned the walk from before it, so an
+   * experiment on `ways` looked like it changed nothing at all -- which is
+   * exactly how the Lepidolite decompositions kept their secret: at three ways
+   * per material they are pruned, at six they are not, and the measurement
+   * that would have shown it was reading a cached answer.
+   */
+  spec.ways, spec.loops, spec.eaters, spec.reach,
   [...spec.noFetch].sort(),
   [...spec.noPrime].sort(),
   [...(spec.oreAllowed || [])].sort(),
@@ -1133,7 +1143,24 @@ export function normalizeFresh(spec) {
      * Empty unless `solveFresh` put something here; see `barredAsTarget`.
      */
     oreAllowed: new Set(spec.oreAllowed || []),
-    ways: spec.ways ?? FRESH_DEFAULTS.ways,
+    /**
+     * How many ways to make each material the walk keeps.
+     *
+     * Three is enough when you hold the ore: the routes that start from what
+     * is in your hand rank high and survive the cut. It is not enough when the
+     * ore has to be bought, because then it ranks like any other purchase and
+     * its routes fall below the cut -- asked for Lithium and Potassium, all
+     * three Lepidolite decompositions were pruned, and the answer came back as
+     * thirty-five steps and 228 atoms of sulfates rather than fourteen steps
+     * on three Lepidolite.
+     *
+     * So it is widened exactly where it was too narrow. Six across the board
+     * costs about twice the wall clock on every question; six only where an
+     * ore is being bought costs it on the questions that were getting the
+     * wrong answer.
+     */
+    ways: spec.ways ?? ((spec.oreAllowed?.length ?? (spec.oreAllowed?.size ?? 0))
+      ? ORE_WAYS : FRESH_DEFAULTS.ways),
     loops: spec.loops ?? FRESH_DEFAULTS.loops,
     eaters: spec.eaters ?? FRESH_DEFAULTS.eaters,
     reach: spec.reach ?? FRESH_DEFAULTS.reach,
@@ -2073,6 +2100,9 @@ export function blankFresh(graph, rawSpec, why = null) {
     unreachable: spec.targets.map((t) => t.name),
   };
 }
+
+/** Ways per material kept while an ore is being bought. See `normalizeFresh`. */
+const ORE_WAYS = 6;
 
 /** How many ores to try when the plan is starting from nothing, unless told. */
 const ORES_TRIED = 6;

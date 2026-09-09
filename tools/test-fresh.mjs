@@ -294,6 +294,25 @@ const oreChecks = [
    */
   ['an ore that starts two of the wants is tried before a cheap one that starts one',
    !!fromNothing2(['Lithium', 'Potassium'])],
+  /**
+   * And having bought it, the plan uses it the way anyone would.
+   *
+   * Three ways per material is enough when you hold the ore: the routes
+   * starting from what is in your hand rank high and survive the cut. It is
+   * not enough when the ore has to be bought, because then it ranks like any
+   * other purchase and its routes fall below -- all three Lepidolite
+   * decompositions were pruned, and the answer came back as thirty-five steps
+   * and 228 atoms of sulfates rather than fourteen steps on three Lepidolite.
+   */
+  ['and the ore it bought is decomposed, not dissolved into a sulfate chain',
+   (() => {
+     const p = fromNothing2(['Lithium', 'Potassium']);
+     return !!p && p.steps.some((s) => /Lepidolite Decomposition/.test(s.process.label));
+   })()],
+  ['on three of it and nothing else', (() => {
+    const p = fromNothing2(['Lithium', 'Potassium']);
+    return !!p && p.frontier.length === 1 && p.frontier[0].name === 'Lepidolite';
+  })()],
   ['and the ore it buys is put through something',
    !!iron && iron.steps.some((s) => (s.process.consumes || [])
      .some((i) => iron.frontier.some((f) => f.name === i.name)))],
