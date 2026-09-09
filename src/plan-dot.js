@@ -152,6 +152,58 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
         + `shape=box style="rounded,dashed,filled" color="${paint[n.role] || '#3a4553'}" `
         + `fillcolor="#0a0d12" fontsize=10${n.role === 'prime' ? ' penwidth=2' : ''}];`);
   }
+  /**
+   * Sparr: a loop through a phase change leaves downward and comes back up
+   * from the joint -- can the first arrow go up too, and lose the u-turn?
+   *
+   * It can, and the fix is to stop lying to the layout about which way the
+   * loop runs. `Electrolysis of Water` hands its packed hydrogen to the
+   * expansion and the expansion hands it back up to `Electrolysis of Carbon
+   * Dioxide`, which sits above: a cycle. Ranking is a hierarchy and a cycle
+   * has no place in one, so dot ranks the joint below the reaction that feeds
+   * it, and the way back up is a hairpin round the bottom of it.
+   *
+   * Written the other way round with `dir=back` -- the arrow still drawn from
+   * the maker to the eater, but the *rank* running the other way -- the joint
+   * sits above its feeder and the whole path climbs. Both halves have to be
+   * turned together or the joint is pulled from both ends and the hairpin
+   * moves rather than goes.
+   */
+  const outOf = new Map();
+  for (const e of edges) {
+    if (!outOf.has(e.from)) outOf.set(e.from, []);
+    outOf.get(e.from).push(e);
+  }
+  const closes = new Set();
+  const state = new Map();
+  const walk = (id) => {
+    state.set(id, 1);
+    for (const e of outOf.get(id) || []) {
+      const at = state.get(e.to) || 0;
+      if (at === 1) closes.add(e);
+      else if (at === 0) walk(e.to);
+    }
+    state.set(id, 2);
+  };
+  for (const n of nodes) if (!state.has(n.id)) walk(n.id);
+  // A joint on a closing path turns with it, both halves at once.
+  const joint = new Map(nodes.filter((n) => n.hold).map((n) => [n.id, n]));
+  for (let again = true; again;) {
+    again = false;
+    for (const e of edges) {
+      if (!closes.has(e)) continue;
+      for (const side of [e.from, e.to]) {
+        if (!joint.has(side)) continue;
+        for (const other of edges) {
+          if (closes.has(other)) continue;
+          if (other.from !== side && other.to !== side) continue;
+          closes.add(other);
+          again = true;
+        }
+      }
+    }
+  }
+
   for (const e of edges) {
     /**
      * Sparr: the labels are still ambiguously placed, and various of them
@@ -171,10 +223,13 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
      * price of every label being readable.
      */
     const bits = [`color="${paint[e.role] || '#3a4553'}"`];
+    if (closes.has(e)) bits.push('dir=back');
     if (e.label) bits.push(`label="${esc(e.label)}"`);
     // Sparr: no arrow ends where lines come together at the invisible nodes.
     if (e.join) bits.push('arrowhead=none');
-    say(`  ${id(e.from)} -> ${id(e.to)} [${bits.join(' ')}];`);
+    say(closes.has(e)
+      ? `  ${id(e.to)} -> ${id(e.from)} [${bits.join(' ')}];`
+      : `  ${id(e.from)} -> ${id(e.to)} [${bits.join(' ')}];`);
   }
   say('}');
   return `${out.join('\n')}\n`;
