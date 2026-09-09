@@ -15,8 +15,8 @@ import { search } from './search.js';
 import { listed } from './prose.js';
 import { composition } from './composition.js';
 import { balanceTargets } from './balance.js';
-import { solvePlan, routesFor,
-         rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
+import { routesFor } from './routes.js';
+import { rat, rmul, rsub, rstr, rcmp, R0 } from './rational.js';
 import { solveFresh, blankFresh, questionShape, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
 import { rnum } from './rational.js';
@@ -24,11 +24,9 @@ import { KIND, PROCESS_KINDS } from './plan-graph.js';
 import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
-         removeHave, pin, toggle, toggleKind, toggleSource, setOption,
-         selectMaterial, isFedBack, toggleFedBack, addTargets,
-         primeInstead, makeInstead, keepOutput, isKept,
-         useSpare, isUsingSpare, setOption as setPlanOption,
-         hasPlenty, togglePlenty } from './plan-state.js';
+         removeHave, toggle, toggleKind, toggleSource, setOption,
+         selectMaterial, addTargets, keepOutput, isKept,
+         useSpare, isUsingSpare, setOption as setPlanOption } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
@@ -73,23 +71,6 @@ function button(cls, label, title, onClick) {
   return b;
 }
 
-/**
- * Taking away a control the newer solver cannot hear.
- *
- * The field cannot change a fresh plan because the solver already does that
- * thing and does it always: it feeds every spare output back, it lays a charge
- * in wherever a loop needs starting, and it has no notion of a stock running
- * out. Offering a switch for something permanently on is worse than not
- * offering it.
- *
- * There was a `gap` beside this that left a control in place and painted it
- * red, for the ones that would really be lost. It marked five and is gone.
- * Keeping a spare was taught to the newer solver; the other four turned out to
- * be one question wearing a control's clothes -- "show me a different plan" --
- * which belongs where whole plans are compared, not on one row of one
- * material. Worth rebuilding in ten lines if a sixth ever turns up.
- */
-const moot = (node) => { if (plan.fresh) node.hidden = true; return node; };
 
 /**
  * A material, anywhere in the plan.
@@ -298,17 +279,6 @@ function renderGoals() {
     inner.append(matLink(name));
     // The two kinds of "I have it", and the difference is only ever visible
     // here: a fixed stock is what the amounts are balanced against, and
-    // something you can go on making is not a limit at all. Both stop the plan
-    // from working out how to make it.
-    const plenty = hasPlenty(plan, name);
-    const mark = button('goal-kind', plenty ? 'as needed' : 'all I have',
-      plenty
-        ? `The plan needs this much ${name} and you can get it. Press if that is all you have.`
-        : `All the ${name} you have, so the amounts are balanced against it. ` +
-          'Press if you can get more.',
-      () => edit(togglePlenty, name));
-    if (plenty) mark.classList.add('on');
-    inner.append(moot(mark));
     haves.append(goalChip('goal-have', '', () => edit(removeHave, name), inner));
   }
 }
@@ -427,8 +397,7 @@ function renderSteps() {
   const tbody = el('tbody');
   for (const step of solved.steps) {
     const onSpare = solved.spec.alsoUse.has(step.process.id);
-    const tr = el('tr', 'plan-step' + (step.sharesWith ? ' step-shared' : '') +
-                        (onSpare ? ' step-spare-run' : ''));
+    const tr = el('tr', 'plan-step' + (onSpare ? ' step-spare-run' : ''));
     const kind = KIND.get(step.process.kind);
 
     const runs = el('td', 'step-runs');
@@ -450,12 +419,9 @@ function renderSteps() {
       const note = el('div', 'step-share');
       note.append(`${step.share.k} in ${step.share.of} of the ${
         step.process.consumes[0]?.name ?? 'feed'} goes this way`);
-      if (step.sharesWith) {
-        note.append(', sharing the chamber with ');
-        note.append(el('span', 'step-share-with', step.sharesWith.label));
-      } else {
-        note.append(' — the rest runs the other reactions below');
-      }
+      // Every rival is a step of its own here, so the rest of the feed is
+      // accounted for on rows the reader can see.
+      note.append(' — the rest runs the other reactions below');
       if (step.share.rounded) note.append(' (roughly)');
       what.append(note);
     }
@@ -492,47 +458,25 @@ function renderSteps() {
       // is here for has to be read off the demand instead.
       (onSpare ? step.process.produces.map((o) => o.name)
         .find((n) => rcmp(solved.amountOf(n), R0) > 0) : undefined);
-    if (step.sharesWith) {
-      // Not a choice, so not offered as one.
-      tr.append(el('td', 'step-acts'));
-      tbody.append(tr);
-      continue;
-    }
 
     /**
-     * A step making something the plan hands back from somewhere else too.
+     * A step that is here so a charge does not have to be.
      *
-     * Then it sits on a loop, and the loop can be started with a charge
-     * instead: drop the step, lay some in once. Which way round is better is
-     * the reader's -- a charge is laid in once where a step runs for the life
-     * of the factory, and only they know whether that is a bargain -- so it is
-     * offered wherever the choice exists.
+     * It makes something the plan hands back from somewhere else too, so it
+     * sits on a loop that could have been started with a charge instead --
+     * and the solver decided the step was the better of the two. Worth saying,
+     * since a step that looks redundant is not.
      *
-     * Offered on the loop, not on the solver's opinion of it. It used to
-     * appear only where the charge-breaker had actually flipped this material,
-     * which tied the button to how good the planner happened to be that week:
-     * three separate improvements to what plans waste each took away the last
-     * example, and `primeInstead` has exactly one call site, so each time the
-     * primed state became unreachable altogether. `otherSupplyOf` does not
-     * move like that -- either something else hands the material back or it
-     * does not.
-     *
-     * Only the step *chosen* to make it. Others may produce it in passing --
-     * the acid step hands back water too -- and they are not here for it.
+     * There was a button beside this offering the other way round: drop the
+     * step, lay some in once. It wrote `credit`, which the solver that
+     * survives does not read -- it feeds every spare output back regardless --
+     * so it went with the solver that did.
      */
-    const loop = made && rcmp(solved.otherSupplyOf(made), R0) > 0 ? made : null;
-    if (loop) {
-      // Said out loud only where the solver made the trade itself, since that
-      // is the case where the step is here *for* the charge it saves.
-      if (solved.brokenLoops.includes(loop)) {
-        const why = el('div', 'step-loop');
-        why.append(`here so the ${ctx.db.byName.get(loop)?.display ?? loop} ` +
-                   'does not have to be laid in');
-        what.append(why);
-      }
-      acts.append(moot(button('ghost small', 'Prime instead',
-        `Drop this step and lay in the ${loop} to start the loop off`,
-        () => edit(primeInstead, loop))));
+    if (made && solved.brokenLoops.includes(made)) {
+      const why = el('div', 'step-loop');
+      why.append(`here so the ${ctx.db.byName.get(made)?.display ?? made} ` +
+                 'does not have to be laid in');
+      what.append(why);
     }
     if (made) {
       acts.append(button('ghost small', 'Other ways',
@@ -907,14 +851,21 @@ function renderSide() {
         });
         li.append(why);
       }
-      // How the world hands this over, for the kinds this plan will not use.
-      if (f.routes.length) {
+      /**
+       * How the world hands this over, for the kinds this plan will not use.
+       *
+       * The solver's `routes` are the other ways it could have made the thing
+       * *within the kinds it is allowed* -- mining is not one of them, so an
+       * ore comes back with none and the row would only say "found in the
+       * world". Which deposit it comes out of is the useful half of that, and
+       * the graph knows it whether or not the plan may run it.
+       */
+      const dug = f.routes.length ? f.routes[0]
+        : ctx.graph.producers(f.name).find((p) => p.kind === 'mine' || p.kind === 'handling');
+      if (dug) {
         const how = el('div', 'plan-how');
-        const kind = KIND.get(f.routes[0].kind);
-        how.append(`${kind?.glyph || ''} ${f.routes[0].label}`);
+        how.append(`${KIND.get(dug.kind)?.glyph || ''} ${dug.label}`);
         li.append(how);
-      } else if (ctx.graph.categoryOf(f.name) === 'deposit') {
-        li.append(el('div', 'plan-how', 'out there somewhere — go and find one'));
       } else if (f.raw) {
         li.append(el('div', 'plan-how', 'found in the world'));
       }
@@ -941,14 +892,10 @@ function renderSide() {
        * free to make its own and put it straight back in, which is usually
        * what a reader staring at a shopping list actually wants.
        *
-       * Newer solver only -- the older one does not read the field, and a
-       * button that quietly does nothing is worse than no button.
        */
-      if (plan.fresh) {
-        acts.append(button('ghost small', 'Not this one',
-                           `Plan without buying ${f.name}, though it may still be made along the way`,
-                           () => edit(toggle, 'noFetch', f.name)));
-      }
+      acts.append(button('ghost small', 'Not this one',
+                         `Plan without buying ${f.name}, though it may still be made along the way`,
+                         () => edit(toggle, 'noFetch', f.name)));
       li.append(acts);
       ul.append(li);
     }
@@ -1046,35 +993,20 @@ function renderSide() {
       line.append(el('span', 'amount', amount(item.amount)), ' ', matLink(item.name));
       li.append(line);
       li.append(el('div', 'plan-how', 'put in once, never spent'));
-      // A charge is a one-off and an extra step is forever, so which is better
-      // is the reader's call, not the solver's. This is the other option, at
-      // the moment it arises: make the material outright instead of taking it
-      // back off the loop.
+      /**
+       * One thing to say about a charge: not this one.
+       *
+       * There were two more. "Make it instead" added a step that made the
+       * material rather than taking it off the loop, and "Stop recycling it"
+       * dropped the route that needed the charge in the first place. Both
+       * wrote fields only the old solver read -- it feeds every spare output
+       * back and lays a charge in wherever a loop needs one, whatever it is
+       * told -- so they went with it.
+       */
       const acts = el('div', 'plan-item-acts');
-      // A charge that exists because a route was set to run on the leavings is
-      // undone by dropping that route, not by adding a step: the step is
-      // already there. Turning the four spare Carbon Monoxide back into Carbon
-      // costs four Carbon to set the loop turning, and the reader may decide
-      // that is not worth it.
-      const recycles = [...solved.sharedPins].find(([mat, id]) =>
-        mat === item.name && solved.spec.alsoUse.has(id));
-      if (recycles) {
-        acts.append(button('ghost small', 'Stop recycling it',
-          `Drop ${ctx.graph.byId.get(recycles[1])?.label ?? recycles[1]}, which is ` +
-          `what the charge is for`,
-          () => edit(pin, item.name, null)));
-      } else {
-        acts.append(moot(button('ghost small', 'Make it instead',
-                           `Add a step that makes ${item.name}, rather than laying some in`,
-                           () => edit(makeInstead, item.name))));
-      }
-      // And the blunter answer: not this one, find another way to start.
-      // "Make it instead" names the replacement; this leaves the choice open.
-      if (plan.fresh) {
-        acts.append(button('ghost small', 'Not this one',
-                           `Start the plan with something other than ${item.name}`,
-                           () => edit(toggle, 'noPrime', item.name)));
-      }
+      acts.append(button('ghost small', 'Not this one',
+                         `Start the plan with something other than ${item.name}`,
+                         () => edit(toggle, 'noPrime', item.name)));
       li.append(acts);
       ul.append(li);
     }
@@ -1126,14 +1058,6 @@ function renderSide() {
                                 : 'Count this spare output as something you wanted, ' +
                                   'without making any more',
                          () => edit(keepOutput, b.name)));
-      const fed = isFedBack(plan, b.name);
-      const feed = button('ghost small' + (fed ? ' on' : ''),
-                          fed ? 'Fed back' : 'Feed it back',
-                          fed ? 'Stop using this surplus as an input'
-                              : 'Let the plan use this surplus instead of fetching more',
-                          () => edit(toggleFedBack, b.name));
-      feed.setAttribute('aria-pressed', String(!!b.credited));
-      acts.append(moot(feed));
       /**
        * There used to be a third thing you could say about a leftover.
        *
@@ -1256,45 +1180,9 @@ function renderOptions() {
     }
   }
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
-  srcBox.hidden = !plan.fresh;
 
-  /**
-   * Greyed out, for the options the newer solver does not read.
-   *
-   * It reads the kinds, the sources and now the temperature narrowing, and
-   * nothing else on this panel: feeding spare output back in and laying a
-   * charge in are things the older solver does and it does not. Left live they
-   * were switches that silently did nothing.
-   *
-   * Greyed rather than taken away, unlike the source boxes above -- those
-   * belong to the newer solver and would be clutter beside the older one,
-   * whereas these are real options that this solver happens not to have yet,
-   * and saying so is more use than hiding them.
-   */
-  /**
-   * Taken away rather than greyed, which is a change of mind.
-   *
-   * They were greyed on the grounds that these are real options the newer
-   * solver "happens not to have yet", and saying so was more use than hiding
-   * them. Measuring what it actually reads says otherwise: it feeds every
-   * spare output back always, and it lays a charge in wherever a loop needs
-   * one, whatever the box says. There is no plan these two could change, so
-   * there is nothing to say -- unlike the four marked in red below, which
-   * would really be lost.
-   */
-  for (const id of ['feedback', 'charges']) {
-    $(`#plan-${id}-opt`).hidden = plan.fresh;
-    $(`#plan-${id}`).disabled = false;
-    $(`#plan-${id}-opt`).classList.remove('is-off');
-  }
-  // Same reasoning as the source boxes: the older solver cannot read it, and a
-  // control that does nothing is worse than one that is not there.
-  $('#plan-leftovers-opt').hidden = !plan.fresh;
   $('#plan-leftovers').checked = plan.keepLeftovers;
   $('#plan-avoid').checked = plan.avoidSideEffects;
-  $('#plan-feedback').checked = plan.feedBackAll;
-  $('#plan-charges').checked = plan.takeCharges;
-  $('#plan-fresh').checked = plan.fresh;
 }
 
 /* --------------------------------------------------------------- balancing */
@@ -1338,7 +1226,7 @@ function targetsFor(spec) {
   if (key !== balancedFor) {
     balancedFor = key;
     balancedTo = balanceTargets(ctx.graph, { ...spec, targets: plan.targets },
-                                spec.fresh ? solveFresh : undefined);
+                                solveFresh);
   }
   return balancedTo;
 }
@@ -1365,12 +1253,10 @@ let sweepToken = 0;
 let askedFor = null;
 
 const questionKey = (ask) => JSON.stringify({
-  targets: ask.targets, have: ask.have, plenty: ask.plenty, consume: ask.consume,
-  kinds: ask.kinds, include: ask.include, pins: ask.pins, runs: ask.runs,
+  targets: ask.targets, have: ask.have, kinds: ask.kinds,
   excludeProcesses: ask.excludeProcesses, excludeMaterials: ask.excludeMaterials,
   noFetch: ask.noFetch, noPrime: ask.noPrime,
-  takeCharges: ask.takeCharges, avoidSideEffects: ask.avoidSideEffects,
-  feedBackAll: ask.feedBackAll, noFeedBack: ask.noFeedBack,
+  avoidSideEffects: ask.avoidSideEffects, kept: ask.kept, keepLeftovers: ask.keepLeftovers,
 });
 
 const menuTools = () => ({
@@ -1456,7 +1342,7 @@ function renderMenu() {
   if (sweep && sweep.key !== key) { sweepToken++; sweep = null; }
 
   const box = $('#plan-menu');
-  const show = plan.fresh && plan.targets.length > 0;
+  const show = plan.targets.length > 0;
   box.hidden = !show;
   if (!show) return;
 
@@ -1518,24 +1404,14 @@ export function render() {
 
   const question = {
     have: plan.have,
-    plenty: plan.plenty,
-    pins: plan.pins,
-    include: plan.include,
     alsoUse: plan.alsoUse,
-    runs: plan.runs,
     excludeProcesses: plan.excludeProcesses,
     excludeMaterials: plan.excludeMaterials,
     noFetch: plan.noFetch,
     noPrime: plan.noPrime,
-    credit: plan.credit,
     kept: plan.kept,
-    consume: plan.consume,
-    feedBackAll: plan.feedBackAll,
-    noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,
-    fresh: plan.fresh,
     avoidSideEffects: plan.avoidSideEffects,
-    takeCharges: plan.takeCharges,
     // In the question, not bolted on after: the amounts are balanced from this
     // object, and a key built from it could not see a change of sources.
     sources: plan.sources,
@@ -1547,7 +1423,7 @@ export function render() {
   // enough of the same shape for everything below to render it.
   const ask = { ...question, targets: shownTargets, sources: plan.sources };
   askedFor = ask;
-  if (plan.fresh) {
+  {
     /**
      * The comparison already solved this one, so do not solve it again.
      *
@@ -1565,17 +1441,12 @@ export function render() {
     const notes = [];
     solved = (ready && ready.plan) || solveFresh(ctx.graph, { ...ask, notes })
       || blankFresh(ctx.graph, ask, notes.find((n) => !n.startsWith('spoils')) || null);
-  } else {
-    solved = solvePlan(ctx.graph, ask);
   }
 
   renderGoals();
-  // With nothing named to make, the question is "what can I do with this?" --
-  // and once something has been picked, both: the steps so far, then what
-  // those leave you able to do next.
+  // With nothing named to make, the question is "what can I do with this?"
   $('#plan-steps').textContent = '';
-  if (plan.targets.length || plan.include.length) renderSteps();
-  if (!plan.targets.length) renderMakeable();
+  if (plan.targets.length) renderSteps(); else renderMakeable();
   renderSide();
   renderMenu();
 }
@@ -1646,12 +1517,6 @@ export function initPlan(context) {
 
   $('#plan-avoid').addEventListener('change', (e) =>
     edit(setOption, 'avoidSideEffects', e.target.checked));
-  $('#plan-feedback').addEventListener('change', (e) =>
-    edit(setOption, 'feedBackAll', e.target.checked));
-  $('#plan-charges').addEventListener('change', (e) =>
-    edit(setOption, 'takeCharges', e.target.checked));
-  $('#plan-fresh').addEventListener('change', (e) =>
-    edit(setOption, 'fresh', e.target.checked));
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;

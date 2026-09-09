@@ -127,7 +127,7 @@ if (/is not a function|Failed to load/.test(document.body.textContent)) {
  * `feeds` on a frontier line and the side panel threw on every plan that
  * bought anything, while this file reported all clear. Columbite buys.
  */
-globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite&fr=1';
+globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite';
 let freshSteps = '';
 let freshSide = '';
 try {
@@ -155,12 +155,8 @@ if (/is not a function|Cannot read propert/.test(document.body.textContent)) {
 } else {
   console.log(`ok    the fresh solver solves and renders (${freshSteps.length} chars)`);
 }
-if (freshSteps === planSteps) {
-  console.log('FAIL the checkbox changed nothing -- both solvers rendered the same');
-  fail++;
-} else {
-  console.log('ok    and answers differently from the older one, so the switch is live');
-}
+// There was a check here that the two solvers answered differently, which is
+// how you knew the switch was wired. There is one solver.
 /**
  * The source categories, which only the fresh solver reads.
  *
@@ -177,7 +173,7 @@ if (!srcBox) {
   else console.log(`ok    the source categories are offered (${srcBox.children.length} of them)`);
 
   globalThis.location.hash =
-    '#mode=plan&t=Tantalum~Niobium&h=Columbite&fr=1&sr=weather~air~made';
+    '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=weather~air~made';
   app.reload();
   await new Promise((r) => setTimeout(r, 0));
   const otherSide = document.querySelector('#plan-side')?.textContent ?? '';
@@ -198,37 +194,31 @@ if (!srcBox) {
  * solver, which has its own suite.
  */
 /**
- * The options the newer solver does not read, greyed rather than live.
+ * Every option on the panel is live, there being one solver to read them.
  *
- * Two switches that silently did nothing: feeding spare output back in, and
- * laying a charge in. Narrowing a step's temperature used to be a third and is
- * not any more -- it is ported, so it has to stay live in both.
+ * Two switches used to sit here greyed, doing nothing for the newer solver:
+ * feeding spare output back in and laying a charge in. It does both
+ * unconditionally, so with the solver that read them gone the switches went
+ * too, and what is checked now is that they are not there and the rest are.
  */
-for (const [hash, fresh] of [['#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1', true],
-                             ['#mode=plan&t=Carbon&h=Carbon+Dioxide', false]]) {
-  globalThis.location.hash = hash;
+{
+  globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
   app.reload();
   await new Promise((r) => setTimeout(r, 0));
   const bad = [];
-  for (const id of ['feedback', 'charges']) {
+  for (const id of ['feedback', 'charges', 'fresh']) {
+    if (document.querySelector(`#plan-${id}`)) bad.push(`${id} is still on the panel`);
+  }
+  for (const id of ['avoid', 'leftovers']) {
     const box = document.querySelector(`#plan-${id}`);
     const label = document.querySelector(`#plan-${id}-opt`);
     if (!box || !label) { bad.push(`${id} missing`); continue; }
-    if (!!box.disabled !== fresh) bad.push(`${id} disabled=${!!box.disabled}`);
-    if (label.classList.contains('is-off') !== fresh) bad.push(`${id} greying wrong`);
+    if (box.disabled || label.hidden || label.classList.contains('is-off')) {
+      bad.push(`${id} is not live`);
+    }
   }
-  const avoid = document.querySelector('#plan-avoid');
-  const avoidOpt = document.querySelector('#plan-avoid-opt');
-  if (!avoid || avoid.disabled || avoidOpt.classList.contains('is-off')) {
-    bad.push('the temperature narrowing is greyed, and both solvers read it');
-  }
-  if (bad.length) {
-    console.log(`FAIL with the ${fresh ? 'newer' : 'older'} solver: ${bad.join(', ')}`);
-    fail++;
-  } else {
-    console.log(`ok    the options it cannot read are ${fresh ? 'greyed' : 'live'} ` +
-                `for the ${fresh ? 'newer' : 'older'} solver`);
-  }
+  if (bad.length) { console.log(`FAIL the options panel: ${bad.join(', ')}`); fail++; }
+  else console.log('ok    every option on the panel is live, and the dead ones are gone');
 }
 
 /**
@@ -237,7 +227,7 @@ for (const [hash, fresh] of [['#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1', true]
  * Shown for it, put away for the older one, and reaching the address bar --
  * an option that does not survive a reload is an option nobody can share.
  */
-globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
 app.reload();
 await new Promise((r) => setTimeout(r, 0));
 const leftBox = document.querySelector('#plan-leftovers');
@@ -263,7 +253,7 @@ if (!leftBox || !leftOpt) {
   }
 }
 
-globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide&fr=1';
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
 app.reload();
 await new Promise((r) => setTimeout(r, 0));
 const menuBox = document.querySelector('#plan-menu');
@@ -351,11 +341,12 @@ if (!menuBox || !menuRun) {
 globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
 app.reload();
 await new Promise((r) => setTimeout(r, 0));
-if (!document.querySelector('#plan-sources').hidden) {
-  console.log('FAIL the source boxes are shown for a plan the older solver answered');
+// Shown for every plan now: there is one solver and it reads them.
+if (document.querySelector('#plan-sources').hidden) {
+  console.log('FAIL the source boxes are hidden, with a solver that reads them');
   fail++;
 } else {
-  console.log('ok    and are put away again when the older solver answers');
+  console.log('ok    and are there for every plan, there being one solver');
 }
 
 // And the arithmetic really did come across, rather than being quietly absent:

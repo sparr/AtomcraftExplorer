@@ -1,12 +1,12 @@
 /**
  * How much of each thing to ask for, so the feed is not wasted.
  *
- * Lived in `plan-solve.js` and belonged to neither solver: it drives the older
- * one and the newer one alike, taking whichever is answering as an argument.
- * Broken out so that fixing it is not development on the old planner, which is
- * finished.
+ * Lived in `plan-solve.js` and belonged to neither solver: it drove the older
+ * one and the newer one alike, taking whichever was answering as an argument.
+ * The older one is gone and the argument stays, there being no reason for this
+ * to know which solver it is driving.
  */
-import { rsub, rcmp, R0, rdiv, rnum, solvePlan } from './plan-solve.js';
+import { rsub, rcmp, R0, rdiv, rnum } from './rational.js';
 
 /**
  * Amounts that use the feed up rather than leaving half of it on the floor.
@@ -39,7 +39,7 @@ import { rsub, rcmp, R0, rdiv, rnum, solvePlan } from './plan-solve.js';
  * twelve Lepidolite, and filling those gives 8/2/2/12 rather than the 2/2/2/3
  * that three would have got.
  */
-export function balanceTargets(graph, rawSpec, solveWith = solvePlan) {
+export function balanceTargets(graph, rawSpec, solveWith) {
   const names = (rawSpec.targets || []).map((t) => (typeof t === 'string' ? t : t.name));
   const typed = (rawSpec.targets || []).map((t) => (typeof t === 'string' ? 1 : t.amount || 1));
   if (!names.length) return [];
@@ -51,9 +51,9 @@ export function balanceTargets(graph, rawSpec, solveWith = solvePlan) {
    *
    * Sparr: choosing a row of the scoreboard changes what the plan is allowed
    * to fetch, and the amounts at the top did not move with it. They could not:
-   * this balanced every plan with `solvePlan`, which has no notion of source
-   * categories at all, so the newer solver's questions were being weighed by a
-   * solver that could not read half of them.
+   * this balanced every plan with the older solver, which had no notion of
+   * source categories at all, so questions were being weighed by a solver that
+   * could not read half of them.
    */
   const solve = (a) => (budget-- > 0
     ? solveWith(graph, { ...rawSpec, targets: names.map((n, i) => ({ name: n, amount: a[i] })) })
@@ -70,8 +70,6 @@ export function balanceTargets(graph, rawSpec, solveWith = solvePlan) {
   const feedOf = (p) => {
     const feed = new Map();
     for (const n of p.spec.have) {
-      // The newer solver's spec has no `plenty`; everything it holds is finite.
-      if (p.spec.plenty?.has(n)) continue;
       const net = rsub(p.amountOf(n), p.madeOf(n));
       /**
        * Per unit of the order, because the batch moves underneath this.

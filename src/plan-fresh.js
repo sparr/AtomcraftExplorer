@@ -2925,9 +2925,32 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    * Read at the end, not during the solve. Which steps run and how often does
    * not depend on it; how to hold the chamber afterwards does.
    */
+  /**
+   * What share of a shared chamber each step takes.
+   *
+   * A tile runs the first reaction in its list that is valid this tick and
+   * stops, so rivals on one feed divide it between them whether you wanted
+   * them to or not. That is why three Lepidolite decompositions show up when
+   * you asked for potassium, and without saying so the plan reads as though it
+   * were running two steps for no reason.
+   *
+   * The older solver said this by hiding the passengers behind the chosen one
+   * and naming it. This one lists all three as steps, because all three run,
+   * so each says its own share and the panel adds "the rest runs the other
+   * reactions below". Same fact, told the way this solver models it.
+   */
+  const shareOf = (id) => {
+    const c = chamberShares(graph, id, spec.wanted);
+    const at = c ? c.ids.indexOf(id) : -1;
+    if (at < 0) return null;
+    const chance = c.chances[at];
+    return { k: Number(chance.n), of: Number(chance.d), rounded: true };
+  };
+
   const steps = [...runs].map(([id, n]) => ({
     process: graph.byId.get(id),
     runs: n,
+    share: shareOf(id),
     window: operatingWindow(graph.byId.get(id), spec.avoidSideEffects),
   })).sort((a, b) => a.process.id.localeCompare(b.process.id));
 

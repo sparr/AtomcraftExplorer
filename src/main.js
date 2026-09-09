@@ -627,9 +627,9 @@ function reactionCard(rx, role, self) {
   if (rx.raw.Probability) cond.push(`p=${rx.raw.Probability}`);
   if (cond.length) card.append(el('div', 'rx-cond', cond.join('  ·  ')));
 
-  // Start a plan from this reaction: make what it makes, by this route.
+  // Start a plan from this reaction: make what it makes.
   const use = el('button', 'ghost small rx-plan', 'Plan this');
-  use.title = 'Plan a way to run this reaction';
+  use.title = 'Plan a way to make what this reaction makes';
   use.addEventListener('click', () => {
     const process = graph.byId.get(`rx:${rx.name}`);
     if (!process) return;
