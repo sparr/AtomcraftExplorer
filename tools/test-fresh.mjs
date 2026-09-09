@@ -259,6 +259,8 @@ console.log('');
  */
 console.log('--- starting from nothing');
 const fromNothing = (name) => solveFresh(graph, { targets: [{ name, amount: 1 }] });
+const fromNothing2 = (names) =>
+  solveFresh(graph, { targets: names.map((name) => ({ name, amount: 1 })) });
 const boron = fromNothing('Boron Oxide');
 const iron = fromNothing('Iron');
 const oreChecks = [
@@ -281,6 +283,17 @@ const oreChecks = [
    * carried home. Its sibling above already says the ore is not the answer in
    * another phase; this says something happens to it.
    */
+  /**
+   * And the one it may buy is chosen for what it starts, not just its price.
+   *
+   * Asked for Lithium and Potassium there are fifty candidate ores, exactly
+   * one carries both, and Lepidolite is forty-sixth of the fifty by price. Six
+   * are tried, so the question had no answer at all -- while the ore that
+   * answers it is the first thing anyone would reach for. Price still settles
+   * ties, which is every candidate when there is one thing to make.
+   */
+  ['an ore that starts two of the wants is tried before a cheap one that starts one',
+   !!fromNothing2(['Lithium', 'Potassium'])],
   ['and the ore it buys is put through something',
    !!iron && iron.steps.some((s) => (s.process.consumes || [])
      .some((i) => iron.frontier.some((f) => f.name === i.name)))],

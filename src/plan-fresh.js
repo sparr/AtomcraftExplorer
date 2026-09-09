@@ -2119,9 +2119,29 @@ export function oreCandidates(graph, spec) {
     if (!holdsATarget(graph, name, spec.wanted)) continue;
     if (alreadyInHand(graph, name, spec.held)) continue;
     if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
-    out.push([name, prices.get(name) ?? Infinity]);
+    // How many of the things asked for this one ore could start. One is the
+    // usual answer and the reason the sort below used to be price alone.
+    let covers = 0;
+    for (const wanted of spec.wanted) if (holdsATarget(graph, name, [wanted])) covers++;
+    out.push([name, covers, prices.get(name) ?? Infinity]);
   }
-  return out.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0])).map(([name]) => name);
+  /**
+   * The ore that starts the most of what was asked for, then the cheapest.
+   *
+   * Only one may be bought, so an ore that carries two of the wants is worth
+   * more than a cheap one that carries a third of them -- and price alone did
+   * not know that. Asked for Lithium and Potassium there are fifty candidates,
+   * exactly one carries both, and Lepidolite is forty-sixth by price. The six
+   * tried never came near it and the question had no answer, though the ore
+   * that answers it is the first thing anyone would reach for.
+   *
+   * Price still decides between equals, which is every candidate when there is
+   * one thing to make -- so a single-target question is sorted exactly as it
+   * was, and only the questions that were losing by this gain.
+   */
+  return out
+    .sort((a, b) => b[1] - a[1] || a[2] - b[2] || a[0].localeCompare(b[0]))
+    .map(([name]) => name);
 }
 
 /** What a finished plan costs, for choosing between them. Lower is better. */
