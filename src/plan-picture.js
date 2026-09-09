@@ -3,12 +3,11 @@
  *
  * Everything decided in `plan-diagram.js` is arithmetic on numbers; this is
  * the part that makes marks and takes presses. Kept apart because the layout
- * is worth testing and a drag handler is not: the sums can be checked without
- * a browser, and what is left here is short enough to read.
+ * is worth testing and a drag handler is not.
  *
  * Drawn as SVG rather than boxes on the page because the arrows are the point.
- * A plan is a graph and the interesting question -- where does this material
- * come from and what is waiting on it -- is a question about edges.
+ * A plan is a graph, and the question a reader has -- where does this come
+ * from, what is waiting on it -- is a question about edges.
  */
 import { layoutPlan, relax } from './plan-diagram.js';
 
@@ -19,41 +18,32 @@ const make = (tag, attrs = {}) => {
   return n;
 };
 
-const PAD = 28;
+const PAD = 30;
 const BOX = { w: 150, h: 34 };
 
-/**
- * Where an edge meets a node.
- *
- * At the side rather than the centre, so a line does not disappear under the
- * label it is pointing at and the arrowheads all land on one vertical.
- */
-const port = (n, side) => ({ x: n.x + (side === 'out' ? BOX.w / 2 : -BOX.w / 2), y: n.y });
-
-/**
- * A curve rather than a straight line.
- *
- * Two edges between the same pair of columns lie on top of each other when
- * both are straight and their ends are level; bowed apart by where they are
- * going, they stay legible. The loop-closing edges bow the other way and are
- * dashed, since they are the only ones that read right to left.
- */
-function path(a, b, back) {
-  const from = port(a, back ? 'in' : 'out');
-  const to = port(b, back ? 'out' : 'in');
-  const lift = back ? -46 : 0;
-  const mid = (from.x + to.x) / 2;
-  return `M ${from.x} ${from.y} C ${mid} ${from.y + lift}, ${mid} ${to.y + lift}, ${to.x} ${to.y}`;
-}
-
-export function drawPlan(host, plan, { onPick } = {}) {
+export function drawPlan(host, plan, { onPick, across = false } = {}) {
   host.textContent = '';
   const state = layoutPlan(plan);
   if (!state.nodes.length) {
-    host.append(Object.assign(document.createElement('p'), {
-      className: 'muted', textContent: 'Nothing to draw yet.' }));
-    return { stop() {} };
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = 'Nothing to draw yet.';
+    host.append(empty);
+    return { stop() {}, state };
   }
+
+  /**
+   * Which way round the picture runs.
+   *
+   * Sparr: most plans will fit better as rows than columns. They will -- a
+   * chain of twenty reactions is a long thin thing, and a page scrolls
+   * downwards. Only the drawing turns: the layering, the combing and the
+   * springs all still work along the same axis they always did, and this
+   * swaps the two on the way to the screen and back again on the way from the
+   * pointer. Nothing downstream of here knows which way it is being read.
+   */
+  const sx = (n) => (across ? n.y : n.x);
+  const sy = (n) => (across ? n.x : n.y);
 
   const svg = make('svg', { class: 'plan-svg' });
   const defs = make('defs');
@@ -67,16 +57,27 @@ export function drawPlan(host, plan, { onPick } = {}) {
   const boxes = make('g', { class: 'plan-boxes' });
   svg.append(wires, boxes);
 
-  const byId = new Map(state.nodes.map((n) => [n.id, n]));
-  const drawn = new Map();
-  for (const e of state.edges) {
-    const line = make('path', { class: 'plan-wire' + (e.back ? ' plan-wire-loop' : ''),
+  /**
+   * Where an arrow leaves a box and where it arrives.
+   *
+   * At the edge rather than the centre, on whichever side the flow is going,
+   * so a line never disappears under the label it is pointing at.
+   */
+  const half = () => (across ? BOX.h / 2 : BOX.w / 2);
+  const out = (n) => (across ? { x: sx(n), y: sy(n) + half() } : { x: sx(n) + half(), y: sy(n) });
+  const into = (n) => (across ? { x: sx(n), y: sy(n) - half() } : { x: sx(n) - half(), y: sy(n) });
+  const mid = (n) => ({ x: sx(n), y: sy(n) });
+
+  const drawn = [];
+  for (const w of state.wires) {
+    const line = make('path', { class: 'plan-wire' + (w.back ? ' plan-wire-loop' : ''),
                                 'marker-end': 'url(#plan-arrow)' });
     wires.append(line);
-    drawn.set(e, line);
+    drawn.push([w, line]);
   }
 
   for (const n of state.nodes) {
+    if (n.kind === 'bend') continue;                 // a place for a line to stand, not a thing
     const g = make('g', { class: `plan-node plan-${n.kind}` + (n.role ? ` plan-role-${n.role}` : '') });
     g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
                             width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
@@ -94,38 +95,63 @@ export function drawPlan(host, plan, { onPick } = {}) {
     }
   }
 
-  const draw = () => {
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (const n of state.nodes) { lo = Math.min(lo, n.y); hi = Math.max(hi, n.y); }
-    for (const n of state.nodes) n.el.setAttribute('transform', `translate(${n.x},${n.y})`);
-    for (const [e, line] of drawn) {
-      const a = byId.get(e.from);
-      const b = byId.get(e.to);
-      if (a && b) line.setAttribute('d', path(a, b, e.back));
+  /**
+   * The frame the picture is seen through, held still while a node is moved.
+   *
+   * Recomputed every tick it drifted, and a drag reads the pointer through it
+   * -- so dragging a node past the old edge grew the frame, which moved
+   * everything, which moved the node under the pointer. It looked like the
+   * node was snapping to somewhere it had not been put. The box is worked out
+   * when nothing is being held and left alone while something is.
+   */
+  let view = null;
+  const reframe = () => {
+    let x0 = Infinity; let x1 = -Infinity; let y0 = Infinity; let y1 = -Infinity;
+    for (const n of state.nodes) {
+      x0 = Math.min(x0, sx(n)); x1 = Math.max(x1, sx(n));
+      y0 = Math.min(y0, sy(n)); y1 = Math.max(y1, sy(n));
     }
-    const w = state.width + BOX.w + PAD * 2;
-    const h = (hi - lo) + BOX.h + PAD * 2;
-    svg.setAttribute('viewBox', `${-BOX.w / 2 - PAD} ${lo - BOX.h / 2 - PAD} ${w} ${h}`);
-    svg.setAttribute('width', w);
-    svg.setAttribute('height', h);
+    view = { x: x0 - BOX.w / 2 - PAD, y: y0 - BOX.h / 2 - PAD,
+             w: (x1 - x0) + BOX.w + PAD * 2, h: (y1 - y0) + BOX.h + PAD * 2 };
   };
 
-  /**
-   * The springs, run until they stop mattering.
-   *
-   * Layout put everything on a grid, which is tidy and a little dead: two
-   * nodes joined across four columns sit at whatever height their own layer
-   * gave them, and the line between them slopes for no reason. A few hundred
-   * ticks of pulling joined things level takes most of that out. It stops when
-   * nothing is moving, so an untouched picture costs a few frames and then
-   * nothing at all.
-   */
-  /**
-   * Asked for where there is a screen refresh to hang it on, and skipped where
-   * there is not -- the headless shim has no frames, and a picture that is
-   * merely drawn once is exactly what a test wants to look at.
-   */
+  const draw = () => {
+    if (!holding || !view) reframe();
+    for (const n of state.nodes) {
+      if (n.el) n.el.setAttribute('transform', `translate(${sx(n)},${sy(n)})`);
+    }
+    for (const [w, line] of drawn) {
+      const pts = w.points;
+      const a = pts[0];
+      const b = pts[pts.length - 1];
+      if (w.back) {
+        // The one arrow that reads backwards, bowed clear of everything else.
+        const from = into(a);
+        const to = out(b);
+        const lift = across ? 0 : -46;
+        const shift = across ? -46 : 0;
+        const cx = (from.x + to.x) / 2 + shift;
+        const cy = (from.y + to.y) / 2 + lift;
+        line.setAttribute('d', `M ${from.x} ${from.y} C ${cx} ${from.y + lift}, ${cx} ${to.y + lift}, ${to.x} ${to.y}`);
+        continue;
+      }
+      const stops = [out(a), ...pts.slice(1, -1).map(mid), into(b)];
+      let d = `M ${stops[0].x} ${stops[0].y}`;
+      for (let i = 1; i < stops.length; i++) {
+        const p = stops[i - 1];
+        const q = stops[i];
+        const mx = (p.x + q.x) / 2;
+        const my = (p.y + q.y) / 2;
+        d += across ? ` C ${p.x} ${my}, ${q.x} ${my}, ${q.x} ${q.y}`
+                    : ` C ${mx} ${p.y}, ${mx} ${q.y}, ${q.x} ${q.y}`;
+      }
+      line.setAttribute('d', d);
+    }
+    svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
+    svg.setAttribute('width', view.w);
+    svg.setAttribute('height', view.h);
+  };
+
   const frame = globalThis.requestAnimationFrame?.bind(globalThis) ?? null;
   let alive = true;
   let ticks = 0;
@@ -137,17 +163,12 @@ export function drawPlan(host, plan, { onPick } = {}) {
     if (moved > 0.4 && ticks < 600) frame(settle);
   };
 
-  // --- dragging ------------------------------------------------------------
-  //
-  // Both axes, because the reader's picture of their own factory beats the
-  // one the ranking came up with. The springs only ever move things along
-  // their column, so a node dragged sideways stays where it was put.
   let holding = null;
   const at = (ev) => {
-    const box = svg.getBoundingClientRect();
-    const vb = svg.getAttribute('viewBox').split(' ').map(Number);
-    return { x: vb[0] + (ev.clientX - box.left) / box.width * vb[2],
-             y: vb[1] + (ev.clientY - box.top) / box.height * vb[3] };
+    const box = svg.getBoundingClientRect?.();
+    if (!box || !view) return { x: 0, y: 0 };
+    return { x: view.x + (ev.clientX - box.left) / box.width * view.w,
+             y: view.y + (ev.clientY - box.top) / box.height * view.h };
   };
   svg.addEventListener('pointerdown', (ev) => {
     const g = ev.target.closest?.('.plan-node');
@@ -161,11 +182,9 @@ export function drawPlan(host, plan, { onPick } = {}) {
   svg.addEventListener('pointermove', (ev) => {
     if (!holding) return;
     const p = at(ev);
-    holding.x = p.x;
-    holding.y = p.y;
+    if (across) { holding.y = p.x; holding.x = p.y; } else { holding.x = p.x; holding.y = p.y; }
     holding.dragged = true;
     draw();
-    if (ticks >= 600) { ticks = 0; if (frame) frame(settle); }
   });
   const drop = () => {
     if (!holding) return;

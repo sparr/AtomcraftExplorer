@@ -1497,12 +1497,16 @@ export function render() {
  */
 let picture = null;
 let showPicture = false;
+let acrossPicture = false;
 function renderPicture() {
   const host = $('#plan-picture');
   host.hidden = !showPicture || !solved;
   if (picture) { picture.stop(); picture = null; }
   if (host.hidden) return;
-  picture = drawPlan(host, solved, { onPick: (name) => edit(selectMaterial, name) });
+  picture = drawPlan($('#plan-picture-canvas'), solved, {
+    onPick: (name) => edit(selectMaterial, name),
+    across: acrossPicture,
+  });
 }
 
 /** Open or shut the picture, from the button in the bar. */
@@ -1585,6 +1589,12 @@ export function initPlan(context) {
     else e.target.value = String(plan.oreTries);
   });
   $('#toggle-plan-picture').addEventListener('click', togglePicture);
+  // Rows or columns, since a plan is a long thin thing and a page scrolls down.
+  $('#plan-picture-turn').addEventListener('click', () => {
+    acrossPicture = !acrossPicture;
+    $('#plan-picture-turn').setAttribute('aria-pressed', String(acrossPicture));
+    renderPicture();
+  });
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;

@@ -916,19 +916,36 @@ console.log('\n--- the plan, drawn');
 
   $('#toggle-plan-picture').click();
   check(!$('#plan-picture').hidden, 'pressing it opens the diagram');
-  const svg = [...$('#plan-picture').walk()].find((n) => n.tagName === 'SVG');
+  // The drawing lives in its own box inside the panel, so that the button to
+  // turn it can sit still while the picture scrolls under it.
+  const canvas = () => $('#plan-picture-canvas');
+  const svg = [...canvas().walk()].find((n) => n.tagName === 'SVG');
   check(!!svg, 'which is an svg');
-  const boxes = nodes($('#plan-picture'), 'plan-node');
-  const wires = nodes($('#plan-picture'), 'plan-wire');
+  const boxes = nodes(canvas(), 'plan-node');
+  const wires = nodes(canvas(), 'plan-wire');
   check(boxes.length > 10 && wires.length > boxes.length,
         `with ${boxes.length} things and ${wires.length} arrows between them`);
-  const steps = nodes($('#plan-picture'), 'plan-step');
+  const steps = nodes(canvas(), 'plan-step');
   check(steps.length === nodes($('#plan-steps'), 'plan-step').length,
         `a box for every step in the table: ${steps.length}`);
   // The loop-closing arrows are drawn differently, being the only ones that
   // read right to left.
-  check(nodes($('#plan-picture'), 'plan-wire-loop').length > 0,
+  check(nodes(canvas(), 'plan-wire-loop').length > 0,
         'and the arrows that close a wheel are marked as such');
+  /**
+   * A bend is where a long arrow stands while crossing a column it has no
+   * business in. It is drawn as nothing, so it must not become a box.
+   */
+  check(!nodes(canvas(), 'plan-bend').length,
+        'with no boxes drawn for the places the long arrows stand');
+
+  // Rows or columns, since a plan is a long thin thing and a page scrolls down.
+  const wide = svg.attrs.get('width');
+  $('#plan-picture-turn').click();
+  const turned = [...canvas().walk()].find((n) => n.tagName === 'SVG');
+  check(turned.attrs.get('width') !== wide,
+        `turning it swaps the way it runs: ${wide} wide becomes ${turned.attrs.get('width')}`);
+  $('#plan-picture-turn').click();
 
   $('#toggle-plan-picture').click();
   check($('#plan-picture').hidden, 'pressing it again puts it away');

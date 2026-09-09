@@ -66,6 +66,46 @@ for (const [what, ask] of plans) {
   check(loops < state.edges.length,
         `${loops} of ${state.edges.length} arrows close a wheel, and they are marked`);
 
+  /**
+   * Long arrows have somewhere to stand in every column they cross.
+   *
+   * Sparr: the line from the Columbite to its reaction cuts behind a dozen
+   * other things. Without a place in the columns between, nothing there knows
+   * the line is passing through and no reordering of its two ends can help.
+   */
+  const bends = state.nodes.filter((n) => n.kind === 'bend');
+  const long = state.wires.filter((w) => w.points.length > 2);
+  check(long.every((w) => w.points.length === Math.abs(
+    byId.get(w.to).rank - byId.get(w.from).rank) + 1),
+        `${long.length} long arrows, each standing in every column it crosses (${bends.length} places)`);
+
+  /**
+   * And the dead ends are together rather than sprinkled through.
+   *
+   * Sparr: the oxide leftovers are spread among the useful outputs. Nothing
+   * waits on a leftover, so the comb has no opinion about where it goes and
+   * drops it wherever the median landed. They are sorted to one end after the
+   * combing, which costs nothing it was avoiding.
+   */
+  const feeds = new Set(state.edges.map((e) => e.from));
+  const layers = new Map();
+  for (const n of state.nodes) {
+    if (!layers.has(n.rank)) layers.set(n.rank, []);
+    layers.get(n.rank).push(n);
+  }
+  const mixed = [...layers.values()].filter((layer) => {
+    const sorted = [...layer].sort((a, b) => a.at - b.at);
+    let seenEnd = false;
+    for (const n of sorted) {
+      const ends = !feeds.has(n.id) && n.kind !== 'bend';
+      if (ends) seenEnd = true;
+      else if (seenEnd) return true;
+    }
+    return false;
+  });
+  check(!mixed.length,
+        `nothing with further use sits below a dead end (${mixed.length} columns mixed)`);
+
   // The combing earns its place.
   const raw = crossings(layoutPlan(plan, { rounds: 0 }));
   const combed = crossings(state);

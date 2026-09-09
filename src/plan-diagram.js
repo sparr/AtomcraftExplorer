@@ -229,6 +229,48 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
   for (const e of edges) e.back = back.has(e);
   rank(nodes, edges, back);
 
+  /**
+   * A long arrow gets somewhere to stand in every column it crosses.
+   *
+   * Sparr: the line from the Columbite to its reaction cuts behind a dozen
+   * other things. It does, and no amount of reordering the two ends will fix
+   * it, because nothing in the columns between knows the line is passing
+   * through. So it is given a place there: an invisible node in each column it
+   * crosses, threaded onto the same combing as everything else. The comb then
+   * treats the line as a thing to be kept out of the way, and it comes out
+   * running between the nodes rather than behind them.
+   *
+   * This is the piece that makes a layered drawing readable, and it is why
+   * long edges are the standard hard case: without it the picture is only
+   * tidy where the arrows happen to be short.
+   */
+  const byId0 = new Map(nodes.map((n) => [n.id, n]));
+  const segments = [];
+  const wires = [];
+  let bends = 0;
+  for (const e of edges) {
+    const a = byId0.get(e.from);
+    const b = byId0.get(e.to);
+    if (!a || !b) continue;
+    if (e.back || b.rank - a.rank <= 1) {
+      segments.push(e);
+      wires.push({ from: e.from, to: e.to, back: e.back, count: e.count, points: [a, b] });
+      continue;
+    }
+    const points = [a];
+    let last = a;
+    for (let r = a.rank + 1; r < b.rank; r++) {
+      const bend = { id: `b:${bends++}`, kind: 'bend', rank: r, label: '' };
+      nodes.push(bend);
+      points.push(bend);
+      segments.push({ from: last.id, to: bend.id, bend: true });
+      last = bend;
+    }
+    segments.push({ from: last.id, to: b.id, bend: true });
+    points.push(b);
+    wires.push({ from: e.from, to: e.to, back: false, count: e.count, points });
+  }
+
   const byRank = new Map();
   for (const n of nodes) {
     if (!byRank.has(n.rank)) byRank.set(n.rank, []);
@@ -236,7 +278,33 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
   }
   const layers = [...byRank.keys()].sort((a, b) => a - b).map((r) => byRank.get(r));
   layers.forEach((layer) => layer.forEach((n, i) => { n.at = i; }));
-  comb(layers, edges, rounds);
+  comb(layers, segments, rounds);
+
+  /**
+   * Sparr: the oxide leftovers are spread among the useful outputs; they
+   * should be together at one end, and the ones with further use grouped.
+   *
+   * Right, and it is worth doing after the combing rather than instead of it.
+   * A leftover is the end of its line -- nothing downstream waits on it -- so
+   * the comb has no opinion about where it goes and drops it wherever the
+   * median landed, which is to say among the things that do matter. Sorting
+   * them to the bottom of their column costs no crossings that the comb was
+   * avoiding, because an edge that ends there ends there whatever height it
+   * ends at, and it gives the reader one place to look for the waste.
+   *
+   * Only the dead ends move, and only relative to each other's neighbours:
+   * everything with somewhere to go keeps the order the comb worked out.
+   */
+  const feedsOn = new Set();
+  for (const e of segments) feedsOn.add(e.from);
+  for (const layer of layers) {
+    const going = layer.filter((n) => feedsOn.has(n.id) || n.kind === 'bend');
+    const ending = layer.filter((n) => !feedsOn.has(n.id) && n.kind !== 'bend');
+    if (!ending.length || !going.length) continue;
+    layer.length = 0;
+    layer.push(...going, ...ending);
+    layer.forEach((n, i) => { n.at = i; });
+  }
 
   const tallest = Math.max(1, ...layers.map((l) => l.length));
   for (const layer of layers) {
@@ -250,7 +318,8 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
   }
   return {
     nodes,
-    edges,
+    edges: segments,
+    wires,
     width: (layers.length - 1) * gapX,
     height: (tallest - 1) * gapY,
   };
