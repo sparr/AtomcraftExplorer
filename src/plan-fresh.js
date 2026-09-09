@@ -1791,6 +1791,40 @@ export function phaseGroup(graph, name) {
   if (!table) {
     table = new Map();
     groupCache.set(graph, table);
+
+    /**
+     * Sparr: burning and extinguishing are the same stuff where they make a
+     * round trip, and not where they do not.
+     *
+     * Melting and boiling are always reversible, so following them is safe.
+     * Fire is not: most of what the game burns is gone -- 534 of the 580
+     * fire and decay transitions are one way, Actinium to Francium and wood to
+     * ash among them -- and calling those the same substance would be plainly
+     * wrong. The 46 that come back are the twenty-three pairs of a thing and
+     * the same thing alight: Charcoal, Coal, the oils, the vapours, hydrogen.
+     *
+     * The test is structural rather than by name: does a fire or decay step
+     * take you there, and another one back. It finds every `X (Burning)` and
+     * nothing else, without knowing that the game writes them that way.
+     *
+     * It matters because the bar on buying the answer is written in terms of
+     * this: asked for Charcoal from nothing, the solver reached for a
+     * Charcoal (Burning) and let it go out, one step, and that read as an
+     * honest plan because the two were unrelated as far as this could see.
+     */
+    const burns = new Map();
+    for (const p of graph.processes) {
+      if (p.kind !== 'fire' && p.kind !== 'decay') continue;
+      for (const i of p.consumes || []) {
+        for (const o of p.produces) {
+          if (!burns.has(i.name)) burns.set(i.name, new Set());
+          burns.get(i.name).add(o.name);
+        }
+      }
+    }
+    const backAgain = (at) => [...(burns.get(at) || [])]
+      .filter((to) => to !== at && burns.get(to)?.has(at));
+
     for (const m of graph.db.materials) {
       if (table.has(m.name)) continue;
       const seen = [m.name];
@@ -1800,6 +1834,9 @@ export function phaseGroup(graph, name) {
         for (const field of ['Evaporation', 'Condensation']) {
           const to = raw?.[field]?.TargetMaterialName;
           if (to && !table.has(to)) { table.set(to, m.name); seen.push(to); }
+        }
+        for (const to of backAgain(seen[i])) {
+          if (!table.has(to)) { table.set(to, m.name); seen.push(to); }
         }
       }
     }

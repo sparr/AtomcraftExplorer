@@ -65,6 +65,89 @@ let met = 0, missed = 0, broke = 0;
  * than about any one question put to it.
  */
 /**
+ * The same substance, in a state you can get back from.
+ *
+ * Sparr: "same stuff" should follow burning and extinguishing if it is a loop,
+ * but not if burning then extinguishing produces a different material than the
+ * start.
+ *
+ * Melting and boiling are always reversible, so following them is safe. Fire
+ * mostly is not -- 534 of the 580 fire and decay transitions in the data are
+ * one way -- and calling those the same substance would be plainly wrong. The
+ * 46 that come back are 23 pairs of a thing and the same thing alight.
+ *
+ * It is the bar on buying the answer that needs this. Asked for Charcoal with
+ * nothing in hand, the solver reached for a Charcoal (Burning) and let it go
+ * out: one step, no work, and it read as an honest plan because nothing could
+ * see that the two were the same coal.
+ */
+console.log('--- the same stuff in another state');
+{
+  const same = (a, b) => phaseGroup(graph, a) === phaseGroup(graph, b);
+  const stateChecks = [
+    ['a thing and the same thing alight are one substance', same('Charcoal', 'Charcoal (Burning)')],
+    ['as are a liquid and its vapour', same('Water', 'Steam')],
+    ['but a decay chain is not, however short', !same('Actinium-225', 'Francium-221')],
+    ['nor is what burning leaves behind', !same('Wood', 'Charcoal')],
+  ];
+  /**
+   * The rule from both ends, without trying to reconstruct which edges it
+   * followed.
+   *
+   * Group membership cannot tell a pair this rule joined from one it inherited:
+   * Liquid Methane and Methane (Burning) share a group because Liquid Methane
+   * boils into Methane and Methane round-trips with its flame, and the oils
+   * were one group before any of this through a chain of evaporations the
+   * refinery shares. So the two directions are checked instead -- everything
+   * fire can undo is one substance, and nothing decay touches is.
+   */
+  const burns = new Map();
+  for (const p of graph.processes) {
+    if (p.kind !== 'fire' && p.kind !== 'decay') continue;
+    for (const i of p.consumes || []) {
+      for (const o of p.produces) {
+        if (!burns.has(i.name)) burns.set(i.name, new Set());
+        burns.get(i.name).add(o.name);
+      }
+    }
+  }
+  const roundTrip = [];
+  for (const [a, tos] of burns) {
+    for (const b of tos) if (a !== b && burns.get(b)?.has(a)) roundTrip.push([a, b]);
+  }
+  stateChecks.push([`the ${roundTrip.length / 2} pairs fire can undo are each one substance`,
+    roundTrip.length > 0 && roundTrip.every(([a, b]) => same(a, b))]);
+
+  /**
+   * And decay joins nothing, being the one-way case throughout.
+   *
+   * 534 of the 580 fire and decay transitions never come back, and the decay
+   * chains are all of them: an atom that has decayed is a different element.
+   * If any of those ever reads as one substance the rule has stopped being
+   * about round trips.
+   */
+  const decayed = [];
+  for (const p of graph.processes) {
+    if (p.kind !== 'decay') continue;
+    for (const i of p.consumes || []) {
+      for (const o of p.produces) if (i.name !== o.name) decayed.push([i.name, o.name]);
+    }
+  }
+  stateChecks.push([`and none of the ${decayed.length} decays makes one substance of two`,
+    decayed.length > 0 && decayed.every(([a, b]) => !same(a, b))]);
+
+  // The one that started it: no plan is better than a false one.
+  const charcoal = solveFresh(graph, { targets: [{ name: 'Charcoal', amount: 1 }] });
+  stateChecks.push(['so Charcoal is not made by buying some and putting it out',
+    !charcoal]);
+  for (const [what, ok] of stateChecks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+  console.log('');
+}
+
+/**
  * The ground, before any plan is solved.
  *
  * Sparr: deposits are never inputs, they cannot be fetched. Checked here
