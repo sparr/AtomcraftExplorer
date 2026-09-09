@@ -44,8 +44,11 @@ for (const [what, ask] of plans) {
   // Both halves of the plan are there: a box for every step, a chip for every
   // material any step touches.
   const steps = state.nodes.filter((n) => n.kind === 'step' && !n.pseudo);
-  check(steps.length === plan.steps.length,
-        `a box for each of the ${plan.steps.length} steps`);
+  // Sparr: omit the phase changes, folding each into whatever comes next.
+  const drawn = plan.steps.filter((st) => st.process.kind !== 'phase');
+  check(steps.length === drawn.length,
+        `a box for each of the ${drawn.length} steps that is a reaction, `
+        + `and none for the ${plan.steps.length - drawn.length} phase changes`);
 
   /**
    * Sparr: put the reactions on the nodes and the materials on the arrows,
@@ -221,16 +224,39 @@ console.log('\n--- written out as DOT');
         'it is a digraph');
   // Every reaction, and the three ends of the plan.
   const boxes = [...dot.matchAll(/^\s+"([^"]+)"\s+\[label=/gm)].map((m) => m[1]);
-  check(boxes.filter((b) => b.startsWith('s:')).length === plan.steps.length,
-        `a box for each of the ${plan.steps.length} steps`);
+  const drawn = plan.steps.filter((st) => st.process.kind !== 'phase');
+  check(boxes.filter((b) => b.startsWith('s:')).length === drawn.length,
+        `a box for each of the ${drawn.length} steps that is a reaction, `
+        + `and none for the ${plan.steps.length - drawn.length} phase changes`);
   check(['in:', 'out:', 'prime:', 'spare:'].every((e) => boxes.some((b) => b.startsWith(e))),
         'and one for each material at each end of the plan');
   // What was asked for and what merely fell out are different answers, so
   // they land at different ends rather than the same one in two colours.
-  check(/\(out\)/.test(dot) && /\(left over\)/.test(dot),
-        'the wanted outputs and the leftovers being told apart');
-  check(/\(in\)/.test(dot) && /\(primer\)/.test(dot),
-        'and each end saying which it is');
+  /**
+   * Sparr: omit the "(left over)", "(in)" and "(out)", those are obvious from
+   * context.
+   *
+   * So the ends are told apart by where they sit and what colour they are.
+   * Wanted output and leftover both hang off the bottom of the plan, and the
+   * only thing between them is the ink, so the ink has to differ.
+   */
+  check(!/\((in|out|left over)\)/.test(dot),
+        'no end says in, out or left over: the picture already did');
+  const inkOf = (kind) => new Set([...dot.matchAll(
+    new RegExp(`^\\s+"${kind}:[^"]+" \\[label=[^\\n]*?color="([^"]+)"`, 'gm'))]
+    .map((m) => m[1]));
+  const [wantInk, spareInk] = [inkOf('out'), inkOf('spare')];
+  check(wantInk.size === 1 && spareInk.size === 1
+        && [...wantInk][0] !== [...spareInk][0],
+        `the wanted outputs (${[...wantInk][0]}) and the leftovers `
+        + `(${[...spareInk][0]}) told apart by colour`);
+  /**
+   * The one word that stays, being the one the picture cannot say. A primer
+   * hangs where an input hangs, arrows out and none in, and "you need this
+   * once to start" against "you feed this in forever" is the whole of it.
+   */
+  check(/\(primer\)/.test(dot) && !/"(in|out|spare):[^"]*" \[label="[^"]*\\n/.test(dot),
+        'and the primers alone say so, that being the one thing position cannot');
   // A hub is a star, and a star has to cross everything to reach the
   // reactions spread around it. No end has more arrows than a reaction does.
   const outgoing = new Map();
@@ -239,7 +265,11 @@ console.log('\n--- written out as DOT');
   }
   const busiest = [...outgoing].filter(([k]) => /^(in|out|prime|spare):/.test(k))
     .reduce((a, b) => (b[1] > a[1] ? b : a), ['none', 0]);
-  check(busiest[1] <= 6, `no end is a hub: the busiest has ${busiest[1]} arrows (${busiest[0]})`);
+  const busiestStep = [...outgoing].filter(([k]) => k.startsWith('s:'))
+    .reduce((a, b) => (b[1] > a[1] ? b : a), ['none', 0]);
+  check(busiest[1] <= busiestStep[1],
+        `no end is a hub: the busiest has ${busiest[1]} arrows (${busiest[0]}), `
+        + `no more than the busiest reaction's ${busiestStep[1]}`);
   // Every arrow says what it carries.
   const arrows = [...dot.matchAll(/^\s+"([^"]+)" -> "([^"]+)" \[label="([^"]*)"/gm)];
   const mute = arrows.filter(([, a, b, l]) =>

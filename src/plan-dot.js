@@ -15,6 +15,7 @@
  * two on the same plan is exactly the question being asked.
  */
 import { rnum } from './rational.js';
+import { planGraph } from './plan-diagram.js';
 
 const esc = (s) => String(s).replace(/["\\]/g, '\\$&');
 
@@ -26,7 +27,8 @@ const esc = (s) => String(s).replace(/["\\]/g, '\\$&');
  * ends of the plan -- what you put in, what you start with, what you get --
  * as reactions of a sort so those arrows have somewhere to attach.
  */
-export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'dot' } = {}) {
+export function planToDot(plan, { materials = false, rankdir = 'LR',
+                                  engine = 'dot', foldPhases = true } = {}) {
   if (!plan || !plan.steps?.length) return 'digraph plan {}\n';
   const out = [];
   const say = (s) => out.push(s);
@@ -46,12 +48,12 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
   const id = (s) => `"${esc(s)}"`;
   const stepId = (p) => `s:${p.id}`;
 
-  for (const step of plan.steps) {
-    const label = `${rnum(step.runs)}× ${step.process.label}`;
-    say(`  ${id(stepId(step.process))} [label="${esc(label)}"];`);
-  }
-
   if (materials) {
+    for (const step of plan.steps) {
+      const label = `${rnum(step.runs)}× ${step.process.label}`;
+      say(`  ${id(stepId(step.process))} [label="${esc(label)}"];`);
+    }
+
     const role = (name) => {
       if (plan.spec.targets.some((t) => t.name === name)) return 'want';
       if (plan.frontier.some((f) => f.name === name)) return 'fetch';
@@ -94,98 +96,48 @@ export function planToDot(plan, { materials = false, rankdir = 'LR', engine = 'd
   }
 
   // --- reactions on the nodes, materials on the arrows ----------------------
-  const makers = new Map();
-  const users = new Map();
-  for (const step of plan.steps) {
-    for (const o of step.process.produces) {
-      if (!makers.has(o.name)) makers.set(o.name, []);
-      makers.get(o.name).push(stepId(step.process));
-    }
-    for (const i of step.process.consumes || []) {
-      if (!users.has(i.name)) users.set(i.name, []);
-      users.get(i.name).push(stepId(step.process));
-    }
-  }
-  const brought = new Set([...plan.feed.map((f) => f.name), ...plan.frontier.map((f) => f.name)]);
-  const primed = new Set(plan.priming.map((c) => c.name));
-  const wanted = new Set(plan.spec.targets.map((t) => t.name));
-  const spare = new Set(plan.byproducts.map((b) => b.name));
-
   /**
-   * Sparr: rx is much messier, owing to combining all the inputs, outputs and
-   * primers.
+   * Built by the diagram, so that the page and this agree on what the graph is.
    *
-   * It is, and that is what a hub does. Every material the reader brings
-   * arriving from one box makes that box a star of a dozen arrows, and a star
-   * has to cross everything to reach the reactions spread across the picture.
-   * Four of them, and the crossings are mostly theirs.
-   *
-   * So each end-material gets its own little node instead -- which is what
-   * made the materials drawing readable in the first place, and costs nothing
-   * here because these are the materials that already had only one end. The
-   * ones in the middle stay on the arrows, where they belong: they have a
-   * reaction at each end and need no box to hang from.
+   * It was built twice, once here and once there, and the two drifted: the
+   * ends stopped being a handful of hubs in one of them a day before the
+   * other. One builder, two renderers.
    */
-  const ends = [];
-  const wires = new Map();                      // "a\u0000b" -> [labels]
-  const wire = (a, b, label, colour) => {
-    const key = `${a}\u0000${b}\u0000${colour}`;
-    if (!wires.has(key)) wires.set(key, []);
-    if (label && !wires.get(key).includes(label)) wires.get(key).push(label);
-  };
+  const { nodes, edges } = planGraph(plan, { foldPhases });
 
-  for (const name of new Set([...makers.keys(), ...users.keys()])) {
-    for (const a of makers.get(name) || []) {
-      for (const b of users.get(name) || []) wire(a, b, name, '#3a4553');
-    }
-    if (brought.has(name)) {
-      for (const b of users.get(name) || []) wire(`in:${name}`, b, '', '#f0b45e');
-    }
-    if (primed.has(name)) {
-      for (const b of users.get(name) || []) wire(`prime:${name}`, b, '', '#7fd08a');
+  // Sparr: a primer should be a different colour from an input. It is not one
+  // -- you hold it once to get the wheel turning, and never again.
+  const paint = { fetch: '#f0b45e', have: '#7fd08a', prime: '#c08cf0',
+                  want: '#5ec8f2', spare: '#5c6675', inner: '#3a4553' };
+
+  for (const n of nodes) {
+    if (!n.pseudo) {
+      say(`  ${id(n.id)} [label="${esc(`${n.runs}× ${n.label}`)}"];`);
+      continue;
     }
     /**
-     * What was asked for and what merely fell out are different answers.
+     * Sparr: omit the "(left over)", "(in)" and "(out)", those are obvious
+     * from context.
      *
-     * Sparr: possibly with different colours for wanted outputs against
-     * leftovers. They earn more than a colour -- they earn separate ends,
-     * because a reader looking at a plan wants to know at a glance which
-     * arrows are the point of it and which are the sweepings, and an arrow
-     * that lands somewhere labelled "Leftovers" has said so before its colour
-     * is read.
+     * They are: an end with nothing arriving is where the plan starts, one
+     * with nothing leaving is where it finishes, and the colour says whether
+     * a finish was the point or the sweepings. The word was the picture
+     * repeating itself.
+     *
+     * "(primer)" stays, being the one he did not name and the one that is not
+     * obvious. A primer sits exactly where an input sits, with arrows out and
+     * none in, and the difference between "you feed this in continuously" and
+     * "you need this once, to get started" is the whole of what a primer
+     * means. Nothing about the position carries it.
      */
-    if (wanted.has(name)) {
-      for (const a of makers.get(name) || []) wire(a, `out:${name}`, '', '#5ec8f2');
-    } else if (spare.has(name)) {
-      for (const a of makers.get(name) || []) wire(a, `spare:${name}`, '', '#5c6675');
-    }
+    const mark = n.role === 'prime' ? '\\n(primer)' : '';
+    say(`  ${id(n.id)} [label="${esc(n.label)}${mark}" `
+        + `shape=box style="rounded,dashed,filled" color="${paint[n.role] || '#3a4553'}" `
+        + `fillcolor="#0a0d12" fontsize=10${n.role === 'prime' ? ' penwidth=2' : ''}];`);
   }
-  for (const key of wires.keys()) {
-    const [a, b] = key.split('\u0000');
-    for (const side of [a, b]) {
-      if (/^(in|prime|out|spare):/.test(side)) ends.push(side);
-    }
-  }
-  const paint = { in: '#f0b45e', prime: '#7fd08a', out: '#5ec8f2', spare: '#5c6675' };
-  const said = { in: 'in', prime: 'primer', out: 'out', spare: 'left over' };
-  const amountOf = (name) => {
-    for (const list of [plan.frontier, plan.feed, plan.priming, plan.byproducts]) {
-      const hit = list.find((x) => x.name === name);
-      if (hit) return `${rnum(hit.amount)} `;
-    }
-    return '';
-  };
-  for (const end of new Set(ends)) {
-    const at = end.indexOf(':');
-    const role = end.slice(0, at);
-    const name = end.slice(at + 1);
-    say(`  "${esc(end)}" [label="${esc(amountOf(name) + name)}\n(${said[role]})" `
-        + `shape=box style="rounded,dashed,filled" color="${paint[role]}" `
-        + `fillcolor="#0a0d12" fontsize=10];`);
-  }
-  for (const [key, names] of wires) {
-    const [a, b, colour] = key.split('\u0000');
-    say(`  ${id(a)} -> ${id(b)} [label="${esc(names.join(', '))}" color="${colour}"];`);
+  for (const e of edges) {
+    say(`  ${id(e.from)} -> ${id(e.to)} `
+        + `[label="${esc(e.label || '')}" color="${paint[e.role] || '#3a4553'}"];`);
   }
   say('}');
   return `${out.join('\n')}\n`;

@@ -12,6 +12,8 @@
   --warm: #f0b45e;
   --danger: #e2686d;
   --ok: #7fd08a;
+  /* A primer, which is neither what you feed in nor what you have. */
+  --prime: #c08cf0;
   --radius: 6px;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   /* Material icons: an 8px tile shown at 4x, matching src/main.js. */
@@ -1067,7 +1069,7 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 /* What the reader brings and what they take away, on their own arrows. */
 .plan-wire-have, .plan-wire-fetch { stroke: var(--warm); }
 .plan-wire-want { stroke: var(--accent); }
-.plan-wire-prime { stroke: var(--ok); stroke-dasharray: 2 3; }
+.plan-wire-prime { stroke: var(--prime); stroke-dasharray: 2 3; }
 
 /*
  * The three ends of a plan, drawn as reactions of a sort so the arrows that
@@ -1096,3 +1098,13 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .plan-role-want .plan-node-box { stroke: var(--accent); stroke-width: 2; }
 .plan-role-spare .plan-node-box { stroke: var(--line-soft); }
 .plan-role-spare .plan-node-label { fill: var(--fg-faint); }
+/*
+ * A primer, which sits exactly where an input sits and means something else:
+ * you need this once, to get the loop turning, not continuously. Nothing
+ * about the position says so, so the box does.
+ */
+.plan-role-prime .plan-node-box {
+  stroke: var(--prime);
+  stroke-width: 2;
+  stroke-dasharray: 3 3;
+}

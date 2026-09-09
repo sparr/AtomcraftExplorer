@@ -195,17 +195,29 @@ export const SPACING = {
   across: { gapX: 72, gapY: 176 },      // flow top to bottom, the boxes side by side
 };
 
-export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
-                                  materials = false } = {}) {
-  if (!plan || !plan.steps) return { nodes: [], edges: [], width: 0, height: 0 };
+/**
+ * The plan as nodes and edges, before anything is placed.
+ *
+ * Pulled out so that the drawing on the page and the DOT written for other
+ * layout engines are the same graph. They were two, and every change to what
+ * the graph *is* had to be made twice -- the ends stopped being hubs in one
+ * of them a day before the other.
+ */
+export function planGraph(plan, { materials = false, foldPhases = true } = {}) {
+  if (!plan || !plan.steps) return { nodes: [], edges: [] };
   const nodes = [];
   const edges = [];
   const seen = new Map();
 
   const amountOf = (name) => {
-    for (const list of [plan.frontier, plan.feed, plan.priming, plan.byproducts]) {
+    // Targets first: the one box the whole plan is for was the one box
+    // without a number on it.
+    for (const list of [plan.spec.targets, plan.frontier, plan.feed,
+                        plan.priming, plan.byproducts]) {
       const hit = list.find((x) => x.name === name);
-      if (hit) return rnum(hit.amount);
+      // A target's amount is asked for as a plain number; everything the
+      // solver worked out comes back as a rational.
+      if (hit) return typeof hit.amount === 'number' ? hit.amount : rnum(hit.amount);
     }
     return null;
   };
@@ -286,6 +298,15 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
     }
     const brought = new Set([...plan.feed.map((f) => f.name), ...plan.frontier.map((f) => f.name)]);
     const primed = new Set(plan.priming.map((c) => c.name));
+    // Which reaction each charge was laid in to start, so its arrow goes there
+    // and nowhere else.
+    const primedFor = new Map();
+    for (const c of plan.priming) {
+      primedFor.set(c.name, c.forSteps?.length
+        ? c.forSteps
+        : [...new Set((users.get(c.name) || []).map(([b]) => b.slice(2)))]
+            .map((step) => ({ step, amount: c.amount })));
+    }
     // What was asked for and what merely fell out are different answers, so
     // they get different ends rather than the same one in two colours.
     const wanted = new Set(plan.spec.targets.map((t) => t.name));
@@ -318,9 +339,22 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
         const src = pseudo(`in:${name}`, said, roleOf(name));
         for (const [b] of to) edges.push({ from: src.id, to: b, role: roleOf(name) });
       }
-      if (primed.has(name) && to.length) {
-        const src = pseudo(`prime:${name}`, said, 'prime');
-        for (const [b] of to) edges.push({ from: src.id, to: b, role: 'prime' });
+      /**
+       * Sparr: a separate node for each place a primer gets used, so they are
+       * not star-like.
+       *
+       * One box with five arrows out of it read as five primers, and it was
+       * not even true: the charge starts one reaction, and the other four
+       * water-eaters are fed by the plan. So each charge draws the one arrow
+       * it earns, to the reaction it was laid in for. The stars go, and what
+       * is left is what actually happens.
+       */
+      for (const put of primedFor.get(name) || []) {
+        const at = `s:${put.step}`;
+        if (!seen.has(at)) continue;
+        const src = pseudo(`prime:${name}@${put.step}`,
+                           `${rnum(put.amount)} ${name}`, 'prime');
+        edges.push({ from: src.id, to: at, role: 'prime' });
       }
       if (wanted.has(name) && from.length) {
         const sink = pseudo(`out:${name}`, said, 'want');
@@ -342,21 +376,78 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
    * rather fewer and from three hundred crossings to something a reader can
    * follow.
    */
-  if (!materials) {
+  const join = () => {
     const joined = new Map();
     for (const e of edges) {
       const key = `${e.from}\u0000${e.to}`;
       const had = joined.get(key);
       if (!had) { joined.set(key, { ...e, labels: [e.label] }); continue; }
-      if (e.label && !had.labels.includes(e.label)) had.labels.push(e.label);
+      for (const l of e.label ? e.label.split(', ') : []) {
+        if (!had.labels.includes(l)) had.labels.push(l);
+      }
     }
     edges.length = 0;
     for (const e of joined.values()) {
-      e.label = e.labels.filter(Boolean).join(', ');
+      e.label = [...new Set(e.labels.filter(Boolean))].join(', ');
       delete e.labels;
       edges.push(e);
     }
+  };
+  if (!materials) join();
+
+
+  /**
+   * Sparr: omit the phase changes, folding each into whatever comes next and
+   * putting both material names on the joined arrow.
+   *
+   * Melting a thing is not a reaction, it is the same thing at another
+   * temperature -- and a box saying "6× Steam condenses into Water" between
+   * two boxes that do chemistry is a stile in the middle of a field. Folded
+   * away, the arrow carries both names, which is more information in less
+   * room: "Steam, Water" tells you the steam is condensed on the way.
+   *
+   * Done by contraction rather than by leaving them out, because a phase step
+   * is a real link and dropping it would break the chain. Repeated until none
+   * is left, since a solid can melt and then boil.
+   */
+  if (!materials && foldPhases) {
+    const isPhase = (n) => n.kind === STEP && !n.pseudo && n.kindOf === 'phase';
+    for (;;) {
+      const fold = nodes.find(isPhase);
+      if (!fold) break;
+      const inTo = edges.filter((e) => e.to === fold.id);
+      const outOf = edges.filter((e) => e.from === fold.id);
+      const rest = edges.filter((e) => e.from !== fold.id && e.to !== fold.id);
+      edges.length = 0;
+      edges.push(...rest);
+      for (const a of inTo) {
+        for (const b of outOf) {
+          if (a.from === b.to) continue;               // a wheel of one, worth nothing
+          const label = [...new Set([a.label, b.label].filter(Boolean))].join(', ');
+          edges.push({ from: a.from, to: b.to, label, role: a.role ?? b.role });
+        }
+      }
+      nodes.splice(nodes.indexOf(fold), 1);
+    }
+    join();     // contraction makes arrows parallel that were not before
+    // Anything left with nothing at either end was only ever there for a phase
+    // change that has gone.
+    const touched = new Set();
+    for (const e of edges) { touched.add(e.from); touched.add(e.to); }
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (!touched.has(nodes[i].id)) nodes.splice(i, 1);
+    }
   }
+
+  return { nodes, edges };
+}
+
+export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
+                                   materials = false, foldPhases = true } = {}) {
+  const built = planGraph(plan, { materials, foldPhases });
+  const nodes = built.nodes;
+  const edges = built.edges;
+  if (!nodes.length) return { nodes: [], edges: [], wires: [], width: 0, height: 0 };
 
   const back = backEdges(nodes, edges);
   for (const e of edges) e.back = back.has(e);
