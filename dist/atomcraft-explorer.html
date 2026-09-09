@@ -10142,7 +10142,7 @@ const __mod_plan_diagram = (() => {
  * That order matters: relaxing before the combing undoes it, and combing
  * without the layering has nothing to comb along.
  */
-const {rnum, rat, radd, rsub, rmul, rdiv, rcmp, rmin, R0} = __mod_rational;
+const {rnum, rstr, rat, radd, rsub, rmul, rdiv, rcmp, rmin, R0} = __mod_rational;
 
 /** A step is a box; a material is a chip. Both are nodes here. */
 const STEP = 'step';
@@ -10375,7 +10375,7 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
       (ins[0].name === `${outs[0].name} x2` || outs[0].name === `${ins[0].name} x2`);
     const node = { id, kind: STEP, name: step.process.label,
                    label: step.process.label, runs: rnum(step.runs),
-                   kindOf: step.process.kind, packs };
+                   runsR: step.runs, kindOf: step.process.kind, packs };
     seen.set(id, node);
     nodes.push(node);
   }
@@ -10449,19 +10449,52 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
           { id: pseudo(`out:${t.name}`, said(t.name), 'want').id,
             amount: rat(BigInt(Math.round(t.amount))) });
     }
+    /**
+     * Sparr: clean up the "1 Hydrogen Gas x2" leftover, merge it into the
+     * hydrogen group.
+     *
+     * Same substance, packed two ways, which is the rule that made the
+     * expansion a phase change three paragraphs ago. Leaving one of it in a
+     * box of its own says the plan produced something else, and it did not: it
+     * produced two hydrogen and did not get round to unpacking them. So the
+     * ends count it as what it is, and any loose hydrogen it lands beside is
+     * the same pile.
+     */
+    const unpack = (name) => (name.endsWith(' x2')
+      ? { base: name.slice(0, -3), times: 2n }
+      : { base: name, times: 1n });
+    const spareTotal = new Map();
     for (const b of plan.byproducts) {
       if (!supply.has(b.name)) continue;
+      const { base, times } = unpack(b.name);
+      spareTotal.set(base, radd(spareTotal.get(base) || R0, rmul(b.amount, rat(times))));
+    }
+    for (const b of plan.byproducts) {
+      if (!supply.has(b.name)) continue;
+      const { base } = unpack(b.name);
+      const whole = spareTotal.get(base);
       put(wants, b.name,
-          { id: pseudo(`spare:${b.name}`, said(b.name), 'spare').id, amount: b.amount });
+          { id: pseudo(`spare:${base}`, `${rnum(whole)} ${base}`, 'spare').id,
+            amount: b.amount });
     }
 
     /**
-     * A charge goes straight to the reaction it was laid in to start, and is
-     * taken out of that reaction's demand before anything is shared out. It is
-     * not part of the pool: it is the one push that gets the wheel turning,
-     * and it belongs to one reaction by construction.
+     * A charge is drawn beside the pool, never taken out of it.
+     *
+     * Sparr: why does the hydrogen end at a node that is not there, instead of
+     * wrapping back up to the electrolysis that was primed?
+     *
+     * Because the charge was being subtracted from that reaction's demand, as
+     * though laying two hydrogen in your hand meant the reaction no longer
+     * needed two. It needs two every cycle. What the charge buys is the first
+     * cycle, before the loop has come round; the loop supplies every one after
+     * that and is repaid. Subtracting it left the expansion's two hydrogen
+     * with no use anywhere in the plan, and an arrow with nothing at the end
+     * of it -- which is exactly the loop, deleted.
+     *
+     * So the charge is an extra arrow into the reaction it starts, and the
+     * pool is matched without it. The wheel closes.
      */
-    const owedTo = new Map();                 // "name\u0000stepId" -> amount charged
     for (const c of plan.priming) {
       for (const one of c.forSteps || []) {
         const at = `s:${one.step}`;
@@ -10469,16 +10502,6 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
         const src = pseudo(`prime:${c.name}@${one.step}`,
                            `${rnum(one.amount)} ${c.name}`, 'prime');
         edges.push({ from: src.id, to: at, label: '', amount: one.amount, role: 'prime' });
-        const key = `${c.name}\u0000${at}`;
-        owedTo.set(key, radd(owedTo.get(key) || R0, one.amount));
-      }
-    }
-    for (const [key, amount] of owedTo) {
-      const at = key.indexOf('\u0000');
-      const list = wants.get(key.slice(0, at)) || [];
-      for (const w of list) {
-        if (w.id !== key.slice(at + 1)) continue;
-        w.amount = rsub(w.amount, rmin(w.amount, amount));
       }
     }
 
@@ -10610,12 +10633,44 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
       for (let k = edges.length - 1; k >= 0; k--) if (gone.has(edges[k])) edges.splice(k, 1);
       nodes.splice(nodes.indexOf(h), 1);
       made.forEach((m, k) => {
-        const copy = { ...h, id: `${h.id}#${k}` };
+        const copy = { ...h, id: `${h.id}#${k}`,
+                       runsR: rmul(m.share, h.runsR), runs: rnum(rmul(m.share, h.runsR)) };
         nodes.push(copy);
         seen.set(copy.id, copy);
         edges.push({ ...m.a, to: copy.id, amount: rmul(m.share, totIn) });
         edges.push({ ...m.b, from: copy.id, amount: rmul(m.share, totOut) });
       });
+    }
+
+    /**
+     * Sparr: shorten the bottom of the output path by one level rather than
+     * having an empty row with just a hidden node. And colour the molten
+     * aluminium arrow like the aluminium arrow -- a phase change into an
+     * output is an output.
+     *
+     * Both are the same joint. One that sits between a reaction and an end has
+     * nothing to hold: no other line stops at its rank, so it buys a whole
+     * empty row to say that the metal cooled. And what runs through it is not
+     * an interior arrow that happens to end at the edge of the picture, it is
+     * the plan delivering what was asked for, so it is drawn as one. Folded
+     * out, the arrow says what leaves the reaction and the box says what you
+     * get: "8 Molten Aluminum" into "8 Aluminum".
+     *
+     * Only where the joint leads nowhere else. One with a reaction after it is
+     * holding a rank for a reason, and stays.
+     */
+    for (const h of nodes.filter((n) => n.hold).slice()) {
+      const outs = edges.filter((e) => e.from === h.id);
+      const ins = edges.filter((e) => e.to === h.id);
+      if (outs.length !== 1 || !ins.length) continue;
+      const end = seen.get(outs[0].to);
+      if (!end?.pseudo || (end.role !== 'want' && end.role !== 'spare')) continue;
+      const gone = new Set([...ins, ...outs]);
+      for (let k = edges.length - 1; k >= 0; k--) if (gone.has(edges[k])) edges.splice(k, 1);
+      nodes.splice(nodes.indexOf(h), 1);
+      for (const a of ins) {
+        edges.push({ ...a, to: end.id, role: end.role, keepName: true });
+      }
     }
 
     /**
@@ -10646,10 +10701,38 @@ function planGraph(plan, { materials = false, foldPhases = true } = {}) {
     }
     for (const e of edges) {
       if (!e.label || e.amount === undefined) { e.label = ''; continue; }
-      const end = [e.from, e.to].find((x) => seen.get(x)?.pseudo);
+      /**
+       * Sparr: restore the run count on the reactors, and divide the numbers
+       * on the arrows by it -- "8x Electrolysis" producing 2 Water rather than
+       * one reactor producing 16.
+       *
+       * Which is the recipe, and the recipe is the thing a reader can check
+       * against the game. The total was the plan's arithmetic already done and
+       * no longer checkable: sixteen water tells you nothing about whether the
+       * reaction makes one each time or four. Divided, the box says how many
+       * times and the arrow says how much per time, and the two multiply back.
+       *
+       * By the runs of the box it leaves, since the label sits at that end.
+       * Nothing leaves an end of the plan a number of times, so those arrows
+       * keep their total.
+       */
+      const src = seen.get(e.from);
+      const each = src && !src.pseudo && src.runsR && rcmp(src.runsR, R0) > 0
+        ? rdiv(e.amount, src.runsR)
+        : e.amount;
+      /**
+       * Written as a fraction where it will not divide, never as a decimal.
+       *
+       * A reaction does not always send all of one thing to one place: the
+       * nine packed hydrogen come out of nine runs and eight of them go to
+       * the expansion, which per run is eight ninths. "0.8888888888888888" is
+       * a lie about precision and unreadable besides; "8/9" is exact, short,
+       * and says what it is -- eight of the nine runs' worth goes this way.
+       */
+      const end = e.keepName ? null : [e.from, e.to].find((x) => seen.get(x)?.pseudo);
       e.label = end
-        ? (arrowsAt.get(end) > 1 ? `${rnum(e.amount)}` : '')
-        : `${rnum(e.amount)} ${e.label}`;
+        ? (arrowsAt.get(end) > 1 ? rstr(each) : '')
+        : `${rstr(each)} ${e.mat || e.label}`;
     }
     join();
   }
@@ -11046,9 +11129,9 @@ function drawPlan(host, plan, { onPick, across = false, materials = false } = {}
     g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
                             width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
     const label = make('text', { class: 'plan-node-label', x: 0, y: 4 });
-    // Sparr: omit the reactor step counts from the nodes, keep the material
-    // quantities. The arrows carry the amounts now.
-    const shown = n.pseudo ? n.label : n.kind === 'step' ? n.label
+    // Sparr: restore the run counts on the reactors. The arrows say how much
+    // goes each way per run, so the two multiply back to the plan.
+    const shown = n.pseudo ? n.label : n.kind === 'step' ? `${n.runs}× ${n.label}`
       : (n.amount !== null && n.amount !== undefined ? `${n.amount} ${n.label}` : n.label);
     label.textContent = shown.length > 24 ? `${shown.slice(0, 23)}…` : shown;
     const full = make('title');

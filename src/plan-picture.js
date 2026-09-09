@@ -152,9 +152,9 @@ export function drawPlan(host, plan, { onPick, across = false, materials = false
     g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
                             width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
     const label = make('text', { class: 'plan-node-label', x: 0, y: 4 });
-    // Sparr: omit the reactor step counts from the nodes, keep the material
-    // quantities. The arrows carry the amounts now.
-    const shown = n.pseudo ? n.label : n.kind === 'step' ? n.label
+    // Sparr: restore the run counts on the reactors. The arrows say how much
+    // goes each way per run, so the two multiply back to the plan.
+    const shown = n.pseudo ? n.label : n.kind === 'step' ? `${n.runs}× ${n.label}`
       : (n.amount !== null && n.amount !== undefined ? `${n.amount} ${n.label}` : n.label);
     label.textContent = shown.length > 24 ? `${shown.slice(0, 23)}…` : shown;
     const full = make('title');

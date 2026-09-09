@@ -125,14 +125,11 @@ export function planToDot(plan, { materials = false, rankdir = 'LR',
     }
     if (!n.pseudo) {
       /**
-       * Sparr: omit the reactor step counts from the nodes, keep the material
-       * quantities.
-       *
-       * The arrows carry the amounts now, and a box saying it runs six times
-       * beside six arrows each saying how much they carry was the same fact
-       * twice, in the place with less room for it.
+       * Sparr: restore the run counts on the reactors, the arrows now saying
+       * how much goes each way per run. The box says how many times and the
+       * arrow says how much each time, and the two multiply back to the plan.
        */
-      say(`  ${id(n.id)} [label="${esc(n.label)}"];`);
+      say(`  ${id(n.id)} [label="${esc(`${n.runs}× ${n.label}`)}"];`);
       continue;
     }
     /**
@@ -155,6 +152,7 @@ export function planToDot(plan, { materials = false, rankdir = 'LR',
         + `shape=box style="rounded,dashed,filled" color="${paint[n.role] || '#3a4553'}" `
         + `fillcolor="#0a0d12" fontsize=10${n.role === 'prime' ? ' penwidth=2' : ''}];`);
   }
+  const pairs = new Set(edges.map((e) => `${e.from}\u0000${e.to}`));
   for (const e of edges) {
     /**
      * Sparr: put the material edge labels closer to the source end.
@@ -164,8 +162,21 @@ export function planToDot(plan, { materials = false, rankdir = 'LR',
      * came out of, and on a line that bends twice it can end up nearer the
      * wrong one. At the tail it is unambiguous -- this is what leaves here.
      */
+    /**
+     * Sparr: where two reactions feed each other, which label goes with which
+     * arrow is ambiguous -- offset them to the appropriate side.
+     *
+     * Boudouard hands its carbon dioxide down and gets carbon monoxide back,
+     * so two lines run between the same pair and their labels land in the same
+     * gap, each as near one line as the other. Leaning them opposite ways puts
+     * each label on its own line's side of the pair. The one whose tail sorts
+     * first leans one way and the other leans the other, which is arbitrary
+     * but settled, so the same plan draws the same way twice.
+     */
+    const bothWays = pairs.has(`${e.to}\u0000${e.from}`);
+    const lean = !bothWays ? 18 : (e.from < e.to ? 26 : -26);
     const bits = [`color="${paint[e.role] || '#3a4553'}"`];
-    if (e.label) bits.push(`taillabel="${esc(e.label)}" labeldistance=2.2 labelangle=18`);
+    if (e.label) bits.push(`taillabel="${esc(e.label)}" labeldistance=2.2 labelangle=${lean}`);
     // Sparr: no arrow ends where lines come together at the invisible nodes.
     if (e.join) bits.push('arrowhead=none');
     say(`  ${id(e.from)} -> ${id(e.to)} [${bits.join(' ')}];`);

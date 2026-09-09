@@ -70,11 +70,25 @@ for (const [what, ask] of plans) {
    * that every step that is not one of them still has exactly one box, that
    * every quiet step has at least one joint, and that no joint carries text.
    */
+  /**
+   * Sparr: shorten the output path by a level rather than an empty row with
+   * just a hidden node.
+   *
+   * So a joint between a reaction and an end is folded out -- it holds a rank
+   * nothing else stops at -- and there can be fewer joints than phase changes
+   * as well as more. What holds is that no phase change gets a box, that no
+   * joint carries text, and that none of the joints left is one that leads
+   * only to an end.
+   */
+  const leadsOut = joints.filter((n) => {
+    const out = state.edges.filter((e) => e.from === n.id);
+    return out.length === 1 && /^(out|spare):/.test(out[0].to);
+  });
   check(boxes.length === plan.steps.length - quiet.length
-        && joints.length >= quiet.length
-        && joints.every((n) => !n.label),
+        && joints.every((n) => !n.label) && !leadsOut.length,
         `a box for each of the ${boxes.length} reactions and none for the `
-        + `${quiet.length} phase changes, which are ${joints.length} joints`);
+        + `${quiet.length} that only change state, ${joints.length} of which `
+        + 'are still holding a rank');
 
   /**
    * Sparr: put the reactions on the nodes and the materials on the arrows,
