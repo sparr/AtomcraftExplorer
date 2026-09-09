@@ -627,14 +627,35 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4, turned = f
   const wires = [];
   const segments = [];
 
+  /**
+   * Sparr: gate the exact layout at thirty-two boxes.
+   *
+   * d3-dag can solve the crossing problem outright rather than heuristically,
+   * and below about thirty boxes it costs nothing to ask: the aluminium plan
+   * goes from eleven crossings to three for seven more milliseconds, Steel
+   * from fourteen to five for ten, and on the smallest plans the exact answer
+   * arrives sooner than the guess.
+   *
+   * Then it falls off a cliff. Thirty-three boxes cost 175ms, thirty-nine cost
+   * half a second, and the same thirty-nine with four more arrows cost six
+   * seconds -- the arrows drive it harder than the boxes. So it is asked only
+   * of the small ones, and its own size check is caught as well, because a
+   * number picked from six measurements is not a guarantee.
+   */
+  const EXACT_UP_TO = 32;
   let dim = { width: 0, height: 0 };
   if (forward.length) {
     const built2 = dag.graphConnect().nodeDatum((id) => id)(
       forward.map((e) => [e.from, e.to]));
-    dim = dag.sugiyama()
+    const shape = dag.sugiyama()
       .nodeSize((n) => size.get(n.data) || sizeOf({}))
       .gap([Math.max(6, gapY - (turned ? BOX.w : BOX.h)),
-            Math.max(6, gapX - (turned ? BOX.h : BOX.w))])(built2);
+            Math.max(6, gapX - (turned ? BOX.h : BOX.w))]);
+    dim = null;
+    if (nodes.length <= EXACT_UP_TO) {
+      try { dim = shape.decross(dag.decrossOpt().check('oom'))(built2); } catch { dim = null; }
+    }
+    if (!dim) dim = shape(built2);
     for (const n of built2.nodes()) placed.set(n.data, { x: n.y, y: n.x });
     for (const l of built2.links()) {
       const key = `${l.source.data}\u0000${l.target.data}`;
