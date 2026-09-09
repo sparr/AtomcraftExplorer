@@ -66,11 +66,35 @@ class Node {
 
 class Fragment extends Node {}
 
+/**
+ * The ids the page declares, and which of them it declares `hidden`.
+ *
+ * Pass the markup rather than a list of ids and the shim can seed that one
+ * attribute. It matters because the page hides things in HTML and shows them
+ * from script: a panel marked `hidden` that nothing ever unhides is invisible
+ * to a reader and perfectly visible to a shim that never read the attribute.
+ * That is how the source categories disappeared for a release with every test
+ * green.
+ *
+ * Only `hidden`, and only from the opening tag. This is not an HTML parser and
+ * should not become one -- but the difference between "on the page" and "on
+ * the page and showing" is most of what these tests are for.
+ */
+export function idsWithHidden(html) {
+  const out = [];
+  for (const m of html.matchAll(/<[^>]*\bid="([^"]+)"[^>]*>/g)) {
+    out.push({ id: m[1], hidden: /\bhidden\b/.test(m[0]) });
+  }
+  return out;
+}
+
 export function installDom(idsFromHtml) {
   const byId = new Map();
-  for (const id of idsFromHtml) {
+  for (const entry of idsFromHtml) {
+    const { id, hidden } = typeof entry === 'string' ? { id: entry, hidden: false } : entry;
     const n = new Node('div');
     n.id = id;
+    n.hidden = !!hidden;
     if (id === 'q') { n.tagName = 'INPUT'; n.value = ''; }
     byId.set('#' + id, n);
   }

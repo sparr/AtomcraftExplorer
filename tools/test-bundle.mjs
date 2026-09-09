@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installDom } from './dom-shim.mjs';
+import { installDom, idsWithHidden } from './dom-shim.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'atomcraft-bundle-'));
 const built = join(scratch, 'check.html');
@@ -34,7 +34,7 @@ if (fresh !== committed) {
 console.log('ok    the committed bundle matches its sources');
 
 const html = committed;
-installDom([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
+installDom(idsWithHidden(html));
 
 // The bundle must not reach the network -- that is the whole point of it.
 globalThis.fetch = () => { throw new Error('the standalone build must not fetch()'); };
@@ -107,6 +107,248 @@ if (/is not a function|Failed to load/.test(document.body.textContent)) {
   fail++;
 } else {
   console.log(`ok    plan mode solves and renders (${planSteps.length} chars)`);
+}
+
+/**
+ * The other solver, which is only reachable through the page by a checkbox.
+ *
+ * It is a separate module and a separate render path, so it can break in the
+ * bundle exactly the way plan mode once did while everything above still
+ * reports all clear. It fills in a plan shape the view was not written for --
+ * a dag, a scale, an apparatus, a window on every step -- and a missing field
+ * there surfaces as a bare TypeError out of the render.
+ */
+/**
+ * Asked for something it has to go shopping for, which the first version of
+ * this check was not.
+ *
+ * Carbon out of Carbon Dioxide buys nothing, so its shopping list is empty and
+ * the loop that draws one never runs. The fresh solver was shipped with no
+ * `feeds` on a frontier line and the side panel threw on every plan that
+ * bought anything, while this file reported all clear. Columbite buys.
+ */
+globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite';
+let freshSteps = '';
+let freshSide = '';
+try {
+  app.reload();
+  await new Promise((r) => setTimeout(r, 0));
+  freshSteps = document.querySelector('#plan-steps')?.textContent ?? '';
+  freshSide = document.querySelector('#plan-side')?.textContent ?? '';
+} catch (err) {
+  console.log(`FAIL the fresh solver threw in the bundle: ${err.message}`);
+  fail++;
+}
+if (!/to fetch/.test(freshSide)) {
+  console.log(`FAIL the fresh solver drew no shopping list: ${freshSide.slice(0, 80)}`);
+  fail++;
+} else {
+  console.log(`ok    and its shopping list and leavings draw (${freshSide.length} chars)`);
+}
+if (/is not a function|Cannot read propert/.test(document.body.textContent)) {
+  console.log('FAIL the page reports an error with the fresh solver: ' +
+    `${document.body.textContent.match(/[^.]*(?:is not a function|Cannot read propert)[^.]*/)?.[0]}`);
+  fail++;
+} else if (!/Tantalum|Niobium/.test(freshSteps) || freshSteps.length < 40) {
+  console.log(`FAIL the fresh solver rendered nothing: ${freshSteps.slice(0, 60)}`);
+  fail++;
+} else {
+  console.log(`ok    the fresh solver solves and renders (${freshSteps.length} chars)`);
+}
+// There was a check here that the two solvers answered differently, which is
+// how you knew the switch was wired. There is one solver.
+/**
+ * The source categories, which only the fresh solver reads.
+ *
+ * Hidden while the older one answers, shown when the newer does, and actually
+ * changing the answer -- a row of checkboxes that quietly does nothing is the
+ * failure worth catching here.
+ */
+const srcBox = document.querySelector('#plan-sources');
+if (!srcBox) {
+  console.log('FAIL no #plan-sources in the built page');
+  fail++;
+} else {
+  if (srcBox.hidden) { console.log('FAIL the source boxes are hidden for a fresh plan'); fail++; }
+  else console.log(`ok    the source categories are offered (${srcBox.children.length} of them)`);
+
+  // Dropping the workshop, which is in the default set: without it the plan
+  // cannot buy an intermediate and has to work the ore instead.
+  globalThis.location.hash =
+    '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=world~weather~air';
+  app.reload();
+  await new Promise((r) => setTimeout(r, 0));
+  const otherSide = document.querySelector('#plan-side')?.textContent ?? '';
+  if (otherSide === freshSide) {
+    console.log('FAIL changing the source categories changed nothing');
+    fail++;
+  } else {
+    console.log('ok    and changing them changes what the plan goes shopping for');
+  }
+}
+
+/**
+ * Comparing the options, which is thirty-one solves behind one button.
+ *
+ * The cheap question here on purpose: what is being tested is that the button
+ * is wired, that the sweep yields between solves rather than locking the page,
+ * and that rows come out with numbers in them. A slow question would test the
+ * solver, which has its own suite.
+ */
+/**
+ * Every option on the panel is live, there being one solver to read them.
+ *
+ * Two switches used to sit here greyed, doing nothing for the newer solver:
+ * feeding spare output back in and laying a charge in. It does both
+ * unconditionally, so with the solver that read them gone the switches went
+ * too, and what is checked now is that they are not there and the rest are.
+ */
+{
+  globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
+  app.reload();
+  await new Promise((r) => setTimeout(r, 0));
+  const bad = [];
+  for (const id of ['feedback', 'charges', 'fresh']) {
+    if (document.querySelector(`#plan-${id}`)) bad.push(`${id} is still on the panel`);
+  }
+  for (const id of ['avoid', 'leftovers']) {
+    const box = document.querySelector(`#plan-${id}`);
+    const label = document.querySelector(`#plan-${id}-opt`);
+    if (!box || !label) { bad.push(`${id} missing`); continue; }
+    if (box.disabled || label.hidden || label.classList.contains('is-off')) {
+      bad.push(`${id} is not live`);
+    }
+  }
+  if (bad.length) { console.log(`FAIL the options panel: ${bad.join(', ')}`); fail++; }
+  else console.log('ok    every option on the panel is live, and the dead ones are gone');
+}
+
+/**
+ * Which way the leavings are wanted, which only the newer solver reads.
+ *
+ * Shown for it, put away for the older one, and reaching the address bar --
+ * an option that does not survive a reload is an option nobody can share.
+ */
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
+app.reload();
+await new Promise((r) => setTimeout(r, 0));
+const leftBox = document.querySelector('#plan-leftovers');
+const leftOpt = document.querySelector('#plan-leftovers-opt');
+if (!leftBox || !leftOpt) {
+  console.log('FAIL no leftovers option in the built page');
+  fail++;
+} else if (leftOpt.hidden) {
+  console.log('FAIL the leftovers option is hidden for a fresh plan');
+  fail++;
+} else if (leftBox.checked) {
+  console.log('FAIL the leftovers option is on by default');
+  fail++;
+} else {
+  leftBox.checked = true;
+  leftBox.dispatch('change');
+  await new Promise((r) => setTimeout(r, 0));
+  if (!/lv=1/.test(globalThis.location.hash)) {
+    console.log(`FAIL turning it on did not reach the address bar: ${globalThis.location.hash}`);
+    fail++;
+  } else {
+    console.log('ok    the leftovers preference is offered and lands in the URL');
+  }
+}
+
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
+app.reload();
+await new Promise((r) => setTimeout(r, 0));
+const menuBox = document.querySelector('#plan-menu');
+const menuRun = document.querySelector('#plan-menu-run');
+if (!menuBox || !menuRun) {
+  console.log('FAIL no options-comparison panel in the built page');
+  fail++;
+} else if (menuBox.hidden) {
+  console.log('FAIL the comparison panel is hidden for a fresh plan with a target');
+  fail++;
+} else {
+  // The shim's querySelector is an id lookup, so everything below walks from
+  // one. A class selector here would quietly match nothing and pass.
+  const panel = document.querySelector('#plan-menu-body');
+  const all = (cls) => [...panel.walk()].filter((n) => n.classList?.contains(cls));
+
+  if (panel.children.length) {
+    console.log('FAIL the sweep ran without being asked for');
+    fail++;
+  } else {
+    console.log('ok    the comparison is offered but not run unasked');
+  }
+
+  menuRun.click();
+  const until = Date.now() + 60000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 0));
+    if (/different answer/.test(
+        document.querySelector('#plan-menu-status')?.textContent ?? '')) break;
+  }
+  const rows = all('menu-row');
+  if (!rows.length) {
+    console.log('FAIL the sweep produced no rows');
+    fail++;
+  } else if (!rows.some((r) => /\d/.test(r.textContent))) {
+    console.log('FAIL the rows carry no numbers');
+    fail++;
+  } else if (!all('is-best').length) {
+    console.log('FAIL no row is marked as best at anything');
+    fail++;
+  } else {
+    console.log(`ok    comparing the options gives ${rows.length} row(s), each best at something`);
+  }
+
+  // And it can be put away again, or it is a table that never leaves.
+  const shut = document.querySelector('#plan-menu-close');
+  if (!shut) { console.log('FAIL no way to close the comparison'); fail++; }
+  else if (shut.hidden) { console.log('FAIL the close control is hidden while rows are showing'); fail++; }
+
+  // And picking one drives the plan, which is the whole point of the panel.
+  const pick = rows.length
+    ? [...rows[rows.length - 1].walk()].find((n) => n.tagName === 'BUTTON') : null;
+  if (!pick) { console.log('FAIL no way to choose a row'); fail++; }
+  else {
+    pick.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const now = [...document.querySelector('#plan-menu-body').walk()]
+      .filter((n) => n.classList?.contains('is-current'));
+    if (!now.length) {
+      console.log('FAIL choosing a row did not become the current plan');
+      fail++;
+    } else {
+      console.log('ok    and choosing one switches the plan to it');
+    }
+  }
+
+  if (shut && !shut.hidden) {
+    shut.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const left = [...panel.walk()].filter((n) => n.classList?.contains('menu-row'));
+    const runStill = document.querySelector('#plan-menu-run');
+    if (left.length) { console.log('FAIL closing it left the rows behind'); fail++; }
+    else if (!runStill || document.querySelector('#plan-menu').hidden) {
+      console.log('FAIL closing it took the offer away too');
+      fail++;
+    } else if (!document.querySelector('#plan-menu-close').hidden) {
+      console.log('FAIL the close control is still showing with nothing to close');
+      fail++;
+    } else {
+      console.log('ok    and it can be put away, leaving the offer to ask again');
+    }
+  }
+}
+
+globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Dioxide';
+app.reload();
+await new Promise((r) => setTimeout(r, 0));
+// Shown for every plan now: there is one solver and it reads them.
+if (document.querySelector('#plan-sources').hidden) {
+  console.log('FAIL the source boxes are hidden, with a solver that reads them');
+  fail++;
+} else {
+  console.log('ok    and are there for every plan, there being one solver');
 }
 
 // And the arithmetic really did come across, rather than being quietly absent:

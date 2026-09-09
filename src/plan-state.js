@@ -11,6 +11,7 @@
  * it you were not looking at.
  */
 import { DEFAULT_KINDS, PROCESS_KINDS } from './plan-graph.js';
+import { SOURCES, DEFAULT_SOURCES as FRESH_SOURCES } from './plan-fresh.js';
 
 /**
  * List and pair separators.
@@ -33,31 +34,21 @@ export function emptyPlan() {
   return {
     targets: [],                  // [{name, amount}]
     have: [],                     // names
-    /**
-     * Which of those you can get as much of as you need.
-     *
-     * Both halves of `have` mean the same thing to the solver -- stop here,
-     * this is not to be made -- and differ only to `balanceTargets`. A limited
-     * stock is what the amounts are balanced *against*: three Lepidolite is
-     * two Potassium, two Lithium, two Aluminum and three Silicon, and that is
-     * the question worth asking of it. Something you can make more of as you
-     * go is no constraint at all, and treating it as one caps the plan at
-     * whatever the first guess happened to need.
-     */
-    plenty: [],
-    pins: {},                     // material -> process id, or 'have'
-    include: [],                  // process ids added going forwards
-    /**
-     * Routes to run on what the plan is already throwing away, and no further.
-     *
-     * Not a claim about how anything is made -- that is what `pins` is for --
-     * so the two compose: a route can eat the eight spare Carbon Monoxide for
-     * four Carbon while the other five are still yours to supply.
-     */
-    alsoUse: [],
-    runs: {},                     // process id -> batch size set by hand
     excludeProcesses: [],
     excludeMaterials: [],
+    /**
+     * Materials the reader will not buy, and will not start with.
+     *
+     * Narrower than `excludeMaterials`, which keeps a material out of the plan
+     * altogether: these two let the plan make the thing and spend it, and
+     * refuse it only at the door. "Get the fluorine from somewhere else" is a
+     * different instruction from "pretend fluorine does not exist", and the
+     * first is the one a reader looking at a shopping list usually means.
+     *
+     * Read by the newer solver only.
+     */
+    noFetch: [],
+    noPrime: [],
     /**
      * Spare output the reader wants counted as a product rather than waste.
      *
@@ -78,22 +69,25 @@ export function emptyPlan() {
      * add the reduction that does, which is a step the plan would never reach
      * for on its own.
      */
-    consume: [],
-    credit: [],                   // byproducts agreed to be plumbed back, one by one
-    /** Or agree to all of them, and name the exceptions instead. */
-    feedBackAll: true,
-    noFeedBack: [],
     /**
-     * Whether to lay a charge in rather than add a step that runs for ever.
+     * Which way to settle a draw over what is left on the floor.
      *
-     * Off, because a step is the standing bargain and a charge is the price,
-     * and that is the way round the plan is written. On where the loop is a
-     * real one and the charge comes back every run: the Lepidolite plan
-     * reducing Carbon Dioxide with potassium drops from twenty-seven ore an
-     * order to under seven, because the potassium is only put in once.
+     * Sparr: leavings that appear without more going in are the game's
+     * conservation errors, and a planner should not go looking for them -- but
+     * make it an option either way, and keep it one of the lowest priorities
+     * regardless. It is the last thing the newer solver decides, once the
+     * steps, the shopping list and the feed are all settled, so it can only
+     * choose between answers that are otherwise identical.
      */
-    takeCharges: false,
+    keepLeftovers: false,
     kinds: [...DEFAULT_KINDS],
+    /**
+     * Which sorts of thing the plan may go and get, for the newer solver.
+     *
+     * The older one has no notion of these and ignores the setting; the
+     * checkboxes are hidden while it is the one answering.
+     */
+    sources: [...FRESH_SOURCES],
     avoidSideEffects: true,
     /**
      * Hold the amounts in the proportion the feed actually comes out in.
@@ -116,8 +110,7 @@ export function emptyPlan() {
 }
 
 /** Is there anything here to solve? */
-export const isEmptyPlan = (p) =>
-  !p.targets.length && !p.have.length && !p.include.length;
+export const isEmptyPlan = (p) => !p.targets.length && !p.have.length;
 
 /* --------------------------------------------------------------- the URL */
 
@@ -134,27 +127,13 @@ export function readPlan(params) {
       : { name: entry, amount: 1 };
   });
   plan.have = list(params.get('h'));
-  plan.plenty = list(params.get('pl'));
-  plan.include = list(params.get('i'));
-  plan.alsoUse = list(params.get('au'));
   plan.excludeProcesses = list(params.get('x'));
   plan.excludeMaterials = list(params.get('xm'));
-  plan.credit = list(params.get('cr'));
+  plan.noFetch = list(params.get('xf'));
+  plan.noPrime = list(params.get('xp'));
   plan.kept = list(params.get('kp'));
-  plan.consume = list(params.get('cu'));
-  plan.noFeedBack = list(params.get('nf'));
-  if (params.get('fb') === '0') plan.feedBackAll = false;
-  if (params.get('ch') === '1') plan.takeCharges = true;
+  if (params.get('lv') === '1') plan.keepLeftovers = true;
 
-  for (const entry of list(params.get('pin'))) {
-    const at = entry.indexOf(PAIR);
-    if (at > 0) plan.pins[entry.slice(0, at)] = entry.slice(at + 1);
-  }
-  for (const entry of list(params.get('n'))) {
-    const at = entry.lastIndexOf(PAIR);
-    const n = Number(entry.slice(at + 1));
-    if (at > 0 && Number.isFinite(n) && n > 0) plan.runs[entry.slice(0, at)] = n;
-  }
 
   // Written only when it differs from the default, so an old link that predates
   // a new kind still means "the usual set" rather than "everything but that".
@@ -163,6 +142,12 @@ export function readPlan(params) {
   else if (kinds) {
     const known = new Set(PROCESS_KINDS.map((k) => k.id));
     plan.kinds = list(kinds).filter((k) => known.has(k));
+  }
+  const sources = params.get('sr');
+  if (sources === NO_KINDS) plan.sources = [];
+  else if (sources) {
+    const known = new Set(SOURCES);
+    plan.sources = list(sources).filter((k) => known.has(k));
   }
   if (params.get('ss') === '0') plan.avoidSideEffects = false;
   if (params.get('b') === '0') plan.balance = false;
@@ -177,25 +162,21 @@ export function writePlan(plan, params) {
   put('t', plan.targets
     .map((t) => (t.amount === 1 ? t.name : `${t.name}${AMOUNT}${t.amount}`)).join(SEP));
   put('h', plan.have.join(SEP));
-  put('pl', plan.plenty.join(SEP));
-  put('i', plan.include.join(SEP));
-  put('au', plan.alsoUse.join(SEP));
   put('x', plan.excludeProcesses.join(SEP));
   put('xm', plan.excludeMaterials.join(SEP));
-  put('cr', plan.credit.join(SEP));
+  put('xf', plan.noFetch.join(SEP));
+  put('xp', plan.noPrime.join(SEP));
   put('kp', plan.kept.join(SEP));
-  put('cu', plan.consume.join(SEP));
-  put('nf', plan.noFeedBack.join(SEP));
-  if (!plan.feedBackAll) params.set('fb', '0');
-  if (plan.takeCharges) params.set('ch', '1');
-  put('pin', Object.entries(plan.pins).map(([m, p]) => `${m}${PAIR}${p}`).join(SEP));
-  put('n', Object.entries(plan.runs).map(([p, n]) => `${p}${PAIR}${n}`).join(SEP));
+  if (plan.keepLeftovers) params.set('lv', '1');
 
   const usual = plan.kinds.length === DEFAULT_KINDS.length &&
                 DEFAULT_KINDS.every((k) => plan.kinds.includes(k));
   // `-` rather than nothing, because an absent `k` means the usual set and
   // turning every kind off has to survive a reload as itself.
   if (!usual) params.set('k', plan.kinds.join(SEP) || NO_KINDS);
+  const usualSources = plan.sources.length === FRESH_SOURCES.length &&
+                       FRESH_SOURCES.every((k) => plan.sources.includes(k));
+  if (!usualSources) params.set('sr', plan.sources.join(SEP) || NO_KINDS);
   if (!plan.avoidSideEffects) params.set('ss', '0');
   if (!plan.balance) params.set('b', '0');
   put('pm', plan.selected);
@@ -213,21 +194,27 @@ const clone = (p) => ({
   ...p,
   targets: p.targets.map((t) => ({ ...t })),
   have: [...p.have],
-  plenty: [...p.plenty],
-  pins: { ...p.pins },
-  include: [...p.include],
-  alsoUse: [...p.alsoUse],
-  runs: { ...p.runs },
   excludeProcesses: [...p.excludeProcesses],
   excludeMaterials: [...p.excludeMaterials],
-  credit: [...p.credit],
+  noFetch: [...p.noFetch],
+  noPrime: [...p.noPrime],
   kept: [...p.kept],
-  consume: [...p.consume],
-  noFeedBack: [...p.noFeedBack],
   kinds: [...p.kinds],
 });
 
 const drop = (arr, value) => arr.filter((x) => x !== value);
+
+/**
+ * Several at once, for a picker that offers a whole set.
+ *
+ * The elements of what you hold are chosen together or not at all -- asking
+ * for potassium and lithium out of the same ore is one decision, and making
+ * it one press at a time re-plans between each, which is both slow and a
+ * different question every time.
+ */
+export function addTargets(plan, names) {
+  return names.reduce((p, n) => addTarget(p, n), plan);
+}
 
 export function addTarget(plan, name, amount = 1) {
   const next = clone(plan);
@@ -261,17 +248,8 @@ export const isKept = (plan, name) => plan.kept.includes(name);
  * it back. Feeding back offers it to the plan as it stands and does nothing
  * where nothing wants it; this goes looking.
  */
-export const useUp = (plan, name) => toggle(plan, 'consume', name);
-export const isUsedUp = (plan, name) => plan.consume.includes(name);
 
 /** Is this byproduct being plumbed back into the plan? */
-export const isFedBack = (plan, name) =>
-  (plan.feedBackAll ? !plan.noFeedBack.includes(name) : plan.credit.includes(name));
-
-/** Turn that round, whichever way the blanket option has it. */
-export const toggleFedBack = (plan, name) =>
-  toggle(plan, plan.feedBackAll ? 'noFeedBack' : 'credit', name);
-
 /**
  * Leave a material on its loop and lay some in, rather than making it.
  *
@@ -279,23 +257,10 @@ export const toggleFedBack = (plan, name) =>
  * where the alternative is a step running for the life of the factory it may
  * well be the better bargain -- and only the reader knows which.
  */
-export function primeInstead(plan, name) {
-  const next = clone(plan);
-  next.noFeedBack = drop(next.noFeedBack, name);
-  if (!next.credit.includes(name)) next.credit.push(name);
-  return next;
-}
 
 /** And back: make it outright rather than taking it off the loop. */
-export function makeInstead(plan, name) {
-  const next = clone(plan);
-  next.credit = drop(next.credit, name);
-  if (!next.noFeedBack.includes(name)) next.noFeedBack.push(name);
-  return next;
-}
 
 /** Has the reader pinned this one to being primed? */
-export const isPrimedByChoice = (plan, name) => plan.credit.includes(name);
 
 /** Look at a material: what it is for, how it is being made, and what else could. */
 export function selectMaterial(plan, name) {
@@ -309,65 +274,28 @@ export function removeTarget(plan, name) {
 }
 
 /**
- * `plenty` says you can get as much as the plan turns out to need.
+ * Naming something you have takes it off the list of things to make.
  *
- * True wherever the reader is waving something off -- "I have it" on a line of
- * the shopping list is not a statement about how much of it they have -- and
- * false for the have box, where naming a material is stating your stock and
- * "how much can I get out of this" is the question being asked.
+ * The second argument used to say whether you could get as much of it as the
+ * plan turned out to need -- true where the reader waved a line of the
+ * shopping list away, false for the have box, where naming a material is
+ * stating your stock. Everything you hold is finite now, that distinction
+ * having belonged to the solver that is gone, and callers still pass the flag
+ * because it reads as what they mean.
  */
-export function addHave(plan, name, plenty = false) {
+export function addHave(plan, name, _plenty = false) {
   const next = clone(plan);
   if (!next.have.includes(name)) next.have.push(name);
-  if (plenty && !next.plenty.includes(name)) next.plenty.push(name);
   next.targets = next.targets.filter((t) => t.name !== name);
-  // A pin saying how to make it is moot once you have it.
-  delete next.pins[name];
   return next;
 }
 
 export function removeHave(plan, name) {
   const next = clone(plan);
   next.have = drop(next.have, name);
-  next.plenty = drop(next.plenty, name);
   return next;
 }
 
-/** Between "this is all I have" and "as much as it needs". */
-export const hasPlenty = (plan, name) => plan.plenty.includes(name);
-export const togglePlenty = (plan, name) => toggle(plan, 'plenty', name);
-
-/** Choose which process makes a material, or 'have' to stop expanding there. */
-export function pin(plan, material, processId) {
-  const next = clone(plan);
-  if (processId) next.pins[material] = processId;
-  else delete next.pins[material];
-  return next;
-}
-
-/** Add a process going forwards, from something already in hand. */
-export function includeProcess(plan, id, runs) {
-  const next = clone(plan);
-  if (!next.include.includes(id)) next.include.push(id);
-  if (runs) next.runs[id] = runs;
-  return next;
-}
-
-/**
- * Run this route on the plan's leavings, or stop.
- *
- * A pin on the same material is cleared: it was standing in for this, and
- * leaving both would have the material claiming to be made two ways at once.
- */
-export function useSpare(plan, material, processId) {
-  const next = toggle(plan, 'alsoUse', processId);
-  if (next.alsoUse.includes(processId) && next.pins[material] === processId) {
-    delete next.pins[material];
-  }
-  return next;
-}
-
-export const isUsingSpare = (plan, id) => plan.alsoUse.includes(id);
 
 export function toggle(plan, key, value) {
   const next = clone(plan);
@@ -381,18 +309,27 @@ export function toggleKind(plan, id) {
   return next;
 }
 
+export function toggleSource(plan, id) {
+  const next = clone(plan);
+  next.sources = next.sources.includes(id) ? drop(next.sources, id) : [...next.sources, id];
+  return next;
+}
+
 export function setOption(plan, key, value) {
   return { ...clone(plan), [key]: value };
 }
 
 /**
  * Seed a plan from a reaction the reader picked out in the explorer: make what
- * it makes, and hold it to that reaction rather than letting the solver pick a
- * different route to the same product.
+ * it makes.
+ *
+ * It used to hold the plan to that reaction as well, by pinning each product
+ * to it. Pins went with the solver that read them, so this asks for the
+ * products and leaves the route to the planner -- which is the honest version
+ * of the same press, and the button says so.
  */
 export function planProcess(plan, process) {
   let next = plan;
   for (const { name } of process.produces) next = addTarget(next, name);
-  for (const { name } of process.produces) next = pin(next, name, process.id);
   return next;
 }

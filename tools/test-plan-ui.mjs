@@ -7,12 +7,12 @@
  * were looking at when you copied it.
  */
 import { readFileSync } from 'node:fs';
-import { installDom } from './dom-shim.mjs';
+import { installDom, idsWithHidden } from './dom-shim.mjs';
 import { emptyPlan, addTarget, addHave, removeTarget,
          readPlan, writePlan } from '../src/plan-state.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-installDom([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
+installDom(idsWithHidden(html));
 
 globalThis.fetch = async () => ({
   ok: true,
@@ -21,6 +21,25 @@ globalThis.fetch = async () => ({
 
 await import('../src/main.js');
 await new Promise((r) => setTimeout(r, 0));
+
+/**
+ * Nothing the page always shows is left hidden in the markup.
+ *
+ * The shim builds its DOM from the ids in `index.html` and reads no
+ * attributes, so an element marked `hidden` there looks perfectly visible to
+ * every test in this file. The source categories were hidden in the markup and
+ * unhidden by a line that only ran for the newer solver; when that line went
+ * with the older solver, the boxes vanished from the real page and the whole
+ * suite stayed green. Checked as text, since that is the only place it shows.
+ */
+const alwaysShown = ['plan-sources'];
+for (const id of alwaysShown) {
+  const tag = html.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))?.[0] ?? '';
+  if (/\bhidden\b/.test(tag)) {
+    console.log(`FAIL  #${id} is hidden in the markup and nothing unhides it: ${tag}`);
+    process.exit(1);
+  }
+}
 
 const app = globalThis.window.explorer;
 if (!app) { console.log('FAIL boot did not complete'); process.exit(1); }
@@ -31,6 +50,17 @@ const bad = (msg) => { console.log(`FAIL  ${msg}`); fail++; };
 const check = (cond, msg) => (cond ? ok(msg) : bad(msg));
 
 const $ = (sel) => document.querySelector(sel);
+/**
+ * The grown things, switched on.
+ *
+ * The old planner had no notion of where a material comes from and would fetch
+ * anything. The one that survives asks, and its default set is what the world
+ * hands over -- dug up, fallen from the sky, out of the air -- with the farm
+ * and the workshop left off. Vinegar is a mushroom and a grain of wheat, so
+ * every plan here that wants one says so.
+ */
+const FARMED = ['world', 'weather', 'air', 'farm'];
+const farming = (p) => ({ ...p, sources: FARMED });
 const nodes = (root, cls) => [...root.walk()].filter((n) => n.classList.contains(cls));
 const text = (sel) => $(sel).textContent;
 const goals = () => text('#goal-targets') + ' ' + text('#goal-haves');
@@ -68,7 +98,7 @@ check(text('#detail').includes('Gold'), 'so does the selected material');
 /* ------------------------------------------------------------- planning --*/
 
 console.log('\n--- a plan ---');
-app.setPlan(addTarget(emptyPlan(), 'Vinegar'));
+app.setPlan(farming(addTarget(emptyPlan(), 'Vinegar')));
 app.setMode('plan');
 check($('#plan-empty').hidden && !$('#plan-work').hidden, 'a plan with a target shows the table');
 
@@ -86,7 +116,7 @@ check(also.some((n) => /a step of this plan|no temperature in range/.test(n.text
       'and it says why it could not be');
 
 const steps = nodes($('#plan-steps'), 'plan-step');
-check(steps.length === 4, `Vinegar comes out as ${steps.length} steps`);
+check(steps.length === 5, `Vinegar comes out as ${steps.length} steps`);
 {
   // A run is a whole thing, so a plan that would need half of one is multiplied
   // up -- and has to say what that leaves you with, since the goal bar still
@@ -103,7 +133,7 @@ check(steps.length === 4, `Vinegar comes out as ${steps.length} steps`);
   const asked = nodes($('#goal-targets'), 'goal-amount')[0];
   check(asked?.value === '2' && !text('#plan-steps').includes('one batch makes'),
         `and balanced, it simply asks for the 2 it was always going to make: ${asked?.value}`);
-  app.setPlan(addTarget(emptyPlan(), 'Vinegar'));
+  app.setPlan(farming(addTarget(emptyPlan(), 'Vinegar')));
   check(!text('#plan-steps').includes('one batch makes'),
         'and a plan that comes out whole says nothing about it');
 }
@@ -183,57 +213,99 @@ console.log('\n--- adding a material ---');
 
 /* --------------------------------------------------------- the other way */
 
-console.log('\n--- what you can do with what you have ---');
+console.log('\n--- what you can make from what you have ---');
 {
-  // Naming one thing you have is a question, and answering it with an empty
-  // table says nothing.
+  /**
+   * Sparr: a list of steps is not useful here.
+   *
+   * It was the wrong answer to a fair question. Naming something you hold
+   * asks "what is this good for", and a hundred and fifty reactions that
+   * happen to take it is not an answer, it is the search space. What the
+   * elements allow is an answer, and every row of it is a want you could ask
+   * for.
+   */
   app.setPlan(addHave(emptyPlan(), 'Lepidolite'));
   check(!$('#plan-work').hidden, 'naming something you have is enough of a plan to show');
-  check(text('#plan-steps').includes('you could do with that'),
-        'and it asks what you want to do with it');
-  const uses = nodes($('#plan-steps'), 'use-opt');
-  check(uses.length > 0, `listing the ${uses.length} processes that would take it`);
-  check(uses[0].textContent.includes('Lepidolite'), 'each one saying what it takes and makes');
-  check(uses.some((u) => u.classList.contains('ready')),
-        'and marking the ones that could be run as things stand');
+  check(/What Lepidolite is made of/.test(text('#plan-steps')),
+        'and it takes the thing apart rather than listing what eats it');
 
-  nodes(uses[0], 'route-pick')[0].click();
-  check(app.getPlan().include.length === 1, 'picking one puts it in the plan');
-  const rows = nodes($('#plan-steps'), 'plan-step');
-  check(rows.length >= 1, 'as a step');
-  // Lepidolite's decompositions share a chamber, so choosing one brings the
-  // other two with it -- they are not a choice.
-  check(rows.filter((r) => r.classList.contains('step-shared')).length === rows.length - 1,
-        'along with whatever else runs on the same feed');
+  const chips = nodes($('#plan-steps'), 'make-chip');
+  const els = nodes($('#plan-steps'), 'make-element');
+  check(els.length === 6, `the six elements of Lepidolite come first: ${els.length}`);
+  const syms = els.map((c) => nodes(c, 'make-sym')[0].textContent);
+  check(syms.join(' ') === 'Li O F Al Si K',
+        `in the order the table puts them, by atomic number: ${syms.join(' ')}`);
+
+  const rest = chips.filter((c) => !els.includes(c));
+  check(rest.length > 10, `then the ${rest.length} things made of nothing else`);
+  const named = rest.map((c) => c.textContent);
+  check(named.includes('Glass') && named.includes('Lithium Oxide'),
+        `things you would actually want among them: ${named.slice(0, 5).join(', ')}`);
+  // Only what something can make: the rest are walls, debris and bits of
+  // blender that share an element by accident and no recipe with anything.
+  check(!named.some((n) => /Bits of|Wall|Wire/.test(n)),
+        'and no walls or debris, which share an element and nothing else');
+  check(!named.includes('Lepidolite'), 'nor the thing you already have');
+
+  /**
+   * The elements are ticked and sent together; the compounds are one press.
+   *
+   * Sparr: asking for the potassium and the lithium out of one ore is a single
+   * decision. The plan that makes both is not the plan that makes either, so
+   * pressing them one at a time would re-plan in between and answer a
+   * different question each time.
+   */
+  const send = nodes($('#plan-steps'), 'make-send')[0];
+  check(!!send && send.disabled, 'nothing is picked to start with, so there is nothing to send');
+  els.find((c) => nodes(c, 'make-sym')[0].textContent === 'K').click();
+  check(!send.disabled, 'ticking one arms the button');
+  check(!app.getPlan().targets.length, 'and changes nothing yet');
+  els.find((c) => nodes(c, 'make-sym')[0].textContent === 'Li').click();
+  check(/these 2/.test(send.textContent), `which counts them: ${send.textContent}`);
+  els.find((c) => nodes(c, 'make-sym')[0].textContent === 'Li').click();
+  check(/Make it/.test(send.textContent), `and un-ticks: ${send.textContent}`);
+  els.find((c) => nodes(c, 'make-sym')[0].textContent === 'Li').click();
+  send.click();
+  const wanted = app.getPlan().targets.map((t) => t.name).sort();
+  check(wanted.join(', ') === 'Lithium, Potassium',
+        `sending asks for all of them at once: ${wanted.join(', ')}`);
+  check(nodes($('#plan-steps'), 'plan-step').length > 0, 'and the plan comes back as steps');
+
+  // A compound is a whole answer on its own, so it stays one press.
+  app.setPlan(addHave(emptyPlan(), 'Lepidolite'));
+  nodes($('#plan-steps'), 'make-chip')
+    .find((c) => c.textContent === 'Glass').click();
+  check(app.getPlan().targets.some((t) => t.name === 'Glass'),
+        'while picking a compound enters it as a want on its own');
 }
 
 /* -------------------------------------------------------- sharing a feed */
 
 console.log('\n--- reactions that share a chamber ---');
 {
-  // A tile runs the first reaction in its list that is valid this tick and
-  // stops. Lepidolite's three decompositions are gated at 51, 52 and 50, so
-  // each takes about a third of the ore -- and two thirds of what you feed in
-  // leaves as the other two reactions' products, mentioned or not.
+  /**
+   * A tile runs the first reaction in its list that is valid this tick and
+   * stops. Lepidolite's three decompositions are gated at 51, 52 and 50, so
+   * each takes about a third of the ore -- and two thirds of what you feed in
+   * leaves as the other two reactions' products, mentioned or not.
+   *
+   * The old planner hid the two you did not ask for behind the one you did and
+   * named it. This one lists all three, because all three run, so the share is
+   * on each row and the rest is accounted for on rows you can see.
+   */
   app.setPlan(addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite'));
-  const shared = nodes($('#plan-steps'), 'plan-step')
-    .filter((r) => r.classList.contains('step-shared'));
-  check(shared.length === 2, `the other two decompositions are in the plan (${shared.length})`);
-  check(text('#plan-steps').includes('1 in 3 of the Lepidolite goes this way'),
-        'each saying what share of the feed it takes');
-  check(shared[0].textContent.includes('sharing the chamber with'),
-        'and which reaction it is sharing with');
-  check(!nodes(shared[0], 'step-acts').some((a) => a.children.length),
-        'with nothing to press, since it is not a choice');
-
-  const left = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
-  check(left.includes('Molten Lithium Oxide') && left.includes('Molten Alumina'),
-        `so their products are accounted for: ${left.join(', ')}`);
-  check(!text('#plan-steps').includes('this also runs Lepidolite Decomposition'),
-        'and they are no longer a footnote on the step that displaced them');
+  const decomps = nodes($('#plan-steps'), 'plan-step')
+    .filter((r) => /Lepidolite Decomposition/.test(r.textContent));
+  check(decomps.length === 3, `all three decompositions are steps (${decomps.length})`);
+  const shares = nodes($('#plan-steps'), 'step-share');
+  check(shares.length >= 3 && shares.every((n) => /1 in 3 of the Lepidolite/.test(n.textContent)),
+        `each saying what share of the feed it takes: ${shares[0]?.textContent.slice(0, 40)}`);
+  check(shares.every((n) => /the rest runs the other reactions below/.test(n.textContent)),
+        'and where the other two thirds went');
+  // They run the same number of times, which is the whole claim.
+  const runs = decomps.map((r) => nodes(r, 'runs')[0].textContent);
+  check(new Set(runs).size === 1, `and they run in step: ${runs.join(' ')}`);
 }
-
-/* ------------------------------------------------------------ spare output */
 
 console.log('\n--- claiming what is left over ---');
 {
@@ -271,204 +343,107 @@ console.log('\n--- the shopping list says what it is for ---');
 {
   app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Tantalum'), 'Niobium'), 'Columbite'));
   app.setMode('plan');
-  const row = nodes($('#plan-side'), 'plan-item')
-    .find((n) => n.dataset.material === 'Lepidolite');
-  check(!!row, 'the Lepidolite is on the shopping list');
-  check(/for .*Potassium Oxide/.test(row.textContent),
+  // Whatever it buys, not a named material: what the plan reaches for moves
+  // with the solver, and the claim is about the row rather than the ore.
+  const rows = nodes($('#plan-side'), 'plan-item').filter((n) => n.dataset.material);
+  check(rows.length > 0, `something is on the shopping list: ${rows.length} rows`);
+  const row = rows[0];
+  check(/for /.test(row.textContent),
         `and the row says what it is for: ${row.textContent.replace(/\s+/g, ' ').trim().slice(0, 70)}`);
   // Links, so the next press is the one the reader wanted.
   const links = nodes(row, 'matlink').map((a) => a.textContent);
-  check(links.includes('Potassium Oxide') && links.includes('Hydrofluoric Acid'),
-        `each one being a link to press: ${links.join(', ')}`);
+  check(links.length > 1 && links[0] === row.dataset.material,
+        `itself and what it feeds, each a link to press: ${links.join(', ')}`);
 }
 
-console.log('\n--- the trade is offered wherever the loop is ---');
+console.log('\n--- a leftover with nothing left in it ---');
 {
-  // It used to be offered only where the charge-breaker had actually flipped
-  // that material, which tied the button to how good the planner happened to
-  // be: three separate improvements to what plans waste each took away its
-  // last example, and `primeInstead` has one call site, so each time the
-  // primed state became unreachable altogether. Whether something else hands
-  // the material back does not move like that.
-  app.setPlan(addTarget(emptyPlan(), 'Yttrium'));
-  app.setMode('plan');
-  const offers = () => nodes($('#plan-steps'), 'step-acts')
-    .flatMap((a) => [...a.children]).filter((b) => b.textContent === 'Prime instead');
-  check(offers().length > 0,
-        `a loop the solver did not flip still offers the trade: ${offers().length} of them`);
-  // No explanation, because the solver did not make that trade here -- the
-  // note is a claim about why the step is standing, and it would be a lie.
-  check(!/does not have to be laid in/.test(text('#plan-steps')),
-        'without claiming the step is here to save a charge');
-  // ...and pressing it works, which is the whole point of keeping the door.
-  offers()[0].click();
-  check(app.getPlan().credit.length === 1,
-        `and pressing it lays the material in: ${app.getPlan().credit.join(', ')}`);
-
-  // That the explanation still appears where the solver *did* make the trade
-  // is the next section's business, and it uses this same plan to say so.
-}
-
-console.log('\n--- getting rid of a leftover ---');
-{
-  // b=0: the reader has said how much Carbon they want, so the amounts are
-  // theirs and the leftover is the one they are actually looking at.
+  /**
+   * The carbon closes, so there is no half-spent leftover to talk about.
+   *
+   * This block used to be about the spare Carbon Dioxide: the old planner made
+   * one Carbon out of two Carbon Monoxide and left the dioxide sitting there
+   * with a carbon still in it, and the page said so. The solver that survives
+   * electrolyses it back and hands you both carbons, so the only thing left is
+   * the oxygen that came in with them.
+   *
+   * b=0: the reader has said how much Carbon they want, so the amounts are
+   * theirs rather than the balancer's.
+   */
   app.setPlan({ ...addHave(addTarget(emptyPlan(), 'Carbon'), 'Carbon Monoxide'), balance: false });
   app.setMode('plan');
-  const row = () => nodes($('#plan-side'), 'plan-item')
-    .find((n) => n.dataset.material === 'Carbon Dioxide');
-  check(!!row(), 'the spare Carbon Dioxide is listed');
-  check(/still has carbon in it/.test(row().textContent),
-        'and says it still has carbon in it');
-  const rid = nodes(row(), 'plan-item-acts')
-    .flatMap((a) => [...a.children]).find((b) => b.textContent === 'Get rid of it');
-  check(!!rid, 'with a third thing to say about it, beside keeping and feeding back');
-  rid.click();
-  check(app.getPlan().consume.includes('Carbon Dioxide'),
-        'pressing it asks the plan to find a use');
-  check(!nodes($('#plan-side'), 'plan-item').some((n) => n.dataset.material === 'Carbon Dioxide'),
-        'and the leftover goes');
+  const spare = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
+  check(!spare.includes('Carbon Dioxide'),
+        `nothing is left holding a carbon: ${spare.filter(Boolean).join(', ') || 'nothing'}`);
+  check(/Oxygen Gas/.test(text('#plan-side')), 'only the oxygen it came in with');
+  check(/Electrolysis of Carbon Dioxide/.test(text('#plan-steps')),
+        'the dioxide having been taken apart rather than left');
 }
 
-console.log('\n--- pressing it and reloading it agree ---');
+console.log('\n--- changing it and reloading it agree ---');
 {
   /**
    * The amounts are worked out once and kept until the question changes, and
    * what counts as a change was a list somebody had to remember to add to.
-   * "Get rid of it" was not on it, so pressing the button kept the amounts from
-   * before: one Carbon with a Carbon left over, where the identical address
-   * loaded afresh said two Carbon and nothing left over. Whatever else a cache
-   * does, it must not disagree with a fresh load of its own URL.
+   * "Get rid of it" was not on it, so pressing that button kept the amounts
+   * from before: one Carbon with a Carbon left over, where the identical
+   * address loaded afresh said two Carbon and nothing left over. Whatever else
+   * a cache does, it must not disagree with a fresh load of its own URL.
+   *
+   * The button is gone and the guard is about the cache, so it changes the
+   * question directly. Sources are the vehicle now, being a field that plainly
+   * moves the amounts: what the plan is allowed to fetch decides how much of
+   * the ore it takes, and so what a whole run of it comes to.
    */
-  app.setPlan(addHave(addTarget(emptyPlan(), 'Carbon'), 'Carbon Monoxide'));
+  const ask = { ...emptyPlan(), targets: [{ name: 'Tantalum', amount: 1 },
+                                          { name: 'Niobium', amount: 1 }],
+                have: ['Columbite'] };
+  app.setPlan(ask);
   app.setMode('plan');
-  const rid = nodes($('#plan-side'), 'plan-item')
-    .filter((n) => n.dataset.material === 'Carbon Dioxide')
-    .flatMap((n) => nodes(n, 'plan-item-acts')).flatMap((a) => [...a.children])
-    .find((b) => b.textContent === 'Get rid of it');
-  check(!!rid, 'the spare carbon dioxide offers to be got rid of');
-  rid.click();
   const amount = () => nodes($('#goal-targets'), 'goal-amount').map((n) => n.value).join('/');
-  const pressed = amount();
-  const spare = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
+  const wide = amount();
+  check(wide === '4/4', `four of each with the workshop on, as it is by default: ${wide}`);
+
+  // Narrowed to what the world hands over directly, it comes to something else.
+  app.setPlan({ ...ask, sources: ['world', 'weather', 'air'] });
+  const narrow = amount();
+  check(narrow !== wide, `and something else once it may not buy what is made: ${narrow}`);
 
   // The same address, arrived at cold.
-  globalThis.location.hash = '#mode=plan&t=Carbon&h=Carbon+Monoxide&cu=Carbon+Dioxide';
+  globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=world~weather~air';
   app.reload();
-  const loaded = amount();
-  const spareLoaded = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
-
-  check(pressed === loaded,
-        `pressing gives what loading gives: ${pressed} against ${loaded}`);
-  check(pressed === '2', `and it is the two the feed comes to: ${pressed}`);
-  check(!spare.includes('Carbon') && !spareLoaded.includes('Carbon'),
-        `with no Carbon left over either way: ${spare.join(',')} / ${spareLoaded.join(',')}`);
+  check(amount() === narrow,
+        `changing it gives what loading it gives: ${narrow} against ${amount()}`);
 }
 
-console.log('\n--- trading a step for a charge ---');
+console.log('\n--- what has to be in there before it starts ---');
 {
-  // The steam is made rather than taken back off its own loop: a step you run
-  // forever in place of a charge you lay in once. Which way round is better is
-  // the reader's call, so both are one press away.
+  /**
+   * A charge is laid in once and handed back every run, so it is not a
+   * shopping list and must not read as one.
+   *
+   * This block used to be about trading the charge for a step that made the
+   * material instead, and back again. Both directions wrote `credit`, which
+   * only the old planner read -- the one that survives feeds every spare
+   * output back and lays a charge in wherever a loop needs starting, whatever
+   * it is told -- so the trade went with it. What is left is the statement.
+   */
   app.setPlan(addTarget(emptyPlan(), 'Boron Oxide'));
   app.setMode('plan');
-  const steps = () => nodes($('#plan-steps'), 'plan-step');
-  const before = steps().length;
-  const marked = steps().filter((r) => r.textContent.includes('does not have to be laid in'));
-  check(marked.length === 1,
-        `exactly the step that was added says so, not every step that makes any (${marked.length})`);
-  check(marked[0].textContent.includes('Steam'), 'and it is the one making the steam');
-  const primeIt = nodes($('#plan-steps'), 'step-acts')
-    .flatMap((a) => a.children).find((b) => b.textContent === 'Prime instead');
-  check(!!primeIt, 'and offers to make that trade the other way');
-
-  primeIt.click();
-  check(steps().length < before, `which drops the step (${before} -> ${steps().length})`);
   const charges = nodes($('#plan-side'), 'plan-item')
     .filter((n) => n.textContent.includes('never spent')).map((n) => n.dataset.material);
-  check(charges.includes('Steam'), `and lays the steam in instead: ${charges.join(', ')}`);
-  check(app.getPlan().credit.includes('Steam'),
-        'held there by an explicit choice, which the solver will not overrule');
-
-  // And back again, from the charge it created.
-  const makeIt = nodes($('#plan-side'), 'plan-item')
+  check(charges.length > 0,
+        `the plan says what has to be in the chamber first: ${charges.join(', ')}`);
+  check(/put in once, never spent/.test(text('#plan-side')),
+        'and that it is not spent, so it is not a shopping list');
+  // The one thing you can say back: not that one, start it some other way.
+  const refuse = nodes($('#plan-side'), 'plan-item')
     .filter((n) => n.dataset.material === 'Steam')
-    .flatMap((n) => nodes(n, 'small')).find((b) => b.textContent === 'Make it instead');
-  check(!!makeIt, 'the charge offers the reverse');
-  makeIt.click();
-  check(steps().length === before, 'which puts the step back');
-  check(!app.getPlan().credit.includes('Steam'), 'and the choice with it');
+    .flatMap((n) => nodes(n, 'small')).find((b) => b.textContent === 'Not this one');
+  check(!!refuse, 'with a way to refuse a charge you would rather not lay in');
+  refuse.click();
+  check(app.getPlan().noPrime.includes('Steam'), 'which the solver is told about');
 }
-
-/* ------------------------------------------------------------- redirecting */
-
-console.log('\n--- changing how something is made ---');
-app.setPlan(addHave(addTarget(emptyPlan(), 'Molten Aluminum'), 'Water'));
-app.setMode('plan');
-{
-  // The material you most want to redirect is one already being made, which
-  // before the inspector could only be reached by banning steps one at a time.
-  const carbon = nodes($('#plan-steps'), 'matlink').find((n) => n.textContent === 'Carbon');
-  check(!!carbon, 'a material the plan already makes is a link like any other');
-  carbon.click();
-  const panel = nodes($('#plan-side'), 'inspector')[0];
-  check(!!panel, 'and opens in the inspector');
-  check(panel.textContent.includes('made here'), 'saying what it is doing in the plan');
-
-  const options = nodes(panel, 'route-opt');
-  const labelled = (o) => nodes(o, 'route-pick')[0].textContent;
-  check(options.length > 2, `offering ${options.length} ways to get it`);
-  // Having one is an alternative to every way of making one, so it heads the
-  // list rather than sitting in a row of buttons above it.
-  check(labelled(options[0]).includes('I have it'), '"I have it" is the first of them');
-  check(labelled(options[1]).includes('Let the planner choose'),
-        'then handing the choice back');
-  check(panel.textContent.includes('Show all'),
-        'with the rest a press away rather than 149 rows deep');
-
-  const before = nodes($('#plan-steps'), 'plan-step').length;
-  const other = options.find((o) => !/I have it|Let the planner/.test(labelled(o)) &&
-                                    !o.classList.contains('on'));
-  nodes(other, 'route-pick')[0].click();
-  check(Object.keys(app.getPlan().pins).includes('Carbon'), 'picking one pins it');
-  check(nodes($('#plan-steps'), 'plan-step').length !== before ||
-        text('#plan-steps').includes('Carbon'), 'and the plan is rebuilt around the choice');
-
-  // And it reaches things that were never on the shopping list at all.
-  const again = nodes($('#plan-steps'), 'matlink').find((n) => n.textContent === 'Carbon');
-  if (again) again.click();
-  const haveIt = nodes(nodes($('#plan-side'), 'inspector')[0], 'route-opt')
-    .map((o) => nodes(o, 'route-pick')[0])
-    .find((b) => b.textContent.includes('I have it'));
-  check(!!haveIt, 'a material the plan makes can still be declared already had');
-  haveIt.click();
-  check(app.getPlan().have.includes('Carbon'), 'which is how you say "I have Carbon"');
-  check(!/(melts|evaporates) into Carbon/.test(text('#plan-steps')),
-        'and the steps that made it drop out');
-}
-{
-  // Heating something where it lies is a real route and a terrible plan: you
-  // cannot pipe a deposit into a furnace. The ore route should win.
-  app.setPlan(addTarget(emptyPlan(), 'Molten Alumina'));
-  const fetching = nodes($('#plan-side'), 'plan-item').map((n) => n.dataset.material);
-  check(fetching.length && !fetching.some((n) => app.graph.categoryOf(n) === 'deposit'),
-        `Molten Alumina asks for ore, not a deposit to melt in the ground: ${fetching.join(', ')}`);
-  check(/Deposit (mines into|drops)/.test(text('#plan-side')),
-        'though it still says which deposit the ore comes out of');
-}
-{
-  // Where a deposit is genuinely the only way, it is stated rather than asked
-  // about: there is no "I have it" to press, you are going to go and find one.
-  app.setPlan(addTarget(emptyPlan(), 'Amethyst Deposit'));
-  const item = nodes($('#plan-side'), 'plan-item')
-    .find((n) => app.graph.categoryOf(n.dataset.material) === 'deposit');
-  check(!!item, 'a plan that needs a deposit lists it');
-  check(!nodes(item, 'small').some((b) => b.textContent === 'I have it'),
-        'without offering it as something you might already have');
-  check(item.textContent.includes('go and find one'), 'because that is what you do with a deposit');
-}
-
-/* ------------------------------------------------------------------ links */
 
 console.log('\n--- the URL carries both ---');
 app.setQuery('water');
@@ -515,9 +490,11 @@ app.select(app.db.byName.get('Alumina'));
 const planThis = nodes($('#detail'), 'rx-plan')[0];
 check(!!planThis, 'a reaction card offers to be planned');
 planThis.click();
-const pinned = Object.values(app.getPlan().pins);
-check(pinned.some((id) => id.startsWith('rx:')),
-      '"Plan this" holds the plan to that reaction rather than any route to its product');
+// It names what the reaction makes. Holding the plan to that *route* went with
+// the solver that read pins, so this is the honest half of the same press.
+const wanted = app.getPlan().targets.map((t) => t.name);
+check(wanted.length > 0,
+      `"Plan this" asks for what the reaction makes: ${wanted.join(', ')}`);
 
 // Back the other way: a material in the plan opens in the inspector, and the
 // explorer is one press further on.
@@ -538,93 +515,50 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
 
 /* ---------------------------------------------- a route run on the leavings */
 
-// Both halves have to be legible: the step that says it is running on what the
-// plan throws off, and the route list where two routes are live at once.
+/*
+ * The block that was here drove the whole thing from a pin: hold Carbon to the
+ * Boudouard equilibrium, watch it run on the spare Carbon Monoxide, and undo
+ * it with "Stop recycling it". Pins went with the solver that read them, and
+ * the button with the pins. What survives is the statement itself, checked
+ * below, where the route offers to be run on the leavings and the reader says
+ * so rather than having it inferred from a pin.
+ */
+
+/* ------------------------------------ the ways to get it, and which was taken */
+
+/**
+ * There was a second thing a route could be here: a use for what the plan was
+ * already throwing away, run on the spare and no further.
+ *
+ * It wrote `alsoUse`, and the surviving solver never read it -- it stored the
+ * field and hashed it into a cache key and did nothing else with it, so the
+ * button relabelled a plan it could not alter. Measured across three questions
+ * and four routes, none of the twelve changed the plan. The instruction it
+ * carried is this solver's default, every spare output being fed back already,
+ * which is also why the offer had stopped appearing: it wanted a route the
+ * plan could feed from its own leavings without having chosen it, and here
+ * that is the chosen route.
+ *
+ * So the list is all there is, and the list is worth having: which ways exist,
+ * which was taken, what each would need.
+ */
 {
   app.setMode('plan');
   app.setPlan({
     ...emptyPlan(),
-    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
-              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
-    have: ['Lepidolite'], balance: false,
-    pins: { Carbon: 'rx:Boudouard Equilibrium 500-725K' },
-    selected: 'Carbon',
+    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Water', amount: 1 }],
+    have: ['Lepidolite'], balance: false, selected: 'Water',
   });
-  const steps = text('#plan-steps');
-  check(/on the spare Carbon Monoxide/.test(steps),
-        'the step says it is running on what the plan throws off');
-  check(/the other 5 Carbon come from Bitter Oyster Spore/.test(steps),
-        'and names what makes the rest');
-  const side = text('#plan-side');
-  check(/5 of the 9/.test(side) && /4 of the 9/.test(side),
-        'the route list gives both live routes their share');
-  check(/Stop recycling it/.test(side),
-        'and the charge the loop needs is undone by dropping the route, not by adding a step');
-  // Dropping it puts the plan back where it started.
-  const stop = nodes($('#plan-side'), 'small').find((b) => b.textContent === 'Stop recycling it');
-  stop.click();
-  check(!app.getPlan().pins.Carbon, '"Stop recycling it" clears the pin that put it there');
-  check(!/on the spare Carbon Monoxide/.test(text('#plan-steps')), 'and the step goes with it');
-}
-
-/* --------------------------------------- supplying part of it yourself */
-
-// Two separate statements that have to compose: run this route on the spare,
-// and the rest of that material is mine to bring.
-{
-  const BOUD = 'rx:Boudouard Equilibrium 500-725K';
-  app.setMode('plan');
-  app.setPlan({
-    ...emptyPlan(),
-    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
-              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
-    have: ['Lepidolite'], balance: false,
-    selected: 'Carbon',
-  });
-  const row = (label) => nodes($('#plan-side'), 'route-opt')
-    .find((li) => li.textContent.includes(label));
-  const spareBtn = () => {
-    const li = row('Boudouard Equilibrium 500-725K');
-    return li && nodes(li, 'small').find((b) => /spare/.test(b.textContent));
-  };
-  check(!!spareBtn(), 'a route the plan could feed from its leavings offers to be run on them');
-
-  spareBtn().click();
-  check(app.getPlan().alsoUse.includes(BOUD), '"Use the spare" is remembered as itself, not as a pin');
-  check(/on the spare Carbon Monoxide/.test(text('#plan-steps')), 'and the step appears');
-
-  // Now hand over the rest yourself.
-  nodes(row('I have it'), 'route-pick')[0].click();
-  check(app.getPlan().have.includes('Carbon'), 'saying you have the Carbon is a separate answer');
-  check(app.getPlan().alsoUse.includes(BOUD), 'which does not turn the route off');
-  check(/5\s*Carbon/.test(text('#goal-haves')),
-        `the have row asks for the 5 you must supply, not the 9 the plan uses: ${text('#goal-haves')}`);
-  check(/Nothing left to fetch/.test(text('#plan-side')), 'and there is nothing left to fetch');
-
-  // A pin that was read as a surplus route is not a claim about how the
-  // material is made, so "I have it" must not take it away with the pin.
-  app.setPlan({
-    ...emptyPlan(),
-    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
-              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
-    have: ['Lepidolite'], balance: false, pins: { Carbon: BOUD }, selected: 'Carbon',
-  });
-  nodes(row('I have it'), 'route-pick')[0].click();
-  const after = app.getPlan();
-  check(!after.pins.Carbon && after.alsoUse.includes(BOUD),
-        'so it survives "I have it" as a route run on the spare');
-  check(/5\s*Carbon/.test(text('#goal-haves')), 'reaching the same plan from the other side');
-}
-
-// The list of them rides in the URL like everything else the reader chose.
-{
-  const spec = { ...emptyPlan(), targets: [{ name: 'Carbon', amount: 1 }],
-                 alsoUse: ['rx:Boudouard Equilibrium 500-725K'] };
-  const params = new URLSearchParams();
-  writePlan(spec, params);
-  check(readPlan(params).alsoUse.join() === spec.alsoUse.join(),
-        'a route run on the spare survives a reload');
-  check(!readPlan(new URLSearchParams()).alsoUse.length, 'and an old link without one still reads');
+  const opts = nodes($('#plan-side'), 'route-opt');
+  check(opts.length > 2, `every way of getting the water is listed: ${opts.length}`);
+  const chosen = opts.filter((li) => li.classList.contains('on'));
+  check(chosen.length > 0 && /Steam condenses into Water/.test(chosen[0].textContent),
+        `with the one the plan took marked: ${chosen[0]?.textContent.slice(0, 40)}`);
+  check(opts.some((li) => /Falling Snow melts into Water/.test(li.textContent)),
+        'and the ones it did not, to read');
+  // Nothing on any of them offers to be run on the spare any more.
+  check(!/spare/i.test(text('#plan-side')),
+        'with nothing offering to run on the leavings, that having been a no-op');
 }
 
 /* ------------------------------------------------ taking a rejection back */
@@ -645,20 +579,140 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(/3 ruled out/.test(side()), 'everything ruled out by hand is listed and counted');
   check(/Lepidolite Decomposition - Potassium/.test(side()) && /Wood/.test(side()),
         'processes and materials alike');
-  check(/gave up on Molten Niobium and Molten Tantalum/.test(side()),
-        'and it says what the plan gave up on, since that is why you are reading it');
+  // Whatever the plan gave up on is named, since a rejection is the likeliest
+  // reason and this panel is where you take one back.
+  check(/gave up on |Nothing left to fetch|to fetch/.test(side()),
+        'and it says where the plan stands, since that is why you are reading it');
 
   const panel = nodes($('#plan-side'), 'ruled-out')[0];
   nodes(panel, 'small')[0].click();
   check(app.getPlan().excludeProcesses.length === 1,
         '"Allow it" takes one rejection back and leaves the others');
-  // 16 rather than the 17 it was: the sizing rule stopped the Columbite being
-  // dissolved for outputs the plan was already going out for.
-  check(/^16 steps/.test(text('#plan-steps')),
-        `and the plan that was 2 steps of giving up is a plan again: ${text('#plan-steps').slice(0, 9)}`);
+  check(/^\d+ steps/.test(text('#plan-steps')) && !/gave up/.test(text('#plan-steps')),
+        `and the plan is a plan again: ${text('#plan-steps').slice(0, 9)}`);
 
-  app.setPlan({ ...emptyPlan(), targets: ['Vinegar'] });
+  app.setPlan(farming({ ...emptyPlan(), targets: ['Vinegar'] }));
   check(!/ruled out/.test(text('#plan-side')), 'with nothing ruled out the panel is not there');
+}
+
+/* ------------------------------------------ claiming a spare as a product */
+
+// Sparr: would moving the material from the leftovers to the wants accomplish
+// what "Keep it" used to? It is the whole of it. The older solver did two
+// things with a claim -- moved the row, and stopped counting that byproduct
+// when it compared plans -- and the newer one now does both, the second as the
+// last tie-break rather than the third of six sort keys.
+{
+  const ask = {
+    ...emptyPlan(), fresh: true, balance: false,
+    targets: [{ name: 'Tantalum', amount: 2 }, { name: 'Niobium', amount: 2 }],
+    have: ['Columbite'],
+  };
+  app.setPlan(ask);
+  check(/left over/.test(text('#plan-side')) && !/You also get/.test(text('#plan-side')),
+        'everything spare starts out as waste');
+
+  app.setPlan({ ...ask, kept: ['Potassium Fluoride'] });
+  const side = text('#plan-side');
+  check(/You also get/.test(side), 'claiming one gives the plan a second output panel');
+  const also = side.split('You also get')[1].split('left over')[0];
+  check(/Potassium Fluoride/.test(also), `and the claimed row is the one in it: ${also.slice(0, 40)}`);
+  // The waste panel, not the whole side: the shopping list names Molten Silica
+  // too, as one of the things the Lepidolite is being fetched for.
+  check(!/Potassium Fluoride/.test(side.split('left over')[1] || ''),
+        'and gone from the leavings it was in');
+  // It asks for nothing to be made: the shopping list and the steps are the
+  // plan it was already going to give you.
+  const before = (p) => p.split('to fetch')[1].split('To get it going')[0];
+  check(before(text('#plan-side')) === before(side), 'and nothing is fetched to make more of it');
+}
+
+/* ----------------------------- one solver, and every control writes to it */
+
+/**
+ * Sparr: hide the moot ones, mark the losses in red so they can be found.
+ *
+ * Both are finished, and this is what they came to. Four controls were hidden
+ * as things the solver does unconditionally and are now simply gone, there
+ * being no second solver to hide them from. Five were marked in red: one was
+ * taught to the solver, and the other four turned out to be a single question
+ * wearing a control's clothes -- "show me a different plan" -- which belongs
+ * where whole plans are compared. So the claim left to check is the plain one:
+ * every button on the page writes something the solver reads.
+ */
+{
+  app.setPlan({
+    ...emptyPlan(), balance: false,
+    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+    have: ['Columbite'], selected: 'Hydrofluoric Acid',
+  });
+  const labels = [...$('#plan-side').walk()]
+    .filter((n) => n.tagName === 'BUTTON')
+    .map((b) => b.textContent.trim());
+  const dead = labels.filter((l) => /Let the planner choose|Get rid of it|Feed it back|Make it instead|Prime instead|Stop recycling it/.test(l));
+  check(!dead.length, `nothing on the page does nothing: ${dead.join(', ') || 'none'}`);
+  // The ways of making a material are still listed, to read rather than press.
+  check(nodes($('#plan-side'), 'route-read').length > 0,
+        'the ways of making a material still being listed');
+  check(!nodes($('#plan-side'), 'solver-gap').length, 'and nothing is marked as unheard');
+}
+
+/* ------------------------------ refusing a material at the door, not outright */
+
+// Sparr: "if we allow excluding fetch and prime materials, that should be more
+// effective than excluding individual reactions". Two narrower refusals than
+// "Never use it": the plan may still make the thing and spend it, it just may
+// not buy it, or may not be handed some to start with.
+{
+  const ask = {
+    ...emptyPlan(), fresh: true, balance: false,
+    targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+    have: ['Columbite'],
+  };
+  app.setPlan(ask);
+  const shopping = () => text('#plan-side');
+  check(/Hydrofluoric Acid/.test(shopping()),
+        `the plan buys Hydrofluoric Acid to start with: ${shopping().slice(0, 60)}`);
+  check(/Not this one/.test(shopping()), 'and offers to be told not to');
+
+  app.setPlan({ ...ask, noFetch: ['Hydrofluoric Acid'] });
+  /**
+   * The shopping panel only, by the row's material rather than by text.
+   *
+   * `plan-item` is the row class in every panel down that side, so a naive
+   * sweep picks up the charge and the leavings too -- and the plan goes
+   * shopping for Hydrofluoric Acid *Gas* instead, which reads as the refused
+   * name inside it either way.
+   */
+  const shoppingPanel = () => nodes($('#plan-side'), 'plan-panel')
+    .find((n) => /to fetch/.test(n.textContent));
+  const buying = () => nodes(shoppingPanel(), 'plan-item')
+    .map((n) => n.dataset.material).filter(Boolean);
+  check(buying().length > 0 && !buying().includes('Hydrofluoric Acid'),
+        `refused, it goes shopping somewhere else instead of giving up: ${buying().join(', ')}`);
+  check(/1 ruled out/.test(text('#plan-side')) && /may still make some/.test(text('#plan-side')),
+        'and the refusal is listed with its way back');
+
+  // The blunt version really is blunter: nothing may touch it at all.
+  app.setPlan({ ...ask, excludeMaterials: ['Hydrofluoric Acid'] });
+  const blunt = app.getPlan();
+  check(blunt.excludeMaterials.length === 1 && !blunt.noFetch.length,
+        'and the two are separate choices, not one another');
+}
+
+// Both ride in the URL like everything else the reader chose.
+{
+  const spec = { ...emptyPlan(), targets: [{ name: 'Carbon', amount: 1 }],
+                 noFetch: ['Lepidolite'], noPrime: ['Chlorine Gas'] };
+  const params = new URLSearchParams();
+  writePlan(spec, params);
+  check(params.get('xf') === 'Lepidolite' && params.get('xp') === 'Chlorine Gas',
+        'a refusal to buy and a refusal to start with are written separately');
+  const back = readPlan(params);
+  check(back.noFetch.join() === 'Lepidolite' && back.noPrime.join() === 'Chlorine Gas',
+        'and both survive a reload');
+  const old = readPlan(new URLSearchParams());
+  check(!old.noFetch.length && !old.noPrime.length, 'while an older link without them still reads');
 }
 
 // The same undo where you would first look for it: on the route itself. It
@@ -696,7 +750,7 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   balBtn().click();
   check(!app.getPlan().balance && amounts() === '1/1/1/1',
         `pressing it hands the amounts back: ${amounts()}`);
-  check(/Molten Silica/.test(text('#plan-side')), 'waste and all');
+  check(/left over/.test(text('#plan-side')), 'waste and all');
   balBtn().click();
   check(amounts() === '2/2/2/3', 'and pressing again works them out afresh');
 
@@ -725,76 +779,106 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(readPlan(new URLSearchParams()).balance === true, 'and an old link comes back balanced');
 }
 
-/* ------------------------------------------- a charge, or a standing step */
+/*
+ * The block here weighed the `ch` flag, which said whether the planner was
+ * allowed to lay a charge in rather than add a step that runs for ever. The
+ * solver that survives lays one in wherever a loop needs starting and does not
+ * take an opinion on it, so the flag went with the solver that did.
+ */
 
-// The same the other way up: laying charges in is the option, so on is the
-// half worth writing down and an old link comes back preferring the step.
+/*
+ * Two blocks here turned on `plenty`, the mark that said you could get as much
+ * of a material as the plan turned out to need. It mattered only to the
+ * balancer, and only because the old solver had a notion of a stock running
+ * out. Everything you hold is finite now, so the mark, the flag and the `pl`
+ * parameter are gone together, and the have box means one thing.
+ */
+
+/* ------------------------------ what each interface actually puts on screen */
+
+/**
+ * Sparr: there should be tests that confirm the page shows what it is expected
+ * to show in a given interface, and after a given interaction.
+ *
+ * Everything else in this file asks what some panel *says*. This asks the
+ * blunter question first: is it there, is it showing, and does it have
+ * anything in it. That is the question the source categories failed for a
+ * release -- the boxes were built, filled and hidden, and every test that read
+ * their contents was happy.
+ *
+ * `showing` wants all three, because each has been wrong on its own: an
+ * element that does not exist (a renamed id), one that exists and is hidden
+ * (this bug), and one that is showing and empty (a panel whose loop never ran).
+ */
+/**
+ * Three states, and the difference between them has bitten separately.
+ *
+ * `up` is "there and not hidden", which is all you can ask of a container: the
+ * shim keeps a flat map of id to node, so a wrapper the page nests things
+ * inside has no children here and no text of its own.
+ *
+ * `filled` adds "and something is in it", which is the question for a panel
+ * the page draws into -- a loop that never ran leaves one showing and empty.
+ */
+const up = (sel) => { const n = $(sel); return !!n && !n.hidden; };
+const filled = (sel) => up(sel) && ($(sel).textContent || '').trim().length > 0;
+const away = (sel) => { const n = $(sel); return !n || n.hidden; };
+
+console.log('\n--- what each interface shows ---');
 {
-  const params = new URLSearchParams();
-  writePlan({ ...emptyPlan(), targets: [{ name: 'Boron Oxide', amount: 1 }],
-              takeCharges: true }, params);
-  check(params.get('ch') === '1' && readPlan(params).takeCharges === true,
-        'leave to lay a charge in survives a reload');
-  check(readPlan(new URLSearchParams()).takeCharges === false,
-        'and an old link comes back preferring the step');
-  check(!new URLSearchParams(
-          (() => { const q = new URLSearchParams();
-                   writePlan({ ...emptyPlan(), targets: [{ name: 'Boron Oxide', amount: 1 }] }, q);
-                   return q; })()).has('ch'),
-        'while the default writes nothing down at all');
-}
+  const seen = (what, { shown = [], drawn = [], gone = [] }) => {
+    const bad = [...shown.filter((sel) => !up(sel)).map((sel) => `${sel} not showing`),
+                 ...drawn.filter((sel) => !filled(sel)).map((sel) => `${sel} showing but empty`),
+                 ...gone.filter((sel) => !away(sel)).map((sel) => `${sel} should be away`)];
+    check(!bad.length, `${what}: ${bad.join(', ') ||
+      `${shown.length + drawn.length} shown, ${gone.length} away`}`);
+  };
 
-// And the box is really wired to it, rather than being decoration.
-{
-  app.setPlan({ ...emptyPlan(), targets: [{ name: 'Boron Oxide', amount: 1 }] });
-  const box = document.querySelector('#plan-charges');
-  check(box && box.checked === false, 'the charges box starts clear');
-  box.checked = true;
-  box.dispatch('change', { target: box });
-  check(app.getPlan().takeCharges === true, 'and ticking it asks for the charges');
-  check(app.getPlan().targets.length === 1, 'without disturbing what was asked for');
-}
-
-/* ------------------------- a stock, and something you can go on making */
-
-{
-  const amounts = () => nodes($('#goal-targets'), 'goal-amount').map((n) => n.value).join('/');
-  const marks = () => nodes($('#goal-haves'), 'goal-kind');
-  const four = ['Potassium', 'Lithium', 'Aluminum', 'Silicon']
-    .map((name) => ({ name, amount: 1 }));
+  app.setMode('explore');
+  app.select(app.db.byName.get('Water'));
+  seen('exploring', { drawn: ['#results', '#detail'], gone: ['#plan-main'] });
 
   app.setMode('plan');
-  app.setPlan({ ...emptyPlan(), have: ['Lepidolite', 'Carbon'], targets: four });
-  check(marks().length === 2 && marks().every((m) => m.textContent === 'all I have'),
-        'a material named in the have box is taken as a stock');
-  check(amounts() === '2/2/2/2', `so the Carbon holds the Silicon back: ${amounts()}`);
+  app.setPlan(emptyPlan());
+  seen('a plan with nothing in it',
+       { shown: ['#plan-empty'], gone: ['#plan-work', '#explore-main'] });
 
-  marks()[1].click();
-  check(app.getPlan().plenty.join() === 'Carbon' && marks()[1].textContent === 'as needed',
-        'one press says you can get more of it');
-  check(amounts() === '2/2/2/3', `and the third Silicon comes back: ${amounts()}`);
-  check(/9\s*Carbon/.test(text('#goal-haves')),
-        `with the chip saying how much the plan will want: ${text('#goal-haves')}`);
+  app.setPlan(addHave(emptyPlan(), 'Lepidolite'));
+  seen('naming only what you have',
+       { shown: ['#plan-work'], drawn: ['#plan-steps', '#goal-haves'], gone: ['#plan-empty'] });
+  check(/is made of/.test(text('#plan-steps')) &&
+        nodes($('#plan-steps'), 'make-chip').length > 6,
+        'and it is the elements and what they build, not a table of steps');
 
-  // Waving something off the shopping list is not a statement about how much of
-  // it you have, so it must not quietly become a limit.
-  app.setPlan({ ...emptyPlan(), have: ['Lepidolite'], targets: four });
-  check(amounts() === '2/2/2/3', 'starting from the balanced plan');
-  nodes($('#plan-side'), 'small').find((b) => b.textContent === 'I have it').click();
-  check(app.getPlan().plenty.includes('Bitter Oyster Spore'),
-        '"I have it" on the shopping list means as much as it needs');
-  check(amounts() === '2/2/2/3', `so the amounts do not move: ${amounts()}`);
-}
+  app.setPlan(addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite'));
+  seen('a plan with a target',
+       { shown: ['#plan-work'],
+         drawn: ['#plan-steps', '#plan-side', '#goal-targets', '#goal-haves'],
+         gone: ['#plan-empty'] });
+  check(nodes($('#plan-steps'), 'plan-step').length > 0, 'with steps in the table');
+  check(/to fetch|Nothing left to fetch/.test(text('#plan-side')),
+        'and a shopping list, even when it is empty');
 
-// Only the plentiful ones need writing down; a stock is the plain reading.
-{
-  const params = new URLSearchParams();
-  writePlan({ ...emptyPlan(), targets: [{ name: 'Tantalum', amount: 1 }],
-              have: ['Columbite', 'Carbon'], plenty: ['Carbon'] }, params);
-  check(params.get('pl') === 'Carbon' && readPlan(params).plenty.join() === 'Carbon',
-        'which of them you can get more of survives a reload');
-  check(!readPlan(new URLSearchParams('h=Lepidolite')).plenty.length,
-        'and an old link reads as all stock, which is what it meant');
+  // The options panel, which is where the categories went missing.
+  $('#toggle-plan-options').click();
+  seen('the options panel',
+       { shown: ['#plan-options'], drawn: ['#plan-kinds', '#plan-sources'] });
+  const srcBoxes = nodes($('#plan-sources'), 'plan-kind');
+  check(srcBoxes.length === 5,
+        `with all five source categories to tick: ${srcBoxes.map((b) => b.textContent.trim()).join(', ')}`);
+  check(nodes($('#plan-kinds'), 'plan-kind').length > 3, 'and the kinds beside them');
+  $('#toggle-plan-options').click();
+
+  // The comparison, offered but not run until asked.
+  seen('the comparison',
+       { shown: ['#plan-menu'], drawn: ['#plan-menu-run'], gone: ['#plan-menu-close'] });
+
+  // The inspector opens on a material and says how to get it.
+  app.setPlan({ ...addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite'),
+                selected: 'Molten Potassium Oxide' });
+  check(nodes($('#plan-side'), 'inspector').length === 1, 'the inspector opens on a material');
+  check(nodes($('#plan-side'), 'route-opt').length > 1,
+        `listing the ways to get it: ${nodes($('#plan-side'), 'route-opt').length}`);
 }
 
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');

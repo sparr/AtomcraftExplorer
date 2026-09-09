@@ -31,14 +31,40 @@ import { operatingWindow } from './plan-graph.js';
 /** Worked out once per graph: it walks every reaction several times over. */
 const cache = new WeakMap();
 
+/**
+ * Formulas the game writes wrongly, corrected one at a time.
+ *
+ * `Fl` is flerovium: a synthetic superheavy with a half-life under two seconds
+ * and no chemistry to speak of. Magnesium Fluoride is written `MgFl2`, so read
+ * literally it is a magnesium atom holding two of those. Seven other formulas
+ * contain `Fl` and all seven are genuine Flerovium isotopes, so this cannot be
+ * mended by rewriting the symbol wherever it appears. It is one typo and it is
+ * corrected as one, by name.
+ *
+ * It matters more than a spelling slip because presence is what the planner
+ * reasons with. Asked to stop buying fluorine, it shut hydrofluoric acid,
+ * calcium fluoride and silicon tetrafluoride, and then bought Magnesium
+ * Fluoride -- which by this table was not fluorine at all -- and went on
+ * venting the same potassium fluoride as before. Every element-level judgement
+ * had a hole in it exactly the width of one reagent.
+ *
+ * Kept here rather than in the data because the data is the game's, and a
+ * table of things we think it got wrong should be legible as that. See
+ * FORMULA-ODDITIES.md, which counts the eight and names the one.
+ */
+const MISWRITTEN = new Map([
+  ['Magnesium Fluoride', new Map([['Fl', 'F']])],
+]);
+
 /** The elements a parsed formula mentions, alternates and all. */
 function fromFormula(material) {
   const ast = material?.formula?.ast;
   if (!ast) return null;
+  const mended = MISWRITTEN.get(material.name);
   const found = new Set();
   const walk = (items) => {
     for (const node of items) {
-      if (node.k === 'el') found.add(node.sym);
+      if (node.k === 'el') found.add(mended?.get(node.sym) ?? node.sym);
       // `Fe(Ta,Nb)2O6` is two slots that are each one or the other, so
       // Columbite mentions both without containing two of each. For a question
       // about presence that is the right reading; for counts it would not be.

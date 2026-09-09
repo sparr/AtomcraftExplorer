@@ -44,7 +44,7 @@ const MAX_PIVOTS = 5000;
  * the caller is expected to fall back rather than guess -- a plan is better
  * wrong in a way somebody can see than quietly made up.
  */
-export function solveLP({ vars, rows, cost, lo = new Map() }) {
+export function solveLP({ vars, rows, cost, lo = new Map(), steep = false }) {
   // Shift every variable to sit at zero: x = lo + y, y >= 0. Simpler than
   // carrying bounds through the pivoting, and it costs one pass either side.
   const shift = (i) => lo.get(i) || R0;
@@ -97,17 +97,38 @@ export function solveLP({ vars, rows, cost, lo = new Map() }) {
 
   const basis = flipped.map((row, r) => (artOf.has(r) ? artOf.get(r) : slackOf.get(r)));
 
-  /** One pivot: make column `c` a unit column on row `r`. */
+  /**
+   * One pivot: make column `c` a unit column on row `r`.
+   *
+   * Only where the pivot row has something to say. Subtracting `f` times a
+   * zero leaves the entry as it was, so the columns where the pivot row is
+   * empty need not be visited at all -- and it is empty nearly everywhere. A
+   * planning model is a very sparse thing: the Columbite tableau carries a
+   * hundred and fifty non-zeroes in two thousand nine hundred cells, five per
+   * cent, because a reaction touches four or five materials out of forty. Walk
+   * the full width and ninety-five per cent of the work is BigInt arithmetic
+   * establishing that nothing multiplied by nothing is nothing.
+   *
+   * The float simplex learned this some time ago and this one did not, which
+   * is most of why the same model takes 95ms exactly and 0.3ms in doubles.
+   * Nothing about the arithmetic changes -- the same pivots in the same order
+   * on the same numbers, with the no-ops left out.
+   */
   const pivot = (r, c) => {
     const p = table[r][c];
-    for (let j = 0; j <= width; j++) table[r][j] = rdiv(table[r][j], p);
+    const row = table[r];
+    const hot = [];
+    for (let j = 0; j <= width; j++) {
+      if (rzero(row[j])) continue;
+      row[j] = rdiv(row[j], p);
+      hot.push(j);
+    }
     for (let i = 0; i < table.length; i++) {
       if (i === r) continue;
       const f = table[i][c];
       if (rzero(f)) continue;
-      for (let j = 0; j <= width; j++) {
-        table[i][j] = rsub(table[i][j], rmul(f, table[r][j]));
-      }
+      const dst = table[i];
+      for (const j of hot) dst[j] = rsub(dst[j], rmul(f, row[j]));
     }
     basis[r] = c;
   };
@@ -120,21 +141,66 @@ export function solveLP({ vars, rows, cost, lo = new Map() }) {
    * ever notice that it is the slow choice.
    */
   const run = (costOf, allowed) => {
+    /**
+     * Bland's rule cannot cycle and is very slow; Dantzig's is fast and can.
+     *
+     * Taking the first improving column is what makes this provably terminate,
+     * and it is also why one solve over two hundred and fifty materials took
+     * seven seconds -- it walks the tableau a column at a time when there is a
+     * much better one further along. So the steepest column is taken while the
+     * objective keeps moving, and the moment it stalls -- which is the only
+     * way a cycle can begin -- it falls back to Bland's and stays there.
+     */
+    let stalls = 0;
+    let last = null;
     for (let step = 0; step < MAX_PIVOTS; step++) {
-      // Reduced costs, with the basis priced out.
+      /**
+       * Reduced costs, with the basis priced out.
+       *
+       * Which rows carry a cost is a fact about the basis, not about the
+       * column being priced, so it is settled once a step rather than again
+       * for every one of them. Most of the basis is slack and artificial
+       * columns that cost nothing, so the inner walk is over a handful of rows
+       * instead of all sixty -- and `costOf` is asked once per row rather than
+       * once per row per column, which on the Columbite tableau is ten
+       * thousand calls a step turned into sixty.
+       */
+      const priced = [];
+      for (let i = 0; i < table.length; i++) {
+        const cb = costOf(basis[i]);
+        if (!rzero(cb)) priced.push([i, cb]);
+      }
       const dual = new Array(width).fill(R0);
       for (let j = 0; j < width; j++) {
         let z = R0;
-        for (let i = 0; i < table.length; i++) {
-          const cb = costOf(basis[i]);
-          if (!rzero(cb)) z = radd(z, rmul(cb, table[i][j]));
+        for (const [i, cb] of priced) {
+          const a = table[i][j];
+          if (!rzero(a)) z = radd(z, rmul(cb, a));
         }
         dual[j] = rsub(costOf(j), z);
       }
+      // Only worth measuring when it is steering: the caller that does not ask
+      // for the steep column takes the same pivots either way.
+      if (steep) {
+        let value = R0;
+        for (const [i, cb] of priced) value = radd(value, rmul(cb, table[i][width]));
+        if (last !== null && rcmp(value, last) >= 0) stalls++; else stalls = 0;
+        last = value;
+      }
+
       let enter = -1;
-      for (let j = 0; j < width; j++) {
-        if (!allowed(j)) continue;
-        if (rcmp(dual[j], R0) < 0) { enter = j; break; }
+      if (stalls >= 8 || !steep) {
+        for (let j = 0; j < width; j++) {
+          if (!allowed(j)) continue;
+          if (rcmp(dual[j], R0) < 0) { enter = j; break; }
+        }
+      } else {
+        let best = null;
+        for (let j = 0; j < width; j++) {
+          if (!allowed(j)) continue;
+          if (rcmp(dual[j], R0) >= 0) continue;
+          if (best === null || rcmp(dual[j], best) < 0) { best = dual[j]; enter = j; }
+        }
       }
       if (enter < 0) return true;
 

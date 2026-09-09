@@ -1,3 +1,6 @@
+/** Highest common factor, for comparing a ratio rather than a scale. */
+const hcfOf = (a, b) => (b ? hcfOf(b, a % b) : a);
+
 /**
  * The plans this planner is judged by.
  *
@@ -25,10 +28,29 @@ export const CASES = [
     want: [
       // The flagship. Three Lepidolite are what the four come out of, and the
       // proportion is the whole answer -- 2/2/2/3 and not 1/1/1/1 or 4/4/4/6.
-      ['balances to 2/2/2/3', (p) =>
-        p.spec.targets.map((t) => t.amount).join('/') === '2/2/2/3'],
-      ['and fetches nothing but the carbon for the reductions', (p) =>
-        p.frontier.every((f) => f.name === 'Bitter Oyster Spore')],
+      /**
+       * The ratio, not the literal amounts. Balanced, the plan may be offered
+       * at 8/8/8/12 -- which is the same answer four times over, and was being
+       * read as a different one.
+       */
+      ['balances to 2/2/2/3', (p) => {
+        const got = p.spec.targets.map((t) => t.amount);
+        const hcf = got.reduce((a, b) => (b ? hcfOf(b, a % b) : a));
+        return got.map((n) => n / hcf).join('/') === '2/2/2/3';
+      }],
+      /**
+       * A carbon source, not one named carbon source.
+       *
+       * This said "Bitter Oyster Spore" because that is what the older solver
+       * bought. The newer one buys Dolomite -- a carbonate, four of them where
+       * the mushrooms wanted thirty-six -- which is the same answer to the same
+       * question and was being marked wrong for it. The spore is named
+       * explicitly because the game gives it no formula, so nothing can be
+       * asked about what it is made of.
+       */
+      ['and fetches nothing but a source of the carbon for the reductions',
+       (p, { carries }) => p.frontier.every((f) =>
+         f.name === 'Bitter Oyster Spore' || carries(f.name, 'C'))],
     ],
   },
   {
@@ -46,6 +68,41 @@ export const CASES = [
         !p.byproducts.some((b) => b.holds.length)],
       ['dissolving no more ore than it needs', (p, { rnum }) =>
         rnum(p.amountOf('Columbite')) <= p.spec.targets[0].amount / 2],
+    ],
+  },
+  {
+    /**
+     * The same ore with every source switched on, which is where the carbon
+     * loop came apart: eight Carbon bought and eight Carbon Dioxide vented.
+     * Kept as its own case because the default source set does not reach it --
+     * the wasteful route only becomes affordable once everything is buyable.
+     */
+    id: 'columbite-anything',
+    url: '#mode=plan&t=Tantalum~Niobium&h=Columbite&fr=1&sr=world~weather~air~made',
+    plan: { targets: ['Tantalum', 'Niobium'], have: ['Columbite'],
+            sources: ['world', 'weather', 'air', 'made'] },
+    about: 'The same two metals, allowed to buy anything at all.',
+    /**
+     * Fixed, and by neither of the two things first written down here.
+     *
+     * The note this replaces said the closed answer was free and a tie had
+     * gone the wrong way. It was not free and it was not a tie -- closing cost
+     * strictly more, which is why every attempt to break the tie differently
+     * left the plan exactly where it was.
+     *
+     * Two real faults, one on top of the other. Asked to shut the Carbon
+     * column the solver bought five Carbon Monoxide and vented the carbon just
+     * the same: the repair pass was closing a material where the complaint is
+     * about an element. Underneath that, the free-lunch pass had barred
+     * `Electrolysis of Carbon Dioxide` -- a reaction that balances, and the
+     * only way back from carbon dioxide to carbon -- because it blamed
+     * whichever member of a wheel ran most rather than the busiest one
+     * actually making atoms. With the route gone, buying carbon was not a
+     * preference, it was the only answer left.
+     */
+    want: [
+      ['closes its carbon rather than buying some and venting the rest',
+       (p, { carries }) => !p.frontier.some((f) => carries(f.name, 'C'))],
     ],
   },
   {
@@ -80,8 +137,19 @@ export const CASES = [
       // Two carbons and two oxygens in, and that is what must come back.
       ['says what it makes rather than leaving carbon over', (p) =>
         !p.byproducts.some((b) => b.name === 'Carbon')],
+      /**
+       * Against what comes in from outside, not against everything that moves.
+       *
+       * `amountOf` is how much the plan puts through a material, and once the
+       * carbon monoxide is being recycled that is larger than what you supply:
+       * four through the steps, two from the feed. Measured against the four,
+       * a plan that recovers every carbon it was given looked like it was
+       * recovering half of them. What is drawn from outside is what is used
+       * less what is made.
+       */
       ['recovers every carbon in the feed', (p, { rnum }) =>
-        rnum(p.madeOf('Carbon')) === rnum(p.amountOf('Carbon Monoxide'))],
+        rnum(p.madeOf('Carbon')) ===
+          rnum(p.amountOf('Carbon Monoxide')) - rnum(p.madeOf('Carbon Monoxide'))],
       ['and leaves only the oxygen', (p) =>
         p.byproducts.every((b) => b.name === 'Oxygen Gas')],
     ],
@@ -108,7 +176,14 @@ export const CASES = [
       ['buys less per order than the plan that vents it', (p, { rnum }) =>
         p.frontier.reduce((a, f) => a + rnum(f.amount), 0) /
           (rnum(p.madeOf('Potassium')) / 2) < 5],
-      ['and no more ore per order either', (p, { rnum }) =>
+      /**
+       * Three, and now for a reason rather than by observation: the chamber
+       * fires its three branches evenly, so a potassium branch costs three
+       * turns of it, and no plan can do better. It briefly read 153/50 while
+       * the gates were being modelled at their exact 52:50:51 -- true then,
+       * and an artefact of the arithmetic rather than of the game.
+       */
+      ['and no more ore per order than the chamber allows', (p, { rnum }) =>
         rnum(p.amountOf('Lepidolite')) / (rnum(p.madeOf('Potassium')) / 2) <= 3],
     ],
   },
@@ -129,11 +204,124 @@ export const NEVER = [
   ['and never runs a step no number of times', (p, { rzero }) =>
     p.steps.every((s) => !rzero(s.runs))],
   /**
+   * Sparr: deposits are never inputs, they cannot be fetched.
+   *
+   * A deposit is a tile of the world. What travels is what the mine hands
+   * back -- the Columbite Deposit stays where it is and `Columbite` goes in
+   * the sack -- so no plan may put one in a reactor or write one on a
+   * shopping list.
+   *
+   * `staticFeed` said this for reactions and the melt walked round it: 22
+   * phase changes turn unmined rock straight into metal, `evap:Hematite
+   * Deposit` giving Molten Iron. Told not to buy Lepidolite, a plan went
+   * shopping for twelve Fluorite Deposits.
+   *
+   * Static as well as the category, because Galena Gravel and Pneumatocyst
+   * are filed under `deposit` and are Solid, loose and fetchable like any
+   * other ore.
+   */
+  ['never fetches the ground itself, nor puts a tile of it in a reactor',
+   (p, { ground }) =>
+     !p.frontier.some((f) => ground(f.name)) &&
+     !p.steps.some((s) => s.process.consumes.some((i) => ground(i.name)))],
+  /**
    * A charge is laid in once, so it may seed a loop and may not feed a
    * shortfall. The check above asks only that the plan makes some of what it
    * lays in, which the Lepidolite plan did -- eleven Carbon against eighteen
    * spent -- while quietly running dry on the third batch.
    */
+  /**
+   * Sparr: when a plan both consumes and produces carbon, something is wrong.
+   *
+   * Asked for Tantalum and Niobium with every source switched on, the plan
+   * bought eight Carbon and vented eight Carbon Dioxide -- paying for the
+   * element at the door and throwing the same element out of the back. The
+   * carbon loop closes at the same price, and the model says so: pin the
+   * Carbon column to zero and it is still feasible at the identical fetch
+   * total. It was a tie, and the tie went the wrong way.
+   *
+   * Stated for carbon because that is where the loops are and where it has bit
+   * twice. Oxygen would be the wrong test -- half the game's reactions help
+   * themselves to it and vent the rest, on purpose.
+   */
+  ['and never buys carbon while it is throwing carbon away', (p, { carries }) =>
+    !carries ||
+    !(p.frontier.some((f) => carries(f.name, 'C')) &&
+      p.byproducts.some((b) => carries(b.name, 'C')))],
+  /**
+   * Sparr: asked for Niobium and Tantalum from Columbite, it wanted priming
+   * with a list including both metals, molten, and the acids they pass through.
+   *
+   * Two faults under it. The charge was chosen by giving up on the ordering:
+   * it laid in four Molten Niobium to run the step that freezes them, and two
+   * charges later laid in the carbon to run the reduction that makes Molten
+   * Niobium -- paying for what it was about to produce. And a step was treated
+   * as all-or-nothing, so twenty turns of the Boudouard equilibrium wanted
+   * forty carbon monoxide before it would turn once, which is not how a loop
+   * starts.
+   *
+   * A charge seeds a wheel. Being asked to start with the thing you are trying
+   * to make is the plainest sign that it is doing something else.
+   */
+  /**
+   * Sparr: fetching the want atoms is never legitimate, under any circumstances.
+   *
+   * The shopping list has obeyed this from the start. The charge did not: it
+   * priced a material made of what you asked for merely out of reach, which
+   * still made it the bargain when every other way out of a deadlock was out
+   * of reach too. So Columbite asked to be started with a niobium salt, and
+   * Lepidolite with two Lithium Chloride while being asked for lithium.
+   *
+   * A charge is a fetch -- it is what you have to turn up holding -- so it
+   * takes the same rule, and a wheel has more than one place to push it.
+   */
+  /**
+   * Sparr: it thinks it can run one of the Lepidolite reactions without the
+   * other two.
+   *
+   * It cannot. Three decompositions sit on the same feed gated at 51, 52 and
+   * 50, and which one fires on a tick is the game's roll, not the player's
+   * choice. Helping itself to the potassium branch alone was claiming that two
+   * thirds of the ore came back as something it had not asked for.
+   *
+   * Checked as a ratio rather than a presence, because running all three in
+   * the wrong proportion is the same lie told more quietly.
+   */
+  ['and never runs one branch of a chamber without its rivals', (p, { chamber, rnum }) =>
+    !chamber || p.steps.every((step) => {
+      const shared = chamber(p, step.process.id);
+      if (!shared) return true;
+      // Too rare to plan on and not what was asked for: it may not run at all.
+      if (shared.zeroed.includes(step.process.id)) return false;
+      const mineAt = shared.ids.indexOf(step.process.id);
+      if (mineAt < 0) return true;              // exempt, and free as it always was
+      const mine = rnum(step.runs) / rnum(shared.chances[mineAt]);
+      return shared.ids.every((id, i) => {
+        const mate = p.steps.find((other) => other.process.id === id);
+        if (!mate) return false;
+        return Math.abs(rnum(mate.runs) / rnum(shared.chances[i]) - mine) < 1e-6 * mine;
+      });
+    })],
+  /**
+   * Bought, never; borrowed, only against something the plan makes back.
+   *
+   * The shopping list half is absolute -- going out for what you were asked to
+   * produce is not a plan at either end of it. The charge half is not quite:
+   * Sparr allows a want to be laid in to start a wheel, on the condition that
+   * makes it a loan rather than a purchase, which is that the plan produces at
+   * least as much of it as it began with. A charge it never makes back is the
+   * bootstrap that cannot start, and that stays refused whatever the option
+   * says.
+   */
+  ['and never fetches an atom it was asked to make, nor borrows one it cannot repay',
+   (p, { holdsAWant, rnum }) =>
+     !holdsAWant ||
+     (!p.frontier.some((f) => holdsAWant(p, f.name)) &&
+      !p.priming.some((x) => holdsAWant(p, x.name) &&
+                             rnum(p.madeOf(x.name)) < rnum(x.amount)))],
+  ['and never asks to be primed with the thing it is making', (p, { sameStuff }) =>
+    !sameStuff ||
+    p.priming.every((x) => !p.spec.targets.some((t) => sameStuff(x.name, t.name)))],
   ['and never lets a charge stand in for what it never makes enough of',
    (p, { rnum }) =>
      p.priming.every((x) => rnum(p.madeOf(x.name)) >= rnum(p.amountOf(x.name)) ||

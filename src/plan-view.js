@@ -12,20 +12,26 @@
  * else is drawn beside it later.
  */
 import { search } from './search.js';
-import { solvePlan, balanceTargets, routesFor, usesFor,
-         rat, rmul, rsub, rstr, rcmp, R0 } from './plan-solve.js';
+import { listed } from './prose.js';
+import { composition } from './composition.js';
+import { balanceTargets } from './balance.js';
+import { routesFor } from './routes.js';
+import { rat, rmul, rsub, rstr, rcmp, R0 } from './rational.js';
+import { solveFresh, blankFresh, questionShape, SOURCE_KINDS, SOURCES } from './plan-fresh.js';
+import { SCORES, optionSets, digest } from './plan-menu.js';
+import { rnum } from './rational.js';
 import { KIND, PROCESS_KINDS } from './plan-graph.js';
 import { AMBIENT, formatTemperature, formatTemperatureRange,
          formatTemperatureDelta } from './units.js';
 import { emptyPlan, isEmptyPlan, addTarget, setTargetAmount, removeTarget, addHave,
-         removeHave, pin, toggle, toggleKind, setOption,
-         selectMaterial, includeProcess, isFedBack, toggleFedBack,
-         primeInstead, makeInstead, keepOutput, isKept, useUp, isUsedUp,
-         useSpare, isUsingSpare, setOption as setPlanOption,
-         hasPlenty, togglePlenty } from './plan-state.js';
+         removeHave, toggle, toggleKind, toggleSource, setOption,
+         selectMaterial, addTargets, keepOutput, isKept,
+         setOption as setPlanOption } from './plan-state.js';
 
 /** Everything the pane needs from the shell, handed over once at boot. */
 let ctx = null;
+/** Which elements of the haves are ticked, until they are sent or dropped. */
+let elementPicks = new Set();
 
 /** The amounts this render is working in: balanced, or exactly what was typed. */
 let shownTargets = [];
@@ -64,6 +70,7 @@ function button(cls, label, title, onClick) {
   b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onClick(); });
   return b;
 }
+
 
 /**
  * A material, anywhere in the plan.
@@ -115,8 +122,7 @@ function firesAt([lo, hi]) {
 }
 
 /** "a", "a and b", "a, b and c". */
-const listed = (parts) => (parts.length < 2 ? (parts[0] || '')
-  : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`);
+
 
 /**
  * Everything currently showing suggestions, so a click elsewhere can put them
@@ -273,17 +279,6 @@ function renderGoals() {
     inner.append(matLink(name));
     // The two kinds of "I have it", and the difference is only ever visible
     // here: a fixed stock is what the amounts are balanced against, and
-    // something you can go on making is not a limit at all. Both stop the plan
-    // from working out how to make it.
-    const plenty = hasPlenty(plan, name);
-    const mark = button('goal-kind', plenty ? 'as needed' : 'all I have',
-      plenty
-        ? `The plan needs this much ${name} and you can get it. Press if that is all you have.`
-        : `All the ${name} you have, so the amounts are balanced against it. ` +
-          'Press if you can get more.',
-      () => edit(togglePlenty, name));
-    if (plenty) mark.classList.add('on');
-    inner.append(mark);
     haves.append(goalChip('goal-have', '', () => edit(removeHave, name), inner));
   }
 }
@@ -361,7 +356,9 @@ function renderSteps() {
       if (i) warn.append(', ');
       warn.append(matLink(n));
     });
-    warn.append('. Try switching on another kind of process under Options.');
+    warn.append(solved.why
+      ? `. ${solved.why[0].toUpperCase()}${solved.why.slice(1)}.`
+      : '. Try switching on another kind of process under Options.');
     box.append(warn);
   }
   if (solved.cycles.length) {
@@ -399,9 +396,7 @@ function renderSteps() {
   const table = el('table', 'plan-table');
   const tbody = el('tbody');
   for (const step of solved.steps) {
-    const onSpare = solved.spec.alsoUse.has(step.process.id);
-    const tr = el('tr', 'plan-step' + (step.sharesWith ? ' step-shared' : '') +
-                        (onSpare ? ' step-spare-run' : ''));
+    const tr = el('tr', 'plan-step');
     const kind = KIND.get(step.process.kind);
 
     const runs = el('td', 'step-runs');
@@ -423,30 +418,10 @@ function renderSteps() {
       const note = el('div', 'step-share');
       note.append(`${step.share.k} in ${step.share.of} of the ${
         step.process.consumes[0]?.name ?? 'feed'} goes this way`);
-      if (step.sharesWith) {
-        note.append(', sharing the chamber with ');
-        note.append(el('span', 'step-share-with', step.sharesWith.label));
-      } else {
-        note.append(' — the rest runs the other reactions below');
-      }
+      // Every rival is a step of its own here, so the rest of the feed is
+      // accounted for on rows the reader can see.
+      note.append(' — the rest runs the other reactions below');
       if (step.share.rounded) note.append(' (roughly)');
-      what.append(note);
-    }
-    // Running on what the plan already throws off, and no further: it makes
-    // what the spare stretches to and the material's usual route makes up the
-    // difference. Without saying so, a step that plainly could run more times
-    // than it does looks like an arithmetic mistake.
-    if (onSpare) {
-      const note = el('div', 'step-spare');
-      note.append(`on the spare ${listed(step.process.consumes.map((i) => i.name))}`);
-      for (const o of step.process.produces) {
-        const rest = rsub(solved.amountOf(o.name), rmul(step.runs, rat(o.count)));
-        const other = solved.dag.materials.get(o.name)?.producer;
-        if (rcmp(rest, R0) <= 0 || !other) continue;
-        note.append(` — the other ${amount(rest)} ${o.name} ${
-          rcmp(rest, rat(1)) === 0 ? 'comes' : 'come'} from `);
-        note.append(el('span', 'step-share-with', ctx.graph.byId.get(other)?.label ?? other));
-      }
       what.append(note);
     }
     what.append(conditions(step));
@@ -459,53 +434,26 @@ function renderSteps() {
     // inspector was no use to anyone who did not think to click the output.
     const made = step.process.produces
       .map((o) => o.name)
-      .find((n) => solved.dag.materials.get(n)?.producer === step.process.id) ??
-      // A step running on the leavings is nobody's chosen producer -- it makes
-      // part of the demand and the chosen route makes the rest -- so what it
-      // is here for has to be read off the demand instead.
-      (onSpare ? step.process.produces.map((o) => o.name)
-        .find((n) => rcmp(solved.amountOf(n), R0) > 0) : undefined);
-    if (step.sharesWith) {
-      // Not a choice, so not offered as one.
-      tr.append(el('td', 'step-acts'));
-      tbody.append(tr);
-      continue;
-    }
+      .find((n) => solved.dag.materials.get(n)?.producer === step.process.id);
 
     /**
-     * A step making something the plan hands back from somewhere else too.
+     * A step that is here so a charge does not have to be.
      *
-     * Then it sits on a loop, and the loop can be started with a charge
-     * instead: drop the step, lay some in once. Which way round is better is
-     * the reader's -- a charge is laid in once where a step runs for the life
-     * of the factory, and only they know whether that is a bargain -- so it is
-     * offered wherever the choice exists.
+     * It makes something the plan hands back from somewhere else too, so it
+     * sits on a loop that could have been started with a charge instead --
+     * and the solver decided the step was the better of the two. Worth saying,
+     * since a step that looks redundant is not.
      *
-     * Offered on the loop, not on the solver's opinion of it. It used to
-     * appear only where the charge-breaker had actually flipped this material,
-     * which tied the button to how good the planner happened to be that week:
-     * three separate improvements to what plans waste each took away the last
-     * example, and `primeInstead` has exactly one call site, so each time the
-     * primed state became unreachable altogether. `otherSupplyOf` does not
-     * move like that -- either something else hands the material back or it
-     * does not.
-     *
-     * Only the step *chosen* to make it. Others may produce it in passing --
-     * the acid step hands back water too -- and they are not here for it.
+     * There was a button beside this offering the other way round: drop the
+     * step, lay some in once. It wrote `credit`, which the solver that
+     * survives does not read -- it feeds every spare output back regardless --
+     * so it went with the solver that did.
      */
-    const loop = made && rcmp(solved.otherSupplyOf(made), R0) > 0 ? made : null;
-    if (loop) {
-      // Said out loud only where the solver made the trade itself, since that
-      // is the case where the step is here *for* the charge it saves.
-      if (solved.brokenLoops.includes(loop)) {
-        const why = el('div', 'step-loop');
-        why.append(`here so the ${ctx.db.byName.get(loop)?.display ?? loop} ` +
-                   'does not have to be laid in');
-        what.append(why);
-      }
-      acts.append(button('ghost small', 'Prime instead',
-        `Drop this step and lay in the ${loop} to start the loop off`,
-        () => edit(primeInstead, loop)));
+    if (made && solved.brokenLoops.includes(made)) {
+      const why = el('div', 'step-loop');
+      why.append(`here so the ${ctx.db.byName.get(made)?.display ?? made} ` +
+                 'does not have to be laid in');
+      what.append(why);
     }
     if (made) {
       acts.append(button('ghost small', 'Other ways',
@@ -530,56 +478,123 @@ function renderSteps() {
  * it, nearest first: the ones you could run right now come before the ones
  * still short of an ingredient.
  */
-function renderUses() {
+/**
+ * What you have, taken apart, and what could be put back together from it.
+ *
+ * Sparr: with just a have and no want, a list of steps is not useful. It was
+ * the wrong answer to a fair question -- naming something you hold is asking
+ * "what is this good for", and a hundred and fifty reactions that happen to
+ * take it is not an answer, it is the search space.
+ *
+ * So: the elements the haves are made of, and then everything that can be
+ * built out of nothing but those. Pick one and it becomes a want, which is a
+ * question the planner can actually answer; the leftovers of that plan can
+ * then be claimed with "Keep it" to make them outputs too.
+ *
+ * Only things something can make, which is what turns a list of 54 into a list
+ * of 30 -- the rest are walls, debris and bits of blender that share an
+ * element by accident and no recipe with anything.
+ */
+function renderMakeable() {
   const box = $('#plan-steps');
-  const available = new Set(plan.have);
-  for (const id of plan.include) {
-    for (const o of ctx.graph.byId.get(id)?.produces || []) available.add(o.name);
-  }
-  const uses = usesFor(solved, available);
+  const table = composition(ctx.graph);
+  const held = plan.have.filter((n) => table.get(n)?.elements?.size);
+
+  const symbols = new Set();
+  for (const n of held) for (const el of table.get(n).elements) symbols.add(el);
 
   const head = el('div', 'plan-steps-head plan-uses-head');
-  head.append(el('h2', null, uses.length
-    ? `${uses.length} thing${uses.length === 1 ? '' : 's'} you could do with that`
-    : 'Nothing the plan is allowed to use takes any of that'));
+  head.append(el('h2', null, symbols.size
+    ? `What ${listed(held.map((n) => ctx.db.byName.get(n)?.display ?? n))} is made of`
+    : 'Nothing here has a formula to take apart'));
   head.append(el('span', 'muted', 'or name something to make, above'));
   box.append(head);
-  if (!uses.length) return;
+  if (!symbols.size) return;
 
-  const ready = uses.filter((u) => u.ready).length;
-  if (ready) {
-    box.append(el('p', 'muted',
-      `${ready} you could run as things stand; the rest are short of something.`));
+  /**
+   * The elements themselves first, in the order the table puts them.
+   *
+   * Each is a material in its own right, and the shortest possible answer to
+   * "what could I get out of this".
+   *
+   * Chosen together rather than one at a time. Sparr: make them toggles, then
+   * a button to send the lot. Asking for the potassium and the lithium out of
+   * one ore is a single decision -- the plan that makes both is not the plan
+   * that makes either -- so pressing them one by one would re-plan in between
+   * and answer a different question each time.
+   */
+  for (const sym of [...elementPicks]) if (!symbols.has(sym)) elementPicks.delete(sym);
+
+  const elements = el('div', 'make-row');
+  const send = button('ghost small make-send', '', 'Add every element you have picked', () => {
+    const names = [...elementPicks].map((sym) => ctx.db.elementBySymbol.get(sym)?.mat)
+      .filter((n) => n && ctx.db.byName.has(n));
+    elementPicks = new Set();
+    edit(addTargets, names);
+  });
+  const label = el('span');
+  send.append(label);
+  const refresh = () => {
+    label.textContent = elementPicks.size
+      ? `Make ${elementPicks.size === 1 ? 'it' : `these ${elementPicks.size}`}`
+      : 'Pick the ones you want';
+    send.disabled = !elementPicks.size;
+  };
+  for (const e of ctx.db.elements) {
+    if (!symbols.has(e.sym) || !e.mat || !ctx.db.byName.has(e.mat)) continue;
+    const chip = button('make-chip make-element' + (elementPicks.has(e.sym) ? ' on' : ''),
+                        '', `Make ${e.name} too`, () => {
+      if (elementPicks.has(e.sym)) {
+        elementPicks.delete(e.sym);
+        chip.classList.remove('on');
+      } else {
+        elementPicks.add(e.sym);
+        chip.classList.add('on');
+      }
+      refresh();
+    });
+    chip.append(el('span', 'make-sym', e.sym));
+    chip.append(el('span', 'make-name', e.name));
+    elements.append(chip);
   }
+  elements.append(send);
+  refresh();
+  box.append(elements);
 
-  const list = el('ul', 'use-list');
-  for (const u of uses.slice(0, allUses ? uses.length : USES_SHOWN)) {
-    const li = el('li', 'use-opt' + (u.ready ? ' ready' : '') + (u.included ? ' on' : ''));
-    const pick = button('route-pick', '', 'Put this step in the plan',
-                        () => edit(includeProcess, u.process.id));
-    pick.append(el('span', 'kind-glyph', KIND.get(u.process.kind)?.glyph || ''));
-    pick.append(el('span', 'route-label', u.process.label));
-    const eq = el('span', 'route-from');
-    u.inputs.forEach((i, k) => {
-      if (k) eq.append(' + ');
-      const tag = el('span', 'route-in' + (i.have ? ' have' : ''));
-      tag.append((i.count !== 1 ? `${i.count} ` : '') + i.name);
-      eq.append(tag);
-    });
-    eq.append(' → ');
-    u.process.produces.forEach((o, k) => {
-      if (k) eq.append(' + ');
-      eq.append(el('span', 'route-out', (o.count !== 1 ? `${o.count} ` : '') + o.name));
-    });
-    pick.append(eq);
-    li.append(pick);
-    list.append(li);
+  /**
+   * Then everything made of those and nothing else.
+   *
+   * Not "everything containing them": a compound that also wants carbon is a
+   * bigger question than the one being asked, and belongs to a different set
+   * of haves.
+   */
+  const inside = (name) => {
+    const has = table.get(name)?.elements;
+    if (!has || !has.size) return false;
+    for (const el of has) if (!symbols.has(el)) return false;
+    return true;
+  };
+  const makeable = (name) => ctx.graph.producers(name)
+    .some((p) => plan.kinds.includes(p.kind));
+  const made = ctx.db.materials
+    .filter((m) => !m.hidden && !plan.have.includes(m.name) &&
+                   !ctx.db.elements.some((e) => e.mat === m.name) &&
+                   inside(m.name) && makeable(m.name))
+    .sort((a, b) => (a.display ?? a.name).localeCompare(b.display ?? b.name));
+
+  box.append(el('h2', 'plan-make-head', made.length
+    ? `${made.length} thing${made.length === 1 ? '' : 's'} made of nothing else`
+    : 'Nothing else is made of only those'));
+  if (!made.length) return;
+  const list = el('div', 'make-row');
+  for (const m of made) {
+    // One press each: a compound is a whole answer on its own, and asking for
+    // two of them at once is a question for the plan you get from the first.
+    list.append(button('make-chip', m.display ?? m.name,
+                       `Plan a way to make ${m.display ?? m.name}`,
+                       () => edit(addTarget, m.name)));
   }
   box.append(list);
-  if (uses.length > USES_SHOWN) {
-    box.append(button('ghost small', allUses ? 'Show fewer' : `Show all ${uses.length}`, null,
-                      () => { allUses = !allUses; render(); }));
-  }
 }
 
 /* ------------------------------------------------------------------- side */
@@ -587,8 +602,6 @@ function renderUses() {
 /** How many routes to show before the list has to be asked for in full. */
 const ROUTES_SHOWN = 6;
 let allRoutes = false;
-const USES_SHOWN = 12;
-let allUses = false;
 
 /**
  * One material: what it is doing here, and every other way to get it.
@@ -668,17 +681,9 @@ function renderInspector(box) {
   const list = el('ul', 'route-list');
 
   const mine = el('li', 'route-opt' + (has ? ' on' : ''));
-  // Saying you have it drops the pin that said how to make it, which is right
-  // -- unless that pin was read as a route run on the leavings. That is not a
-  // claim about how the material is made, so it survives, as itself: the four
-  // Carbon still come off the spare Carbon Monoxide and only the other five
-  // are yours to supply.
-  const standingIn = solved.sharedPins.get(name);
-  const takeIt = (p) => (standingIn ? useSpare(addHave(p, name, true), name, standingIn)
-                                    : addHave(p, name, true));
   const mineBtn = button('route-pick', '', has ? 'Stop treating this as available'
                                                : 'Treat this as available and plan no further',
-                         () => edit(has ? removeHave : takeIt));
+                         () => edit(has ? removeHave : addHave, name, true));
   mineBtn.append(el('span', 'kind-glyph', '\u2713'));
   mineBtn.append(el('span', 'route-label', has ? 'You have it' : 'I have it'));
   mineBtn.append(el('span', 'route-from', 'nothing to make, nothing to fetch'));
@@ -686,40 +691,33 @@ function renderInspector(box) {
   list.append(mine);
 
   if (routes.length) {
-    const pinned = plan.pins[name];
-    const auto = el('li', 'route-opt' + (!pinned && !has ? ' on' : ''));
-    auto.append(button('route-pick', 'Let the planner choose',
-                       'Undo a choice made here', () => edit(pin, name, null)));
-    list.append(auto);
-
+    /**
+     * The ways to get it, to read rather than to choose between.
+     *
+     * Sparr: this goes the same way as "Get rid of it", and gets a new
+     * interface later. Choosing a route by hand is another way of saying
+     * "show me a different plan", and the place to ask that is where whole
+     * plans are compared -- by what they fetch, what they need laying in and
+     * what they leave -- not one row of one material's inspector. "Let the
+     * planner choose" went with them, being the undo for a choice that can no
+     * longer be made.
+     *
+     * The list stays. What each route costs, what it needs, and how much of
+     * that is already to hand is worth knowing whether or not you can press
+     * it, and it is still the thing that says which way the plan went.
+     */
     const head = allRoutes ? routes : routes.slice(0, ROUTES_SHOWN);
     // A route you ruled out sorts last, so with 153 of them it falls off the
     // end and takes the only way to take it back with it. It comes along
     // whatever the cut.
     const shown = allRoutes ? head
       : [...head, ...routes.filter((r) => r.banned && !head.includes(r))];
-    const shared = routes.some((r) => r.spare);
     for (const r of shown) {
-      const li = el('li', 'route-opt' + (r.chosen || r.spare ? ' on' : '') +
+      const li = el('li', 'route-opt' + (r.chosen ? ' on' : '') +
                           (r.banned ? ' banned' : ''));
-      const pick = button('route-pick', '', `Make ${m.display} this way`,
-                          () => edit(pin, name, r.process.id));
+      const pick = el('div', 'route-read');
       pick.append(el('span', 'kind-glyph', KIND.get(r.process.kind)?.glyph || ''));
       pick.append(el('span', 'route-label', r.process.label));
-      // Two routes can be live at once: one running on what the plan throws
-      // off, and the usual one making up the difference. Saying which is
-      // which, and by how much, is the whole of the difference between them.
-      if (shared && (r.chosen || r.spare)) {
-        const much = el('span', 'route-share');
-        much.append(`${amount(r.covers)} of the ${amount(solved.amountOf(name))}`);
-        if (r.spare) {
-          const on = r.process.consumes.map((i) => i.name);
-          much.append(el('span', 'faint', ` — on the spare ${listed(on)}`));
-          much.title = 'Only what the plan is already throwing off feeds this, ' +
-                       'so it makes what that stretches to and no more.';
-        }
-        pick.append(much);
-      }
       const from = el('span', 'route-from');
       if (r.inputs.length) {
         r.inputs.forEach((i, k) => {
@@ -734,10 +732,19 @@ function renderInspector(box) {
       }
       pick.append(from);
       li.append(pick);
-      // The other thing a route can be: not how the material is made, but a
-      // use for what the plan is already throwing away. Offered wherever the
-      // plan has some of what it eats, since that is when it can do anything.
-      const on = isUsingSpare(plan, r.process.id);
+      /**
+       * There was a second thing a route could be: not how the material is
+       * made, but a use for what the plan was already throwing away, run on
+       * the spare and no further.
+       *
+       * It wrote `alsoUse`, and the surviving solver never read it -- it
+       * stored the field and hashed it into a cache key and nothing else, so
+       * pressing the button relabelled a plan it could not alter. The
+       * instruction it carried is this solver's default: every spare output is
+       * fed back already. Which is also why the offer had stopped appearing --
+       * it wanted a route the plan could feed from its own leavings *without*
+       * having chosen it, and here that route is the chosen one.
+       */
       const acts = el('div', 'route-acts');
       // A rejected route sorts to the bottom and is otherwise inert, so this
       // is where it can be taken back. Picking it would only pin a process the
@@ -745,14 +752,6 @@ function renderInspector(box) {
       if (r.banned) {
         acts.append(button('ghost small on', 'Ruled out', 'Let the planner use this again',
                            () => edit(toggle, 'excludeProcesses', r.process.id)));
-      } else if (!r.chosen && (on || r.runnable)) {
-        acts.append(button('ghost small' + (on ? ' on' : ''),
-          on ? 'On the spare' : 'Use the spare',
-          `Run ${r.process.label} on whatever the plan leaves over, and no further`,
-          () => edit(useSpare, name, r.process.id)));
-        if (on && !r.spare) {
-          acts.append(el('span', 'faint', 'nothing spare to run it on'));
-        }
       }
       if (acts.children.length) li.append(acts);
       list.append(li);
@@ -807,14 +806,21 @@ function renderSide() {
         });
         li.append(why);
       }
-      // How the world hands this over, for the kinds this plan will not use.
-      if (f.routes.length) {
+      /**
+       * How the world hands this over, for the kinds this plan will not use.
+       *
+       * The solver's `routes` are the other ways it could have made the thing
+       * *within the kinds it is allowed* -- mining is not one of them, so an
+       * ore comes back with none and the row would only say "found in the
+       * world". Which deposit it comes out of is the useful half of that, and
+       * the graph knows it whether or not the plan may run it.
+       */
+      const dug = f.routes.length ? f.routes[0]
+        : ctx.graph.producers(f.name).find((p) => p.kind === 'mine' || p.kind === 'handling');
+      if (dug) {
         const how = el('div', 'plan-how');
-        const kind = KIND.get(f.routes[0].kind);
-        how.append(`${kind?.glyph || ''} ${f.routes[0].label}`);
+        how.append(`${KIND.get(dug.kind)?.glyph || ''} ${dug.label}`);
         li.append(how);
-      } else if (ctx.graph.categoryOf(f.name) === 'deposit') {
-        li.append(el('div', 'plan-how', 'out there somewhere — go and find one'));
       } else if (f.raw) {
         li.append(el('div', 'plan-how', 'found in the world'));
       }
@@ -832,6 +838,19 @@ function renderSide() {
       }
       acts.append(button('ghost small', 'Other ways', `How else ${f.name} could be got`,
                          () => edit(selectMaterial, f.name)));
+      /**
+       * Sparr: refusing a material steers a plan better than refusing a step.
+       *
+       * "Never use it" is next door in the inspector and is a bigger hammer:
+       * it deletes every step that touches the thing, so the plan can neither
+       * make it nor spend it. This one only shuts the shop door. The plan is
+       * free to make its own and put it straight back in, which is usually
+       * what a reader staring at a shopping list actually wants.
+       *
+       */
+      acts.append(button('ghost small', 'Not this one',
+                         `Plan without buying ${f.name}, though it may still be made along the way`,
+                         () => edit(toggle, 'noFetch', f.name)));
       li.append(acts);
       ul.append(li);
     }
@@ -847,7 +866,10 @@ function renderSide() {
   // and nothing on the page saying what narrowed it.
   const ruledProcesses = plan.excludeProcesses;
   const ruledMaterials = plan.excludeMaterials;
-  const ruled = ruledProcesses.length + ruledMaterials.length;
+  const ruledFetch = plan.noFetch;
+  const ruledPrime = plan.noPrime;
+  const ruled = ruledProcesses.length + ruledMaterials.length
+    + ruledFetch.length + ruledPrime.length;
   if (ruled) {
     const out = el('section', 'plan-panel ruled-out');
     const title = el('h2', null, `${ruled} ruled out`);
@@ -881,18 +903,27 @@ function renderSide() {
       li.append(acts);
       ul.append(li);
     }
-    for (const name of ruledMaterials) {
-      const li = el('li', 'plan-item');
-      li.dataset.material = name;
-      const line = el('div', 'plan-item-main');
-      line.append(matLink(name));
-      li.append(line);
-      li.append(el('div', 'plan-how', 'this material, kept out of the plan entirely'));
-      const acts = el('div', 'plan-item-acts');
-      acts.append(button('ghost small', 'Allow it', 'Let the planner use this again',
-                         () => edit(toggle, 'excludeMaterials', name)));
-      li.append(acts);
-      ul.append(li);
+    for (const [field, names, how, back] of [
+      ['excludeMaterials', ruledMaterials,
+       'this material, kept out of the plan entirely', 'Let the planner use this again'],
+      ['noFetch', ruledFetch,
+       'not bought — the plan may still make some', 'Let the plan buy this again'],
+      ['noPrime', ruledPrime,
+       'not laid in — the plan must start some other way', 'Let the plan start with this again'],
+    ]) {
+      for (const name of names) {
+        const li = el('li', 'plan-item');
+        li.dataset.material = name;
+        const line = el('div', 'plan-item-main');
+        line.append(matLink(name));
+        li.append(line);
+        li.append(el('div', 'plan-how', how));
+        const acts = el('div', 'plan-item-acts');
+        acts.append(button('ghost small', 'Allow it', back,
+                           () => edit(toggle, field, name)));
+        li.append(acts);
+        ul.append(li);
+      }
     }
     out.append(ul);
     box.append(out);
@@ -917,28 +948,20 @@ function renderSide() {
       line.append(el('span', 'amount', amount(item.amount)), ' ', matLink(item.name));
       li.append(line);
       li.append(el('div', 'plan-how', 'put in once, never spent'));
-      // A charge is a one-off and an extra step is forever, so which is better
-      // is the reader's call, not the solver's. This is the other option, at
-      // the moment it arises: make the material outright instead of taking it
-      // back off the loop.
+      /**
+       * One thing to say about a charge: not this one.
+       *
+       * There were two more. "Make it instead" added a step that made the
+       * material rather than taking it off the loop, and "Stop recycling it"
+       * dropped the route that needed the charge in the first place. Both
+       * wrote fields only the old solver read -- it feeds every spare output
+       * back and lays a charge in wherever a loop needs one, whatever it is
+       * told -- so they went with it.
+       */
       const acts = el('div', 'plan-item-acts');
-      // A charge that exists because a route was set to run on the leavings is
-      // undone by dropping that route, not by adding a step: the step is
-      // already there. Turning the four spare Carbon Monoxide back into Carbon
-      // costs four Carbon to set the loop turning, and the reader may decide
-      // that is not worth it.
-      const recycles = [...solved.sharedPins].find(([mat, id]) =>
-        mat === item.name && solved.spec.alsoUse.has(id));
-      if (recycles) {
-        acts.append(button('ghost small', 'Stop recycling it',
-          `Drop ${ctx.graph.byId.get(recycles[1])?.label ?? recycles[1]}, which is ` +
-          `what the charge is for`,
-          () => edit(pin, item.name, null)));
-      } else {
-        acts.append(button('ghost small', 'Make it instead',
-                           `Add a step that makes ${item.name}, rather than laying some in`,
-                           () => edit(makeInstead, item.name)));
-      }
+      acts.append(button('ghost small', 'Not this one',
+                         `Start the plan with something other than ${item.name}`,
+                         () => edit(toggle, 'noPrime', item.name)));
       li.append(acts);
       ul.append(li);
     }
@@ -990,29 +1013,22 @@ function renderSide() {
                                 : 'Count this spare output as something you wanted, ' +
                                   'without making any more',
                          () => edit(keepOutput, b.name)));
-      const fed = isFedBack(plan, b.name);
-      const feed = button('ghost small' + (fed ? ' on' : ''),
-                          fed ? 'Fed back' : 'Feed it back',
-                          fed ? 'Stop using this surplus as an input'
-                              : 'Let the plan use this surplus instead of fetching more',
-                          () => edit(toggleFedBack, b.name));
-      feed.setAttribute('aria-pressed', String(!!b.credited));
-      acts.append(feed);
       /**
-       * The third thing you can say about a leftover.
+       * There used to be a third thing you could say about a leftover.
        *
-       * Keeping it says it was wanted after all. Feeding it back offers it to
-       * the plan as it stands, and does nothing where nothing wants it -- which
-       * is most of the time, and is why a Carbon Dioxide with a carbon still in
-       * it just sits there. This one goes looking: find a route that eats it,
-       * and build whatever that route needs.
+       * "Get rid of it" went looking for a route that ate the thing and built
+       * whatever that route needed. Sparr, on being offered it for the newer
+       * solver: what he would expect from that button is the next best plan
+       * that does not make the leftover at all -- which is a different
+       * question, and one a single button on one row is the wrong shape for.
+       * Asking it properly means comparing whole plans by what they fetch,
+       * what they need laying in and what they leave, and the comparison
+       * scoreboard is already that interface. So the button goes rather than
+       * being taught, and the choice moves to where the alternatives are.
+       *
+       * `consume` stays in the question: old links carry it and the older
+       * solver still reads it.
        */
-      const rid = isUsedUp(plan, b.name);
-      acts.append(button('ghost small' + (rid ? ' on' : ''),
-        rid ? 'Getting rid of it' : 'Get rid of it',
-        rid ? 'Stop planning a use for this'
-            : `Add whatever it takes to use the ${b.name} up, rather than leaving it`,
-        () => edit(useUp, b.name)));
       li.append(acts);
       ul.append(li);
     }
@@ -1081,6 +1097,7 @@ function renderSide() {
 /** Built once, then only ticked and unticked. Kept by hand rather than found
  *  again in the DOM, so this works against the render test's shim too. */
 const kindBoxes = new Map();
+const sourceBoxes = new Map();
 
 function renderOptions() {
   const box = $('#plan-kinds');
@@ -1096,9 +1113,31 @@ function renderOptions() {
     }
   }
   for (const [id, cb] of kindBoxes) cb.checked = plan.kinds.includes(id);
+
+  /**
+   * And what it may go and fetch, which only the newer solver reads.
+   *
+   * Hidden while the older one is answering rather than shown greyed: a
+   * control that cannot do anything is worse than one that is not there, and
+   * the checkbox above says plainly enough which solver is in charge.
+   */
+  const srcBox = $('#plan-sources');
+  if (!sourceBoxes.size) {
+    for (const k of SOURCE_KINDS) {
+      const label = el('label', 'plan-kind');
+      label.title = k.hint;
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', () => edit(toggleSource, k.id));
+      label.append(cb, el('span', 'kind-glyph', k.glyph), el('span', null, k.label));
+      srcBox.append(label);
+      sourceBoxes.set(k.id, cb);
+    }
+  }
+  for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
+
+  $('#plan-leftovers').checked = plan.keepLeftovers;
   $('#plan-avoid').checked = plan.avoidSideEffects;
-  $('#plan-feedback').checked = plan.feedBackAll;
-  $('#plan-charges').checked = plan.takeCharges;
 }
 
 /* --------------------------------------------------------------- balancing */
@@ -1141,12 +1180,174 @@ function targetsFor(spec) {
   ]);
   if (key !== balancedFor) {
     balancedFor = key;
-    balancedTo = balanceTargets(ctx.graph, { ...spec, targets: plan.targets });
+    balancedTo = balanceTargets(ctx.graph, { ...spec, targets: plan.targets },
+                                solveFresh);
   }
   return balancedTo;
 }
 
 /* ------------------------------------------------------------------ render */
+
+/* ------------------------------------------------------------------- menu */
+
+/**
+ * The same question asked every way the sources allow, side by side.
+ *
+ * Not run unless asked for. Thirty-one solves is forty-five seconds on the
+ * Columbite question, which is a very long time to hold a tab still, so this
+ * does one per turn of the event loop and redraws as each lands. The rows
+ * appear cheapest-first and settle as the slow combinations come in.
+ *
+ * Kept against the *question* rather than the plan, because picking a row
+ * changes the sources and nothing else: the sweep that produced the menu is
+ * still the right sweep, and re-running it because the player took one of its
+ * own suggestions would be absurd.
+ */
+let sweep = null;
+let sweepToken = 0;
+let askedFor = null;
+
+const questionKey = (ask) => JSON.stringify({
+  targets: ask.targets, have: ask.have, kinds: ask.kinds,
+  excludeProcesses: ask.excludeProcesses, excludeMaterials: ask.excludeMaterials,
+  noFetch: ask.noFetch, noPrime: ask.noPrime,
+  avoidSideEffects: ask.avoidSideEffects, kept: ask.kept, keepLeftovers: ask.keepLeftovers,
+});
+
+const menuTools = () => ({
+  matter: (name) => ctx.graph.db.byName.get(name)?.matter ?? 1,
+  toNumber: rnum,
+});
+
+function startSweep(ask) {
+  const token = ++sweepToken;
+  sweep = { key: questionKey(ask), ask, entries: [], queue: optionSets([...SOURCES]),
+            token, shapes: new Map() };
+  const turn = () => {
+    if (!sweep || sweep.token !== token) return;      // a newer question won
+    const options = sweep.queue.shift();
+    if (!options) { sweep.queue = null; renderMenu(); return; }
+    /**
+     * Two source sets can be the same question wearing different clothes.
+     *
+     * Every one of the thirty-one makes a different set of materials buyable,
+     * but nearly half come out with the same candidate set, the same columns to
+     * buy with and the same materials a charge could come from -- because the
+     * extra materials are ones no step here would eat. Columbite has sixteen
+     * real questions in its thirty-one, and asking the other eight again gets
+     * the same answer more slowly.
+     */
+    let answer = null;
+    const shape = questionShape(ctx.graph, { ...ask, sources: options });
+    if (shape !== null && sweep.shapes.has(shape)) {
+      answer = sweep.shapes.get(shape);
+    } else {
+      try {
+        answer = solveFresh(ctx.graph, { ...ask, sources: options });
+      } catch { answer = null; }                      // a combination that cannot: a row of its own
+      if (shape !== null) sweep.shapes.set(shape, answer);
+    }
+    sweep.entries.push({ options, plan: answer });
+    renderMenu();
+    setTimeout(turn, 0);
+  };
+  setTimeout(turn, 0);
+}
+
+const sameSources = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+
+function menuRow(row, table) {
+  const tr = el('tr', 'menu-row');
+  if (sameSources(row.via[0], plan.sources)) tr.classList.add('is-current');
+  for (const score of SCORES) {
+    const td = el('td', 'menu-num', String(Math.round(row[score.id] * 100) / 100));
+    if (row.best.includes(score.id)) td.classList.add('is-best');
+    tr.append(td);
+  }
+  const via = el('td', 'menu-via');
+  const label = row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+  const pick = button('link', label, `Switch the plan to ${label}`,
+                      () => setPlan({ ...plan, sources: [...row.via[0]] }));
+  via.append(pick);
+  if (row.via.length > 1) {
+    via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
+  }
+  /**
+   * Every row says why it is here, including the ones that win nothing.
+   *
+   * A plan can be on the menu without being the best at anything: this one
+   * takes fewer reactors than the cheaper row above it and fewer atoms than
+   * the shorter-list row below, so neither beats it, and it is the compromise
+   * between them. Sparr found one of those and it had no caption at all, which
+   * reads as an oversight rather than as the answer it is.
+   */
+  via.append(el('div', 'menu-best', row.best.length
+    ? `best on ${listed(row.best.map((id) => SCORES.find((s) => s.id === id).label))}`
+    : 'a compromise — nothing here beats it outright'));
+  tr.append(via);
+  table.append(tr);
+}
+
+function renderMenu() {
+  const key = askedFor ? questionKey(askedFor) : null;
+  // A sweep for a question nobody is asking any more. Dropping it is not
+  // tidiness: `turn` reschedules itself, so without this it would go on
+  // solving the old question thirty times over behind a menu that will never
+  // be shown.
+  if (sweep && sweep.key !== key) { sweepToken++; sweep = null; }
+
+  const box = $('#plan-menu');
+  const show = plan.targets.length > 0;
+  box.hidden = !show;
+  if (!show) return;
+
+  const run = $('#plan-menu-run');
+  const status = $('#plan-menu-status');
+  const body = $('#plan-menu-body');
+  const shut = $('#plan-menu-close');
+  const mine = sweep && sweep.key === key;
+  // Nothing to put away until there is something on the table.
+  shut.hidden = !mine;
+  const running = mine && sweep.queue !== null;
+
+  run.textContent = running ? 'Stop' : (mine ? 'Compare again' : 'Compare options');
+  run.disabled = false;
+
+  if (!mine) {
+    body.textContent = '';
+    status.textContent = 'Thirty-one ways to answer this, scored side by side. It takes a moment.';
+    return;
+  }
+
+  const { menu, distinct, barren } =
+    digest(sweep.entries, menuTools(), { keepLeftovers: plan.keepLeftovers });
+  const done = sweep.entries.length;
+  status.textContent = running
+    ? `${done} of 31 tried…`
+    : `${distinct} different answer${distinct === 1 ? '' : 's'} from 31 ways of asking` +
+      (barren.length ? `; ${barren.length} found no route at all` : '');
+
+  body.textContent = '';
+  if (!menu.length) {
+    body.append(el('p', 'menu-none', running ? 'Working…' : 'No combination of sources can answer this.'));
+    return;
+  }
+  const table = el('table', 'menu-table');
+  const head = el('tr');
+  for (const score of SCORES) {
+    const th = el('th', 'menu-num', score.short);
+    th.title = score.hint;
+    head.append(th);
+  }
+  head.append(el('th', 'menu-via', 'may fetch'));
+  table.append(head);
+  for (const row of menu) menuRow(row, table);
+  body.append(table);
+  body.append(el('p', 'menu-note',
+    'Nothing here beats anything else outright: every row is better than every ' +
+    'other at something. Most are the best answer at something too, and say so. ' +
+    'Numbers are per unit of what you asked for.'));
+}
 
 export function render() {
   const empty = isEmptyPlan(plan);
@@ -1158,37 +1359,50 @@ export function render() {
 
   const question = {
     have: plan.have,
-    plenty: plan.plenty,
-    pins: plan.pins,
-    include: plan.include,
-    alsoUse: plan.alsoUse,
-    runs: plan.runs,
     excludeProcesses: plan.excludeProcesses,
     excludeMaterials: plan.excludeMaterials,
-    credit: plan.credit,
+    noFetch: plan.noFetch,
+    noPrime: plan.noPrime,
     kept: plan.kept,
-    consume: plan.consume,
-    feedBackAll: plan.feedBackAll,
-    noFeedBack: plan.noFeedBack,
     kinds: plan.kinds,
     avoidSideEffects: plan.avoidSideEffects,
-    takeCharges: plan.takeCharges,
+    // In the question, not bolted on after: the amounts are balanced from this
+    // object, and a key built from it could not see a change of sources.
+    sources: plan.sources,
+    keepLeftovers: plan.keepLeftovers,
   };
   shownTargets = targetsFor(question);
 
-  solved = solvePlan(ctx.graph, {
-    ...question,
-    targets: shownTargets,
-  });
+  // The fresh solver answers the same question a different way; it fills in
+  // enough of the same shape for everything below to render it.
+  const ask = { ...question, targets: shownTargets, sources: plan.sources };
+  askedFor = ask;
+  {
+    /**
+     * The comparison already solved this one, so do not solve it again.
+     *
+     * Sparr: choosing a row from the scoreboard pauses -- is it re-running the
+     * solver on the plan it just showed me? It was. Every row of that table is
+     * a solved plan the sweep is still holding, and picking one changes the
+     * sources and nothing else, which is exactly the difference the sweep
+     * enumerated. So the answer is already in hand and the wait was for
+     * arithmetic that had been done.
+     */
+    const ready = sweep && sweep.key === questionKey(ask) &&
+      sweep.entries.find((e) => e.plan && sameSources(e.options, plan.sources));
+    // It says null when it cannot answer, and says why if asked. The page has
+    // to render something either way, so an empty plan carries the reason.
+    const notes = [];
+    solved = (ready && ready.plan) || solveFresh(ctx.graph, { ...ask, notes })
+      || blankFresh(ctx.graph, ask, notes.find((n) => !n.startsWith('spoils')) || null);
+  }
 
   renderGoals();
-  // With nothing named to make, the question is "what can I do with this?" --
-  // and once something has been picked, both: the steps so far, then what
-  // those leave you able to do next.
+  // With nothing named to make, the question is "what can I do with this?"
   $('#plan-steps').textContent = '';
-  if (plan.targets.length || plan.include.length) renderSteps();
-  if (!plan.targets.length) renderUses();
+  if (plan.targets.length) renderSteps(); else renderMakeable();
   renderSide();
+  renderMenu();
 }
 
 /** The solved plan, for the console and the tests. */
@@ -1198,6 +1412,31 @@ export const lastSolved = () => solved;
 
 export function initPlan(context) {
   ctx = context;
+
+  $('#plan-leftovers').addEventListener('change', () =>
+    edit(setOption, 'keepLeftovers', $('#plan-leftovers').checked));
+
+  /**
+   * Putting the comparison away, rather than hiding the whole panel.
+   *
+   * The rows go and the offer stays, so the same question can be asked again
+   * without hunting for where the button went. A sweep still running is
+   * stopped: it would go on solving into a table nobody is looking at.
+   */
+  $('#plan-menu-close').addEventListener('click', () => {
+    sweepToken++;
+    sweep = null;
+    renderMenu();
+  });
+
+  $('#plan-menu-run').addEventListener('click', () => {
+    const running = sweep && askedFor && sweep.key === questionKey(askedFor) && sweep.queue !== null;
+    // Stopping keeps what has come back so far: half a menu is still a menu,
+    // and the rows that arrive first are the cheap ones.
+    if (running) { sweep.queue = null; renderMenu(); return; }
+    startSweep(askedFor);
+    renderMenu();
+  });
 
   $('#plan-want').append(picker({
     placeholder: 'A material to make',
@@ -1232,10 +1471,6 @@ export function initPlan(context) {
 
   $('#plan-avoid').addEventListener('change', (e) =>
     edit(setOption, 'avoidSideEffects', e.target.checked));
-  $('#plan-feedback').addEventListener('change', (e) =>
-    edit(setOption, 'feedBackAll', e.target.checked));
-  $('#plan-charges').addEventListener('change', (e) =>
-    edit(setOption, 'takeCharges', e.target.checked));
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;
