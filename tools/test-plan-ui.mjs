@@ -7,12 +7,12 @@
  * were looking at when you copied it.
  */
 import { readFileSync } from 'node:fs';
-import { installDom } from './dom-shim.mjs';
+import { installDom, idsWithHidden } from './dom-shim.mjs';
 import { emptyPlan, addTarget, addHave, removeTarget,
          readPlan, writePlan } from '../src/plan-state.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-installDom([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
+installDom(idsWithHidden(html));
 
 globalThis.fetch = async () => ({
   ok: true,
@@ -21,6 +21,25 @@ globalThis.fetch = async () => ({
 
 await import('../src/main.js');
 await new Promise((r) => setTimeout(r, 0));
+
+/**
+ * Nothing the page always shows is left hidden in the markup.
+ *
+ * The shim builds its DOM from the ids in `index.html` and reads no
+ * attributes, so an element marked `hidden` there looks perfectly visible to
+ * every test in this file. The source categories were hidden in the markup and
+ * unhidden by a line that only ran for the newer solver; when that line went
+ * with the older solver, the boxes vanished from the real page and the whole
+ * suite stayed green. Checked as text, since that is the only place it shows.
+ */
+const alwaysShown = ['plan-sources'];
+for (const id of alwaysShown) {
+  const tag = html.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))?.[0] ?? '';
+  if (/\bhidden\b/.test(tag)) {
+    console.log(`FAIL  #${id} is hidden in the markup and nothing unhides it: ${tag}`);
+    process.exit(1);
+  }
+}
 
 const app = globalThis.window.explorer;
 if (!app) { console.log('FAIL boot did not complete'); process.exit(1); }
@@ -324,15 +343,17 @@ console.log('\n--- the shopping list says what it is for ---');
 {
   app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Tantalum'), 'Niobium'), 'Columbite'));
   app.setMode('plan');
-  const row = nodes($('#plan-side'), 'plan-item')
-    .find((n) => n.dataset.material === 'Lepidolite');
-  check(!!row, 'the Lepidolite is on the shopping list');
-  check(/for .*Potassium Oxide/.test(row.textContent),
+  // Whatever it buys, not a named material: what the plan reaches for moves
+  // with the solver, and the claim is about the row rather than the ore.
+  const rows = nodes($('#plan-side'), 'plan-item').filter((n) => n.dataset.material);
+  check(rows.length > 0, `something is on the shopping list: ${rows.length} rows`);
+  const row = rows[0];
+  check(/for /.test(row.textContent),
         `and the row says what it is for: ${row.textContent.replace(/\s+/g, ' ').trim().slice(0, 70)}`);
   // Links, so the next press is the one the reader wanted.
   const links = nodes(row, 'matlink').map((a) => a.textContent);
-  check(links.includes('Molten Potassium Oxide') && links.includes('Hydrofluoric Acid Gas'),
-        `each one being a link to press: ${links.join(', ')}`);
+  check(links.length > 1 && links[0] === row.dataset.material,
+        `itself and what it feeds, each a link to press: ${links.join(', ')}`);
 }
 
 console.log('\n--- a leftover with nothing left in it ---');
@@ -380,18 +401,19 @@ console.log('\n--- changing it and reloading it agree ---');
   app.setPlan(ask);
   app.setMode('plan');
   const amount = () => nodes($('#goal-targets'), 'goal-amount').map((n) => n.value).join('/');
-  const narrow = amount();
-  check(narrow === '2/2', `two of each on what the world hands over: ${narrow}`);
-
-  app.setPlan({ ...ask, sources: ['world', 'weather', 'air', 'made'] });
   const wide = amount();
-  check(wide !== narrow, `and something else once it may buy what is made: ${wide}`);
+  check(wide === '4/4', `four of each with the workshop on, as it is by default: ${wide}`);
+
+  // Narrowed to what the world hands over directly, it comes to something else.
+  app.setPlan({ ...ask, sources: ['world', 'weather', 'air'] });
+  const narrow = amount();
+  check(narrow !== wide, `and something else once it may not buy what is made: ${narrow}`);
 
   // The same address, arrived at cold.
-  globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=world~weather~air~made';
+  globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=world~weather~air';
   app.reload();
-  check(amount() === wide,
-        `changing it gives what loading it gives: ${wide} against ${amount()}`);
+  check(amount() === narrow,
+        `changing it gives what loading it gives: ${narrow} against ${amount()}`);
 }
 
 console.log('\n--- what has to be in there before it starts ---');
@@ -410,7 +432,7 @@ console.log('\n--- what has to be in there before it starts ---');
   app.setMode('plan');
   const charges = nodes($('#plan-side'), 'plan-item')
     .filter((n) => n.textContent.includes('never spent')).map((n) => n.dataset.material);
-  check(charges.includes('Steam') && charges.includes('Salt'),
+  check(charges.length > 0,
         `the plan says what has to be in the chamber first: ${charges.join(', ')}`);
   check(/put in once, never spent/.test(text('#plan-side')),
         'and that it is not spent, so it is not a shopping list');
@@ -505,40 +527,31 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
 /* --------------------------------------- running a route on the leavings */
 
 /**
- * Two separate statements that have to compose: run this route on the spare,
- * and the rest of that material is mine to bring.
+ * The route list says which way the plan went, and offers the spare where
+ * there is one.
  *
- * It used to be Carbon out of the spare Carbon Monoxide. The surviving solver
- * closes its carbon rather than leaving any, so the example is now the Steam
- * the Lepidolite decompositions hand back: ten of it, and condensing it is a
- * route to Water the plan could run for nothing.
+ * The offer itself has gone quiet. It exists for a route the plan could feed
+ * from its own leavings *without having chosen it*, and the surviving solver
+ * feeds every spare output back already -- so where such a route exists it is
+ * usually the chosen one, and there is nothing to offer. Scanning the three
+ * standing questions turns up no case at all. Worth knowing before deciding
+ * whether `alsoUse` is still earning its place; for now the list itself is
+ * what is checked.
  */
 {
-  const COND = 'cond:Steam';
   app.setMode('plan');
   app.setPlan({
     ...emptyPlan(),
-    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Lithium', amount: 2 },
-              { name: 'Aluminum', amount: 2 }, { name: 'Silicon', amount: 3 }],
+    targets: [{ name: 'Potassium', amount: 2 }, { name: 'Water', amount: 1 }],
     have: ['Lepidolite'], balance: false, selected: 'Water',
   });
-  const row = (label) => nodes($('#plan-side'), 'route-opt')
-    .find((li) => li.textContent.includes(label));
-  const spareBtn = () => {
-    const li = row('Steam condenses into Water');
-    return li && nodes(li, 'small').find((b) => /spare/.test(b.textContent));
-  };
-  check(!!spareBtn(), 'a route the plan could feed from its leavings offers to be run on them');
-
-  spareBtn().click();
-  check(app.getPlan().alsoUse.includes(COND),
-        `"Use the spare" is remembered as itself: ${app.getPlan().alsoUse.join(', ')}`);
-  check(/Steam condenses into Water/.test(text('#plan-steps')), 'and the step appears');
-
-  // Saying you have some is a separate answer, and must not turn the route off.
-  nodes(row('I have it'), 'route-pick')[0].click();
-  check(app.getPlan().have.includes('Water'), 'saying you have the Water is a separate answer');
-  check(app.getPlan().alsoUse.includes(COND), 'which does not turn the route off');
+  const opts = nodes($('#plan-side'), 'route-opt');
+  check(opts.length > 2, `every way of getting the water is listed: ${opts.length}`);
+  const chosen = opts.filter((li) => li.classList.contains('on'));
+  check(chosen.length > 0 && /Steam condenses into Water/.test(chosen[0].textContent),
+        `with the one the plan took marked: ${chosen[0]?.textContent.slice(0, 40)}`);
+  check(opts.some((li) => /Falling Snow melts into Water/.test(li.textContent)),
+        'and the ones it did not, to read');
 }
 
 /* ------------------------------------------------ taking a rejection back */
@@ -568,7 +581,7 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   nodes(panel, 'small')[0].click();
   check(app.getPlan().excludeProcesses.length === 1,
         '"Allow it" takes one rejection back and leaves the others');
-  check(/^21 steps/.test(text('#plan-steps')),
+  check(/^\d+ steps/.test(text('#plan-steps')) && !/gave up/.test(text('#plan-steps')),
         `and the plan is a plan again: ${text('#plan-steps').slice(0, 9)}`);
 
   app.setPlan(farming({ ...emptyPlan(), targets: ['Vinegar'] }));
@@ -592,14 +605,14 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   check(/left over/.test(text('#plan-side')) && !/You also get/.test(text('#plan-side')),
         'everything spare starts out as waste');
 
-  app.setPlan({ ...ask, kept: ['Molten Silica'] });
+  app.setPlan({ ...ask, kept: ['Potassium Fluoride'] });
   const side = text('#plan-side');
   check(/You also get/.test(side), 'claiming one gives the plan a second output panel');
   const also = side.split('You also get')[1].split('left over')[0];
-  check(/Molten Silica/.test(also), `and the claimed row is the one in it: ${also.slice(0, 40)}`);
+  check(/Potassium Fluoride/.test(also), `and the claimed row is the one in it: ${also.slice(0, 40)}`);
   // The waste panel, not the whole side: the shopping list names Molten Silica
   // too, as one of the things the Lepidolite is being fetched for.
-  check(!/Molten Silica/.test(side.split('left over')[1] || ''),
+  check(!/Potassium Fluoride/.test(side.split('left over')[1] || ''),
         'and gone from the leavings it was in');
   // It asks for nothing to be made: the shopping list and the steps are the
   // plan it was already going to give you.
@@ -651,17 +664,30 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
   };
   app.setPlan(ask);
   const shopping = () => text('#plan-side');
-  check(/Lepidolite/.test(shopping()), `the plan buys Lepidolite to start with: ${shopping().slice(0, 60)}`);
+  check(/Hydrofluoric Acid/.test(shopping()),
+        `the plan buys Hydrofluoric Acid to start with: ${shopping().slice(0, 60)}`);
   check(/Not this one/.test(shopping()), 'and offers to be told not to');
 
-  app.setPlan({ ...ask, noFetch: ['Lepidolite'] });
-  check(!/\bLepidolite\b/.test(text('#plan-side').split('ruled out')[0]),
-        'refused, it goes shopping somewhere else instead of giving up');
+  app.setPlan({ ...ask, noFetch: ['Hydrofluoric Acid'] });
+  /**
+   * The shopping panel only, by the row's material rather than by text.
+   *
+   * `plan-item` is the row class in every panel down that side, so a naive
+   * sweep picks up the charge and the leavings too -- and the plan goes
+   * shopping for Hydrofluoric Acid *Gas* instead, which reads as the refused
+   * name inside it either way.
+   */
+  const shoppingPanel = () => nodes($('#plan-side'), 'plan-panel')
+    .find((n) => /to fetch/.test(n.textContent));
+  const buying = () => nodes(shoppingPanel(), 'plan-item')
+    .map((n) => n.dataset.material).filter(Boolean);
+  check(buying().length > 0 && !buying().includes('Hydrofluoric Acid'),
+        `refused, it goes shopping somewhere else instead of giving up: ${buying().join(', ')}`);
   check(/1 ruled out/.test(text('#plan-side')) && /may still make some/.test(text('#plan-side')),
         'and the refusal is listed with its way back');
 
   // The blunt version really is blunter: nothing may touch it at all.
-  app.setPlan({ ...ask, excludeMaterials: ['Lepidolite'] });
+  app.setPlan({ ...ask, excludeMaterials: ['Hydrofluoric Acid'] });
   const blunt = app.getPlan();
   check(blunt.excludeMaterials.length === 1 && !blunt.noFetch.length,
         'and the two are separate choices, not one another');
@@ -708,20 +734,9 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
               .map((name) => ({ name, amount: 1 })) };
   app.setPlan(p);
   check(app.getPlan().balance, 'balancing is on to begin with');
-  /**
-   * Four times the ratio, because that is the batch it comes out at.
-   *
-   * Two, two, two and three is what the ore comes to, and 8/8/8/12 is that at
-   * the size a whole run of it actually makes: one step lands on a quarter --
-   * the water electrolysis, 21 runs to the order's 4 -- and the batch is the
-   * lowest common multiple of every step's denominator. Asking for 2/2/2/3 is
-   * quoted back at exactly this, so the balancer says what you get rather than
-   * what you asked for before the rounding.
-   */
-  check(amounts() === '8/8/8/12',
-        `one of each is shown as what the ore comes to, at the size it runs: ${amounts()}`);
-  check(/12\s*Lepidolite/.test(text('#goal-haves')),
-        `out of the ore that makes it: ${text('#goal-haves')}`);
+  check(amounts() === '2/2/2/3',
+        `one of each is shown as what three Lepidolite comes to: ${amounts()}`);
+  check(/3\s*Lepidolite/.test(text('#goal-haves')), 'out of the same 3 Lepidolite');
   check(!/Molten Silica/.test(text('#plan-side')), 'with no Molten Silica left on the floor');
 
   // Off, and the numbers are yours again.
@@ -730,11 +745,11 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
         `pressing it hands the amounts back: ${amounts()}`);
   check(/left over/.test(text('#plan-side')), 'waste and all');
   balBtn().click();
-  check(amounts() === '8/8/8/12', 'and pressing again works them out afresh');
+  check(amounts() === '2/2/2/3', 'and pressing again works them out afresh');
 
   // It stays on through a change, which is the point of it being a toggle.
   app.setPlan(removeTarget(app.getPlan(), 'Silicon'));
-  check(app.getPlan().balance && /^\d+\/\d+\/\d+$/.test(amounts()) && amounts() !== '8/8/8/12',
+  check(app.getPlan().balance && amounts() === '2/2/2',
         `dropping a product re-works the rest: ${amounts()}`);
 
   // Typing a number is taking the wheel, and a box that will not hold what you
@@ -771,6 +786,93 @@ check($('#back-to-plan').hidden, 'which is not offered when there is no plan');
  * out. Everything you hold is finite now, so the mark, the flag and the `pl`
  * parameter are gone together, and the have box means one thing.
  */
+
+/* ------------------------------ what each interface actually puts on screen */
+
+/**
+ * Sparr: there should be tests that confirm the page shows what it is expected
+ * to show in a given interface, and after a given interaction.
+ *
+ * Everything else in this file asks what some panel *says*. This asks the
+ * blunter question first: is it there, is it showing, and does it have
+ * anything in it. That is the question the source categories failed for a
+ * release -- the boxes were built, filled and hidden, and every test that read
+ * their contents was happy.
+ *
+ * `showing` wants all three, because each has been wrong on its own: an
+ * element that does not exist (a renamed id), one that exists and is hidden
+ * (this bug), and one that is showing and empty (a panel whose loop never ran).
+ */
+/**
+ * Three states, and the difference between them has bitten separately.
+ *
+ * `up` is "there and not hidden", which is all you can ask of a container: the
+ * shim keeps a flat map of id to node, so a wrapper the page nests things
+ * inside has no children here and no text of its own.
+ *
+ * `filled` adds "and something is in it", which is the question for a panel
+ * the page draws into -- a loop that never ran leaves one showing and empty.
+ */
+const up = (sel) => { const n = $(sel); return !!n && !n.hidden; };
+const filled = (sel) => up(sel) && ($(sel).textContent || '').trim().length > 0;
+const away = (sel) => { const n = $(sel); return !n || n.hidden; };
+
+console.log('\n--- what each interface shows ---');
+{
+  const seen = (what, { shown = [], drawn = [], gone = [] }) => {
+    const bad = [...shown.filter((sel) => !up(sel)).map((sel) => `${sel} not showing`),
+                 ...drawn.filter((sel) => !filled(sel)).map((sel) => `${sel} showing but empty`),
+                 ...gone.filter((sel) => !away(sel)).map((sel) => `${sel} should be away`)];
+    check(!bad.length, `${what}: ${bad.join(', ') ||
+      `${shown.length + drawn.length} shown, ${gone.length} away`}`);
+  };
+
+  app.setMode('explore');
+  app.select(app.db.byName.get('Water'));
+  seen('exploring', { drawn: ['#results', '#detail'], gone: ['#plan-main'] });
+
+  app.setMode('plan');
+  app.setPlan(emptyPlan());
+  seen('a plan with nothing in it',
+       { shown: ['#plan-empty'], gone: ['#plan-work', '#explore-main'] });
+
+  app.setPlan(addHave(emptyPlan(), 'Lepidolite'));
+  seen('naming only what you have',
+       { shown: ['#plan-work'], drawn: ['#plan-steps', '#goal-haves'], gone: ['#plan-empty'] });
+  check(/is made of/.test(text('#plan-steps')) &&
+        nodes($('#plan-steps'), 'make-chip').length > 6,
+        'and it is the elements and what they build, not a table of steps');
+
+  app.setPlan(addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite'));
+  seen('a plan with a target',
+       { shown: ['#plan-work'],
+         drawn: ['#plan-steps', '#plan-side', '#goal-targets', '#goal-haves'],
+         gone: ['#plan-empty'] });
+  check(nodes($('#plan-steps'), 'plan-step').length > 0, 'with steps in the table');
+  check(/to fetch|Nothing left to fetch/.test(text('#plan-side')),
+        'and a shopping list, even when it is empty');
+
+  // The options panel, which is where the categories went missing.
+  $('#toggle-plan-options').click();
+  seen('the options panel',
+       { shown: ['#plan-options'], drawn: ['#plan-kinds', '#plan-sources'] });
+  const srcBoxes = nodes($('#plan-sources'), 'plan-kind');
+  check(srcBoxes.length === 5,
+        `with all five source categories to tick: ${srcBoxes.map((b) => b.textContent.trim()).join(', ')}`);
+  check(nodes($('#plan-kinds'), 'plan-kind').length > 3, 'and the kinds beside them');
+  $('#toggle-plan-options').click();
+
+  // The comparison, offered but not run until asked.
+  seen('the comparison',
+       { shown: ['#plan-menu'], drawn: ['#plan-menu-run'], gone: ['#plan-menu-close'] });
+
+  // The inspector opens on a material and says how to get it.
+  app.setPlan({ ...addHave(addTarget(emptyPlan(), 'Potassium'), 'Lepidolite'),
+                selected: 'Molten Potassium Oxide' });
+  check(nodes($('#plan-side'), 'inspector').length === 1, 'the inspector opens on a material');
+  check(nodes($('#plan-side'), 'route-opt').length > 1,
+        `listing the ways to get it: ${nodes($('#plan-side'), 'route-opt').length}`);
+}
 
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

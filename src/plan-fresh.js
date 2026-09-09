@@ -91,7 +91,7 @@ export const SOURCE_KINDS = [
  * When a search comes back with nothing, the thing to show the reader is this
  * list and the offer to widen it.
  */
-export const DEFAULT_SOURCES = ['world', 'weather', 'air'];
+export const DEFAULT_SOURCES = ['world', 'weather', 'air', 'made'];
 
 /**
  * Two of the five cannot be read off the data and are written down here.

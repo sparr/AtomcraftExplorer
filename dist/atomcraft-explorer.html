@@ -1087,7 +1087,7 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
   <div id="plan-options" class="panel" hidden>
     <h2>What the plan may use</h2>
     <div id="plan-kinds" class="plan-kinds"></div>
-    <div id="plan-sources" class="plan-kinds" hidden></div>
+    <div id="plan-sources" class="plan-kinds"></div>
     <label class="plan-opt" id="plan-avoid-opt">
       <input type="checkbox" id="plan-avoid" checked>
       Keep each step to one reaction &mdash; narrow its temperature range so
@@ -5596,7 +5596,7 @@ const SOURCE_KINDS = [
  * When a search comes back with nothing, the thing to show the reader is this
  * list and the offer to widen it.
  */
-const DEFAULT_SOURCES = ['world', 'weather', 'air'];
+const DEFAULT_SOURCES = ['world', 'weather', 'air', 'made'];
 
 /**
  * Two of the five cannot be read off the data and are written down here.

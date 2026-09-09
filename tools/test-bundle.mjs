@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installDom } from './dom-shim.mjs';
+import { installDom, idsWithHidden } from './dom-shim.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'atomcraft-bundle-'));
 const built = join(scratch, 'check.html');
@@ -34,7 +34,7 @@ if (fresh !== committed) {
 console.log('ok    the committed bundle matches its sources');
 
 const html = committed;
-installDom([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
+installDom(idsWithHidden(html));
 
 // The bundle must not reach the network -- that is the whole point of it.
 globalThis.fetch = () => { throw new Error('the standalone build must not fetch()'); };
@@ -172,8 +172,10 @@ if (!srcBox) {
   if (srcBox.hidden) { console.log('FAIL the source boxes are hidden for a fresh plan'); fail++; }
   else console.log(`ok    the source categories are offered (${srcBox.children.length} of them)`);
 
+  // Dropping the workshop, which is in the default set: without it the plan
+  // cannot buy an intermediate and has to work the ore instead.
   globalThis.location.hash =
-    '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=weather~air~made';
+    '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=world~weather~air';
   app.reload();
   await new Promise((r) => setTimeout(r, 0));
   const otherSide = document.querySelector('#plan-side')?.textContent ?? '';

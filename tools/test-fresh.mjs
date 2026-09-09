@@ -186,8 +186,21 @@ const oreChecks = [
   ['iron too, and not by simply buying iron',
    !!iron && iron.steps.length > 0 &&
      !iron.frontier.some((f) => sameStuff(f.name, 'Iron'))],
-  ['and the ore still has to be worked, not just carried home',
-   !!iron && iron.steps.filter((s) => s.process.kind !== 'phase').length > 0],
+  /**
+   * And what it buys is put through something, rather than carried home.
+   *
+   * This used to demand a step that was not a phase change, on the reading
+   * that melting a thing is not work. Melting an ore is exactly the work:
+   * `Hematite melts into Molten Iron` is the game's smelter, five atoms in and
+   * one metal out. With the workshop switched on by default the plan reaches
+   * for it, which is right, and the claim worth keeping is the one this was
+   * standing in for -- the ore does not simply become the answer by being
+   * carried home. Its sibling above already says the ore is not the answer in
+   * another phase; this says something happens to it.
+   */
+  ['and the ore it buys is put through something',
+   !!iron && iron.steps.some((s) => (s.process.consumes || [])
+     .some((i) => iron.frontier.some((f) => f.name === i.name)))],
 ];
 for (const [what, ok] of oreChecks) {
   console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
