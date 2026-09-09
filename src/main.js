@@ -55,6 +55,7 @@ function setMode(mode, { save = true } = {}) {
   $('#explore-bar').hidden = planning;
   $('#plan-bar').hidden = !planning;
   $('#toggle-plan-options').hidden = !planning;
+  $('#toggle-plan-picture').hidden = !planning;
   if (planning) { $('#ptable').hidden = true; $('#help').hidden = true; }
   $('#toggle-table').hidden = planning;
   $('#toggle-help').hidden = planning;

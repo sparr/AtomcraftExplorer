@@ -1019,3 +1019,48 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .plan-opt.is-off { color: var(--fg-faint); }
 .plan-opt.is-off input { cursor: not-allowed; }
 
+
+
+/* ------------------------------------------------------------- the picture */
+
+/*
+ * A plan drawn as what it is: a graph with a direction. Left to right, because
+ * that is the way the material moves and the way a reader expects to follow
+ * it, and scrolling rather than shrinking, because twenty steps squeezed into
+ * a column is a diagram nobody can read.
+ */
+.plan-picture {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  margin-bottom: 12px;
+  overflow: auto;
+  max-height: 70vh;
+}
+.plan-svg { display: block; }
+
+.plan-wire { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.plan-arrowhead { fill: var(--line); }
+/* The edges that close a wheel, which are the only ones read right to left. */
+.plan-wire-loop { stroke: var(--accent-dim); stroke-dasharray: 4 3; }
+
+.plan-node { cursor: grab; }
+.plan-node:active { cursor: grabbing; }
+.plan-node-box { fill: var(--bg-raised); stroke: var(--line); stroke-width: 1; }
+.plan-node-label {
+  fill: var(--fg-dim);
+  font: 12px var(--mono);
+  text-anchor: middle;
+  pointer-events: none;
+}
+/* A step is a box and a material is a chip, so the two never read alike. */
+.plan-step .plan-node-box { stroke: var(--line); }
+.plan-material .plan-node-box { fill: var(--bg); }
+.plan-material .plan-node-label { fill: var(--fg); }
+
+/* What the reader brings, what they get, and what falls on the floor. */
+.plan-role-have .plan-node-box { stroke: var(--ok); }
+.plan-role-fetch .plan-node-box { stroke: var(--warm); }
+.plan-role-want .plan-node-box { stroke: var(--accent); stroke-width: 2; }
+.plan-role-spare .plan-node-box { stroke: var(--line-soft); }
+.plan-role-spare .plan-node-label { fill: var(--fg-faint); }

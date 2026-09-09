@@ -45,7 +45,13 @@ class Node {
   }
   appendChild(n) { this.append(n); return n; }
   remove() {}
-  setAttribute(k, v) { this.attrs.set(k, String(v)); }
+  setAttribute(k, v) {
+    this.attrs.set(k, String(v));
+    // A real DOM keeps the two in step, and SVG is built by attribute: the
+    // diagram's nodes were invisible to every class-based query until this
+    // did the same.
+    if (k === 'class') this.className = String(v);
+  }
   getAttribute(k) { return this.attrs.get(k) ?? null; }
   addEventListener(type, fn) {
     if (!this.listeners.has(type)) this.listeners.set(type, []);
@@ -115,6 +121,9 @@ export function installDom(idsFromHtml) {
 
   const document = {
     createElement: (t) => (t === 'canvas' ? makeCanvas() : new Node(t)),
+    // SVG is made through its own namespace; the shim keeps no namespaces, so
+    // this is the same node with the tag it was asked for.
+    createElementNS: (_ns, t) => new Node(t),
     createDocumentFragment: () => new Fragment(),
     createTextNode: (t) => ({ text: String(t) }),
     querySelector: (sel) => byId.get(sel) ?? null,

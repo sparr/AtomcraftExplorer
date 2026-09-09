@@ -16,6 +16,7 @@ import { listed } from './prose.js';
 import { composition } from './composition.js';
 import { balanceTargets } from './balance.js';
 import { routesFor } from './routes.js';
+import { drawPlan } from './plan-picture.js';
 import { rat, rmul, rsub, rstr, rcmp, R0 } from './rational.js';
 import { solveFresh, blankFresh, questionShape, oreReach,
          SOURCE_KINDS, SOURCES } from './plan-fresh.js';
@@ -1484,6 +1485,31 @@ export function render() {
   if (plan.targets.length) renderSteps(); else renderMakeable();
   renderSide();
   renderMenu();
+  renderPicture();
+}
+
+/**
+ * The plan as a picture, when the reader asks for one.
+ *
+ * Drawn only while it is open: it costs a layout and a few hundred frames of
+ * settling, which is nothing beside a solve but is pure waste on a page nobody
+ * is looking at. Torn down on the way out so the springs stop with it.
+ */
+let picture = null;
+let showPicture = false;
+function renderPicture() {
+  const host = $('#plan-picture');
+  host.hidden = !showPicture || !solved;
+  if (picture) { picture.stop(); picture = null; }
+  if (host.hidden) return;
+  picture = drawPlan(host, solved, { onPick: (name) => edit(selectMaterial, name) });
+}
+
+/** Open or shut the picture, from the button in the bar. */
+export function togglePicture() {
+  showPicture = !showPicture;
+  $('#toggle-plan-picture').setAttribute('aria-pressed', String(showPicture));
+  renderPicture();
 }
 
 /** The solved plan, for the console and the tests. */
@@ -1558,6 +1584,7 @@ export function initPlan(context) {
     if (Number.isFinite(n) && n > 0) edit(setOption, 'oreTries', Math.min(n, ORE_TRIES_MAX));
     else e.target.value = String(plan.oreTries);
   });
+  $('#toggle-plan-picture').addEventListener('click', togglePicture);
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;

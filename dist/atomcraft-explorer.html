@@ -1027,6 +1027,51 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
 .plan-opt.is-off input { cursor: not-allowed; }
 
 
+
+/* ------------------------------------------------------------- the picture */
+
+/*
+ * A plan drawn as what it is: a graph with a direction. Left to right, because
+ * that is the way the material moves and the way a reader expects to follow
+ * it, and scrolling rather than shrinking, because twenty steps squeezed into
+ * a column is a diagram nobody can read.
+ */
+.plan-picture {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  margin-bottom: 12px;
+  overflow: auto;
+  max-height: 70vh;
+}
+.plan-svg { display: block; }
+
+.plan-wire { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.plan-arrowhead { fill: var(--line); }
+/* The edges that close a wheel, which are the only ones read right to left. */
+.plan-wire-loop { stroke: var(--accent-dim); stroke-dasharray: 4 3; }
+
+.plan-node { cursor: grab; }
+.plan-node:active { cursor: grabbing; }
+.plan-node-box { fill: var(--bg-raised); stroke: var(--line); stroke-width: 1; }
+.plan-node-label {
+  fill: var(--fg-dim);
+  font: 12px var(--mono);
+  text-anchor: middle;
+  pointer-events: none;
+}
+/* A step is a box and a material is a chip, so the two never read alike. */
+.plan-step .plan-node-box { stroke: var(--line); }
+.plan-material .plan-node-box { fill: var(--bg); }
+.plan-material .plan-node-label { fill: var(--fg); }
+
+/* What the reader brings, what they get, and what falls on the floor. */
+.plan-role-have .plan-node-box { stroke: var(--ok); }
+.plan-role-fetch .plan-node-box { stroke: var(--warm); }
+.plan-role-want .plan-node-box { stroke: var(--accent); stroke-width: 2; }
+.plan-role-spare .plan-node-box { stroke: var(--line-soft); }
+.plan-role-spare .plan-node-label { fill: var(--fg-faint); }
+
 </style>
 </head>
 <body>
@@ -1046,6 +1091,7 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
     <button id="back-to-plan" class="ghost" hidden>&larr; Back to plan</button>
     <button id="toggle-table" class="ghost" aria-pressed="false">Periodic table</button>
     <button id="toggle-help" class="ghost" aria-pressed="false">Syntax</button>
+    <button id="toggle-plan-picture" class="ghost" aria-pressed="false" hidden>Diagram</button>
     <button id="toggle-plan-options" class="ghost" aria-pressed="false" hidden>Options</button>
   </div>
 </header>
@@ -1148,6 +1194,7 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
       </div>
       <div id="plan-menu-body"></div>
     </section>
+    <section id="plan-picture" class="plan-picture" hidden></section>
     <div class="plan-columns">
       <div id="plan-steps" class="plan-steps"></div>
       <aside id="plan-side" class="plan-side"></aside>
@@ -9860,6 +9907,549 @@ function routesFor(plan, name) {
 return { ROUTE_WEIGHTS, processCost, routesFor };
 })();
 
+const __mod_plan_diagram = (() => {
+/**
+ * A plan as a picture: what feeds what, laid out so it can be read.
+ *
+ * Sparr asked for this at the start of the project and again now, wondering
+ * about libraries for spring forces and untangling. The single-file build
+ * settles half of that: `dist/atomcraft-explorer.html` inlines every module
+ * and fetches nothing, so a layout library would have to be vendored into the
+ * repository and inlined with the rest. That is a fair thing to do and it is
+ * not what this needs, because the interesting half of the problem is not the
+ * physics.
+ *
+ * A reaction plan is not a social network. Dropped into a plain force
+ * simulation it settles into a hairball, because springs know only that
+ * connected things should be near each other -- and what a reader wants to
+ * know first is which way the material flows. So the flow is decided first, by
+ * layering: everything the plan starts from on the left, everything it makes
+ * on the right, each step to the right of what it eats. Then the crossings are
+ * combed out within each layer, which is where the untangling actually
+ * happens. Only then do springs run, and only along the layer, where they
+ * spread things that would otherwise sit on top of each other and let a
+ * dragged node push its neighbours aside.
+ *
+ * That order matters: relaxing before the combing undoes it, and combing
+ * without the layering has nothing to comb along.
+ */
+const {rnum} = __mod_rational;
+
+/** A step is a box; a material is a chip. Both are nodes here. */
+const STEP = 'step';
+const MATERIAL = 'material';
+
+/**
+ * The edges that close a loop, found so they can be left out of the layering.
+ *
+ * A plan is full of wheels -- that is what charges are for -- and a wheel has
+ * no left-to-right reading. Relaxing ranks over one does not converge on
+ * anything: it walks the cycle raising everything by one each time round, and
+ * the Lepidolite plan came out with a step at rank 292 of a fifty-node graph,
+ * a picture five thousand pixels wide and one node tall in most columns.
+ *
+ * So a depth-first walk marks every edge that points back at something already
+ * on the stack. Those are the closing edges; the rest is a directed acyclic
+ * graph and lays out properly. The marked ones are still drawn -- a loop the
+ * reader cannot see is a loop they will not understand -- but drawn as what
+ * they are, an arrow pointing back the way it came.
+ */
+function backEdges(nodes, edges) {
+  const out = new Map();
+  for (const e of edges) {
+    if (!out.has(e.from)) out.set(e.from, []);
+    out.get(e.from).push(e);
+  }
+  const state = new Map();                    // unseen | open | done
+  const back = new Set();
+  const walk = (id) => {
+    state.set(id, 'open');
+    for (const e of out.get(id) || []) {
+      const at = state.get(e.to);
+      if (at === 'open') back.add(e);
+      else if (at === undefined) walk(e.to);
+    }
+    state.set(id, 'done');
+  };
+  for (const n of nodes) if (!state.has(n.id)) walk(n.id);
+  return back;
+}
+
+/**
+ * Longest path from the things nothing makes.
+ *
+ * A material's layer is one past the step that makes it, and a step's is one
+ * past the last of what it eats, so an edge always points right. Only the
+ * forward edges are counted; the ones that close a wheel are set aside first.
+ */
+function rank(nodes, edges, back) {
+  const into = new Map();
+  for (const e of edges) {
+    if (back.has(e)) continue;
+    if (!into.has(e.to)) into.set(e.to, []);
+    into.get(e.to).push(e.from);
+  }
+  for (const n of nodes) n.rank = 0;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (let pass = 0; pass < nodes.length; pass++) {
+    let moved = false;
+    for (const n of nodes) {
+      let want = 0;
+      for (const from of into.get(n.id) || []) {
+        want = Math.max(want, (byId.get(from)?.rank ?? 0) + 1);
+      }
+      if (want > n.rank) { n.rank = want; moved = true; }
+    }
+    if (!moved) break;
+  }
+}
+
+/**
+ * Fewer crossings, by putting each node beside the average of its neighbours.
+ *
+ * The median heuristic, swept forwards and back a few times. It is not
+ * optimal -- minimising crossings exactly is NP-hard and nobody needs the
+ * exact answer -- but it is what turns a plan of twenty steps from a cat's
+ * cradle into something with legible strands, and it costs a few passes over
+ * the edge list.
+ */
+function comb(layers, edges, rounds = 4) {
+  const near = new Map();
+  const add = (a, b) => { if (!near.has(a)) near.set(a, []); near.get(a).push(b); };
+  for (const e of edges) { add(e.to, e.from); add(e.from, e.to); }
+
+  const place = (layer) => new Map(layer.map((n, i) => [n.id, i]));
+
+  /**
+   * How many pairs of edges cross, read off the running order alone.
+   *
+   * Wanted during the sweeping, before anything has coordinates, so it counts
+   * on `at` rather than on `y`: two edges between the same pair of layers
+   * cross when one starts above the other and ends below it.
+   */
+  const tangled = () => {
+    const at = new Map();
+    layers.forEach((layer, r) => layer.forEach((n, i) => at.set(n.id, [r, i])));
+    const spans = [];
+    for (const e of edges) {
+      const a = at.get(e.from);
+      const b = at.get(e.to);
+      if (a && b && b[0] === a[0] + 1) spans.push([a[0], a[1], b[1]]);
+    }
+    let n = 0;
+    for (let i = 0; i < spans.length; i++) {
+      for (let j = i + 1; j < spans.length; j++) {
+        if (spans[i][0] !== spans[j][0]) continue;
+        if ((spans[i][1] - spans[j][1]) * (spans[i][2] - spans[j][2]) < 0) n++;
+      }
+    }
+    return n;
+  };
+
+  /**
+   * Keep the best sweep, not the last one.
+   *
+   * The sweeps alternate direction and each is only a heuristic, so they
+   * wander: the Lepidolite plan goes from twenty-five crossings to twelve on
+   * the first pass and back up to eighteen by the fourth, and the Columbite
+   * one from twelve to three to two. Running more rounds and taking whatever
+   * fell out last was leaving the picture worse than one round would have.
+   */
+  let best = layers.map((layer) => [...layer]);
+  let fewest = tangled();
+  for (let round = 0; round < rounds; round++) {
+    const list = round % 2 === 0 ? layers : [...layers].reverse();
+    for (let i = 1; i < list.length; i++) {
+      const fixed = place(list[i - 1]);
+      const median = (n) => {
+        const seen = (near.get(n.id) || []).map((m) => fixed.get(m)).filter((v) => v !== undefined);
+        if (!seen.length) return n.at ?? 0;
+        seen.sort((a, b) => a - b);
+        return seen[(seen.length - 1) >> 1];
+      };
+      list[i].sort((a, b) => median(a) - median(b));
+      list[i].forEach((n, k) => { n.at = k; });
+    }
+    const now = tangled();
+    if (now < fewest) { fewest = now; best = layers.map((layer) => [...layer]); }
+  }
+  layers.forEach((layer, r) => {
+    layer.length = 0;
+    layer.push(...best[r]);
+    layer.forEach((n, k) => { n.at = k; });
+  });
+}
+
+/**
+ * The plan as nodes and edges, laid out.
+ *
+ * Materials and steps both become nodes, which is the honest shape: a plan is
+ * a bipartite graph and drawing it as one means every arrow says the same
+ * thing, "this goes into that". Drawing only the steps would need an arrow to
+ * carry a label saying which material it stood for, and a reader chasing one
+ * material through five reactions would have nothing to follow.
+ */
+function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4 } = {}) {
+  if (!plan || !plan.steps) return { nodes: [], edges: [], width: 0, height: 0 };
+  const nodes = [];
+  const edges = [];
+  const seen = new Map();
+
+  const amountOf = (name) => {
+    const f = plan.frontier.find((x) => x.name === name);
+    if (f) return rnum(f.amount);
+    const h = plan.feed.find((x) => x.name === name);
+    if (h) return rnum(h.amount);
+    return null;
+  };
+  const roleOf = (name) => {
+    if (plan.spec.targets.some((t) => t.name === name)) return 'want';
+    if (plan.frontier.some((f) => f.name === name)) return 'fetch';
+    if (plan.feed.some((f) => f.name === name)) return 'have';
+    if (plan.byproducts.some((b) => b.name === name)) return 'spare';
+    return 'inner';
+  };
+  const material = (name) => {
+    const id = `m:${name}`;
+    if (!seen.has(id)) {
+      const node = { id, kind: MATERIAL, name, label: name,
+                     role: roleOf(name), amount: amountOf(name) };
+      seen.set(id, node);
+      nodes.push(node);
+    }
+    return seen.get(id);
+  };
+
+  for (const step of plan.steps) {
+    const id = `s:${step.process.id}`;
+    const node = { id, kind: STEP, name: step.process.label,
+                   label: step.process.label, runs: rnum(step.runs),
+                   kindOf: step.process.kind };
+    seen.set(id, node);
+    nodes.push(node);
+    for (const i of step.process.consumes || []) {
+      edges.push({ from: material(i.name).id, to: id, count: i.count });
+    }
+    for (const o of step.process.produces || []) {
+      edges.push({ from: id, to: material(o.name).id, count: o.count });
+    }
+  }
+
+  const back = backEdges(nodes, edges);
+  for (const e of edges) e.back = back.has(e);
+  rank(nodes, edges, back);
+
+  const byRank = new Map();
+  for (const n of nodes) {
+    if (!byRank.has(n.rank)) byRank.set(n.rank, []);
+    byRank.get(n.rank).push(n);
+  }
+  const layers = [...byRank.keys()].sort((a, b) => a - b).map((r) => byRank.get(r));
+  layers.forEach((layer) => layer.forEach((n, i) => { n.at = i; }));
+  comb(layers, edges, rounds);
+
+  const tallest = Math.max(1, ...layers.map((l) => l.length));
+  for (const layer of layers) {
+    // Centred in the column, so a short layer sits beside the middle of a long
+    // one rather than at its top.
+    const top = (tallest - layer.length) / 2;
+    layer.forEach((n, i) => {
+      n.x = n.rank * gapX;
+      n.y = (top + i) * gapY;
+    });
+  }
+  return {
+    nodes,
+    edges,
+    width: (layers.length - 1) * gapX,
+    height: (tallest - 1) * gapY,
+  };
+}
+
+/**
+ * One tick of the springs, along the layer only.
+ *
+ * Ranks are the one thing the reader can rely on -- everything to the left of
+ * a step goes into it -- so a force that moved a node between columns would be
+ * trading the only guarantee the picture makes for a prettier tangle. What is
+ * left is worth having: connected things pull level with each other, so a long
+ * strand straightens out, and things in the same column push apart so nothing
+ * hides behind anything.
+ *
+ * A dragged node is pinned and pushes; that is the whole of the interaction.
+ */
+function relax(state, { spring = 0.05, repel = 26, reach = 64,
+                               damp = 0.78, cap = 14 } = {}) {
+  const { nodes, edges } = state;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const n of nodes) n.vy = n.vy ?? 0;
+
+  for (const e of edges) {
+    const a = byId.get(e.from);
+    const b = byId.get(e.to);
+    if (!a || !b) continue;
+    const pull = (b.y - a.y) * spring;
+    if (!a.held) a.vy += pull;
+    if (!b.held) b.vy -= pull;
+  }
+
+  /**
+   * Push apart, but only near, and never harder than a shove.
+   *
+   * An inverse-square repulsion is what a physics engine would use and it is
+   * wrong here: two nodes that start level are zero apart, the force is
+   * unbounded, and the whole picture explodes. The Columbite plan was still
+   * moving two thousand pixels a tick after four hundred of them. What is
+   * actually wanted is much smaller -- keep neighbours in a column from
+   * sitting on top of each other -- so the push falls off to nothing over one
+   * node's height and is capped on the way.
+   */
+  const byRank = new Map();
+  for (const n of nodes) {
+    if (!byRank.has(n.rank)) byRank.set(n.rank, []);
+    byRank.get(n.rank).push(n);
+  }
+  for (const layer of byRank.values()) {
+    for (let i = 0; i < layer.length; i++) {
+      for (let j = i + 1; j < layer.length; j++) {
+        const a = layer[i];
+        const b = layer[j];
+        const d = b.y - a.y;
+        const away = Math.abs(d);
+        if (away >= reach) continue;
+        // Level with each other and needing to be told apart: the one listed
+        // first goes up, which is arbitrary and settles.
+        const dir = away < 1e-6 ? (i < j ? -1 : 1) : Math.sign(d);
+        const push = repel * (1 - away / reach) * dir;
+        if (!a.held) a.vy -= push;
+        if (!b.held) b.vy += push;
+      }
+    }
+  }
+
+  let moved = 0;
+  for (const n of nodes) {
+    if (n.held) { n.vy = 0; continue; }
+    n.vy = Math.max(-cap, Math.min(cap, n.vy * damp));
+    n.y += n.vy;
+    moved += Math.abs(n.vy);
+  }
+  return moved;
+}
+
+/** How many edges cross, for saying whether the combing did anything. */
+function crossings(state) {
+  const byId = new Map(state.nodes.map((n) => [n.id, n]));
+  const spans = [];
+  for (const e of state.edges) {
+    const a = byId.get(e.from);
+    const b = byId.get(e.to);
+    if (a && b && b.rank === a.rank + 1) spans.push([a.rank, a.y, b.y]);
+  }
+  let n = 0;
+  for (let i = 0; i < spans.length; i++) {
+    for (let j = i + 1; j < spans.length; j++) {
+      if (spans[i][0] !== spans[j][0]) continue;
+      const [, a1, b1] = spans[i];
+      const [, a2, b2] = spans[j];
+      if ((a1 - a2) * (b1 - b2) < 0) n++;
+    }
+  }
+  return n;
+}
+
+return { layoutPlan, relax, crossings };
+})();
+
+const __mod_plan_picture = (() => {
+/**
+ * The layout, drawn, and left in the reader's hands.
+ *
+ * Everything decided in `plan-diagram.js` is arithmetic on numbers; this is
+ * the part that makes marks and takes presses. Kept apart because the layout
+ * is worth testing and a drag handler is not: the sums can be checked without
+ * a browser, and what is left here is short enough to read.
+ *
+ * Drawn as SVG rather than boxes on the page because the arrows are the point.
+ * A plan is a graph and the interesting question -- where does this material
+ * come from and what is waiting on it -- is a question about edges.
+ */
+const {layoutPlan, relax} = __mod_plan_diagram;
+
+const NS = 'http://www.w3.org/2000/svg';
+const make = (tag, attrs = {}) => {
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+  return n;
+};
+
+const PAD = 28;
+const BOX = { w: 150, h: 34 };
+
+/**
+ * Where an edge meets a node.
+ *
+ * At the side rather than the centre, so a line does not disappear under the
+ * label it is pointing at and the arrowheads all land on one vertical.
+ */
+const port = (n, side) => ({ x: n.x + (side === 'out' ? BOX.w / 2 : -BOX.w / 2), y: n.y });
+
+/**
+ * A curve rather than a straight line.
+ *
+ * Two edges between the same pair of columns lie on top of each other when
+ * both are straight and their ends are level; bowed apart by where they are
+ * going, they stay legible. The loop-closing edges bow the other way and are
+ * dashed, since they are the only ones that read right to left.
+ */
+function path(a, b, back) {
+  const from = port(a, back ? 'in' : 'out');
+  const to = port(b, back ? 'out' : 'in');
+  const lift = back ? -46 : 0;
+  const mid = (from.x + to.x) / 2;
+  return `M ${from.x} ${from.y} C ${mid} ${from.y + lift}, ${mid} ${to.y + lift}, ${to.x} ${to.y}`;
+}
+
+function drawPlan(host, plan, { onPick } = {}) {
+  host.textContent = '';
+  const state = layoutPlan(plan);
+  if (!state.nodes.length) {
+    host.append(Object.assign(document.createElement('p'), {
+      className: 'muted', textContent: 'Nothing to draw yet.' }));
+    return { stop() {} };
+  }
+
+  const svg = make('svg', { class: 'plan-svg' });
+  const defs = make('defs');
+  const arrow = make('marker', { id: 'plan-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4,
+                                 markerWidth: 6, markerHeight: 6, orient: 'auto' });
+  arrow.append(make('path', { d: 'M 0 0 L 8 4 L 0 8 z', class: 'plan-arrowhead' }));
+  defs.append(arrow);
+  svg.append(defs);
+
+  const wires = make('g', { class: 'plan-wires' });
+  const boxes = make('g', { class: 'plan-boxes' });
+  svg.append(wires, boxes);
+
+  const byId = new Map(state.nodes.map((n) => [n.id, n]));
+  const drawn = new Map();
+  for (const e of state.edges) {
+    const line = make('path', { class: 'plan-wire' + (e.back ? ' plan-wire-loop' : ''),
+                                'marker-end': 'url(#plan-arrow)' });
+    wires.append(line);
+    drawn.set(e, line);
+  }
+
+  for (const n of state.nodes) {
+    const g = make('g', { class: `plan-node plan-${n.kind}` + (n.role ? ` plan-role-${n.role}` : '') });
+    g.append(make('rect', { class: 'plan-node-box', x: -BOX.w / 2, y: -BOX.h / 2,
+                            width: BOX.w, height: BOX.h, rx: n.kind === 'step' ? 4 : 16 }));
+    const label = make('text', { class: 'plan-node-label', x: 0, y: 4 });
+    const shown = n.kind === 'step' ? `${n.runs}× ${n.label}`
+      : (n.amount !== null && n.amount !== undefined ? `${n.amount} ${n.label}` : n.label);
+    label.textContent = shown.length > 24 ? `${shown.slice(0, 23)}…` : shown;
+    const full = make('title');
+    full.textContent = shown;
+    g.append(label, full);
+    boxes.append(g);
+    n.el = g;
+    if (onPick && n.kind === 'material') {
+      g.addEventListener('click', () => { if (!n.dragged) onPick(n.name); });
+    }
+  }
+
+  const draw = () => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const n of state.nodes) { lo = Math.min(lo, n.y); hi = Math.max(hi, n.y); }
+    for (const n of state.nodes) n.el.setAttribute('transform', `translate(${n.x},${n.y})`);
+    for (const [e, line] of drawn) {
+      const a = byId.get(e.from);
+      const b = byId.get(e.to);
+      if (a && b) line.setAttribute('d', path(a, b, e.back));
+    }
+    const w = state.width + BOX.w + PAD * 2;
+    const h = (hi - lo) + BOX.h + PAD * 2;
+    svg.setAttribute('viewBox', `${-BOX.w / 2 - PAD} ${lo - BOX.h / 2 - PAD} ${w} ${h}`);
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+  };
+
+  /**
+   * The springs, run until they stop mattering.
+   *
+   * Layout put everything on a grid, which is tidy and a little dead: two
+   * nodes joined across four columns sit at whatever height their own layer
+   * gave them, and the line between them slopes for no reason. A few hundred
+   * ticks of pulling joined things level takes most of that out. It stops when
+   * nothing is moving, so an untouched picture costs a few frames and then
+   * nothing at all.
+   */
+  /**
+   * Asked for where there is a screen refresh to hang it on, and skipped where
+   * there is not -- the headless shim has no frames, and a picture that is
+   * merely drawn once is exactly what a test wants to look at.
+   */
+  const frame = globalThis.requestAnimationFrame?.bind(globalThis) ?? null;
+  let alive = true;
+  let ticks = 0;
+  const settle = () => {
+    if (!alive || !frame) return;
+    const moved = relax(state);
+    draw();
+    ticks += 1;
+    if (moved > 0.4 && ticks < 600) frame(settle);
+  };
+
+  // --- dragging ------------------------------------------------------------
+  //
+  // Both axes, because the reader's picture of their own factory beats the
+  // one the ranking came up with. The springs only ever move things along
+  // their column, so a node dragged sideways stays where it was put.
+  let holding = null;
+  const at = (ev) => {
+    const box = svg.getBoundingClientRect();
+    const vb = svg.getAttribute('viewBox').split(' ').map(Number);
+    return { x: vb[0] + (ev.clientX - box.left) / box.width * vb[2],
+             y: vb[1] + (ev.clientY - box.top) / box.height * vb[3] };
+  };
+  svg.addEventListener('pointerdown', (ev) => {
+    const g = ev.target.closest?.('.plan-node');
+    if (!g) return;
+    holding = state.nodes.find((n) => n.el === g);
+    if (!holding) return;
+    holding.held = true;
+    holding.dragged = false;
+    svg.setPointerCapture?.(ev.pointerId);
+  });
+  svg.addEventListener('pointermove', (ev) => {
+    if (!holding) return;
+    const p = at(ev);
+    holding.x = p.x;
+    holding.y = p.y;
+    holding.dragged = true;
+    draw();
+    if (ticks >= 600) { ticks = 0; if (frame) frame(settle); }
+  });
+  const drop = () => {
+    if (!holding) return;
+    holding.held = false;
+    holding = null;
+    ticks = 0;
+    if (frame) frame(settle);
+  };
+  svg.addEventListener('pointerup', drop);
+  svg.addEventListener('pointercancel', drop);
+
+  host.append(svg);
+  draw();
+  if (frame) frame(settle);
+  return { stop() { alive = false; }, state };
+}
+
+return { drawPlan };
+})();
+
 const __mod_plan_menu = (() => {
 /**
  * The same question asked several ways, and the answers worth keeping.
@@ -10051,6 +10641,7 @@ const {listed} = __mod_prose;
 const {composition} = __mod_composition;
 const {balanceTargets} = __mod_balance;
 const {routesFor} = __mod_routes;
+const {drawPlan} = __mod_plan_picture;
 const {rat, rmul, rsub, rstr, rcmp, R0} = __mod_rational;
 const {solveFresh, blankFresh, questionShape, oreReach, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
 const {SCORES, optionSets, digest} = __mod_plan_menu;
@@ -11514,6 +12105,31 @@ function render() {
   if (plan.targets.length) renderSteps(); else renderMakeable();
   renderSide();
   renderMenu();
+  renderPicture();
+}
+
+/**
+ * The plan as a picture, when the reader asks for one.
+ *
+ * Drawn only while it is open: it costs a layout and a few hundred frames of
+ * settling, which is nothing beside a solve but is pure waste on a page nobody
+ * is looking at. Torn down on the way out so the springs stop with it.
+ */
+let picture = null;
+let showPicture = false;
+function renderPicture() {
+  const host = $('#plan-picture');
+  host.hidden = !showPicture || !solved;
+  if (picture) { picture.stop(); picture = null; }
+  if (host.hidden) return;
+  picture = drawPlan(host, solved, { onPick: (name) => edit(selectMaterial, name) });
+}
+
+/** Open or shut the picture, from the button in the bar. */
+function togglePicture() {
+  showPicture = !showPicture;
+  $('#toggle-plan-picture').setAttribute('aria-pressed', String(showPicture));
+  renderPicture();
 }
 
 /** The solved plan, for the console and the tests. */
@@ -11588,6 +12204,7 @@ function initPlan(context) {
     if (Number.isFinite(n) && n > 0) edit(setOption, 'oreTries', Math.min(n, ORE_TRIES_MAX));
     else e.target.value = String(plan.oreTries);
   });
+  $('#toggle-plan-picture').addEventListener('click', togglePicture);
   $('#toggle-plan-options').addEventListener('click', () => {
     const open = $('#plan-options').hidden;
     $('#plan-options').hidden = !open;
@@ -11595,7 +12212,7 @@ function initPlan(context) {
   });
 }
 
-return { getPlan, planIsEmpty, setPlan, render, lastSolved, initPlan };
+return { getPlan, planIsEmpty, setPlan, render, togglePicture, lastSolved, initPlan };
 })();
 
 const __mod_main = (() => {
@@ -11656,6 +12273,7 @@ function setMode(mode, { save = true } = {}) {
   $('#explore-bar').hidden = planning;
   $('#plan-bar').hidden = !planning;
   $('#toggle-plan-options').hidden = !planning;
+  $('#toggle-plan-picture').hidden = !planning;
   if (planning) { $('#ptable').hidden = true; $('#help').hidden = true; }
   $('#toggle-table').hidden = planning;
   $('#toggle-help').hidden = planning;

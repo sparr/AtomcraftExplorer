@@ -896,6 +896,44 @@ console.log('\n--- trying more ores than the cap allows ---');
         'and the usual six is not written down');
 }
 
+/* ------------------------------------------ the plan drawn as a diagram */
+
+/**
+ * A plan is a graph, and the question a reader has -- where does this come
+ * from, what is waiting on it -- is a question about edges. So it can be drawn
+ * as one, on a button, beside the tables rather than instead of them.
+ *
+ * What the shim can see is that the picture is built and that it is built out
+ * of the plan: a box for every step, an arrow for every material going in or
+ * out. How it looks is not testable here and the layout has its own suite.
+ */
+console.log('\n--- the plan, drawn');
+{
+  app.setMode('plan');
+  app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Tantalum'), 'Niobium'), 'Columbite'));
+  check($('#plan-picture').hidden, 'the diagram is not drawn until it is asked for');
+  check(!$('#toggle-plan-picture').hidden, 'but the way to ask is on the bar');
+
+  $('#toggle-plan-picture').click();
+  check(!$('#plan-picture').hidden, 'pressing it opens the diagram');
+  const svg = [...$('#plan-picture').walk()].find((n) => n.tagName === 'SVG');
+  check(!!svg, 'which is an svg');
+  const boxes = nodes($('#plan-picture'), 'plan-node');
+  const wires = nodes($('#plan-picture'), 'plan-wire');
+  check(boxes.length > 10 && wires.length > boxes.length,
+        `with ${boxes.length} things and ${wires.length} arrows between them`);
+  const steps = nodes($('#plan-picture'), 'plan-step');
+  check(steps.length === nodes($('#plan-steps'), 'plan-step').length,
+        `a box for every step in the table: ${steps.length}`);
+  // The loop-closing arrows are drawn differently, being the only ones that
+  // read right to left.
+  check(nodes($('#plan-picture'), 'plan-wire-loop').length > 0,
+        'and the arrows that close a wheel are marked as such');
+
+  $('#toggle-plan-picture').click();
+  check($('#plan-picture').hidden, 'pressing it again puts it away');
+}
+
 /* ------------------------------ what each interface actually puts on screen */
 
 /**
