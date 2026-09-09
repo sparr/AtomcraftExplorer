@@ -139,6 +139,46 @@ console.log('--- what each charge is buying');
   console.log('');
 }
 
+/**
+ * Sparr: Limestone Gravel can be mined out of terrain, so it counts as world
+ * stuff and not made stuff.
+ *
+ * The door rule -- a thing with a recipe is a thing you are meant to make --
+ * could not see that it also comes off a limestone tile with a pick. So a plan
+ * for Steel could not buy the gravel that carries a carbon for five atoms, and
+ * bought Dolomite instead at twenty atoms for the same carbon, to crack the
+ * gravel out of it.
+ */
+console.log('--- what comes out of the ground can be bought, recipe or no');
+{
+  const kinds = new Set(['reaction', 'filter', 'phase', 'fire', 'grow', 'decay']);
+  const world = new Set(['world']);
+  const steel = solveFresh(graph, { targets: [{ name: 'Steel', amount: 1 }],
+                                    have: [], sources: ['world'] });
+  const bought = steel.frontier.map((f) => f.name);
+  const atoms = steel.frontier.reduce(
+    (a, f) => a + Number(f.amount.n) / Number(f.amount.d)
+      * (graph.db.byName.get(f.name)?.matter ?? 1), 0);
+  const checks = [
+    ['Limestone Gravel, which a pick takes off a limestone tile, may be bought',
+     fetchable(graph, 'Limestone Gravel', kinds, world)],
+    /**
+     * And the tile itself may not, whatever is done to it: `landscape` still
+     * refuses the ground, which is the rule this one has to live beside.
+     */
+    ['the limestone it comes off may not, being the ground',
+     !fetchable(graph, 'Limestone', kinds, world)],
+    ['so Steel buys the gravel rather than Dolomite to crack it out of',
+     bought.includes('Limestone Gravel') && !bought.includes('Dolomite')],
+    ['and its shopping list is lighter for it (46 atoms before)', atoms <= 26],
+  ];
+  for (const [what, ok] of checks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+  console.log('');
+}
+
 console.log('--- what a material does at a temperature is not on offer');
 {
   const withoutPhase = solveFresh(graph, {

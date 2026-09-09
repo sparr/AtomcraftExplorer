@@ -392,6 +392,14 @@ function alreadyInHand(graph, name, held) {
   return false;
 }
 
+/**
+ * Comes out of the ground with a pick: something a `mine` step takes straight
+ * off a tile of the world. Not the same as `landscape`, which is the tile
+ * itself and can never be carried.
+ */
+const dugUp = (graph, name) => (graph.producers(name) || []).some(
+  (p) => p.kind === 'mine' && (p.consumes || []).some((i) => landscape(graph, i.name)));
+
 export function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (placed(graph, name)) return false;
   if (landscape(graph, name)) return false;
@@ -444,6 +452,23 @@ export function fetchable(graph, name, kinds, sources = null, spec = null) {
   if (from === 'weather' || from === 'air') return true;
   if (graph.fallsFromSky(name)) return true;
   if (WORLDLY.has(graph.categoryOf(name))) return true;
+  /**
+   * Sparr: Limestone Gravel can be mined out of terrain, so it is world stuff
+   * and not made stuff.
+   *
+   * The rule below -- a thing with a recipe is a thing you are meant to make --
+   * had no way to know that. Limestone Gravel comes out of a limestone tile
+   * with a pick, and it is also what falls out of decomposing dolomite, and
+   * having the second is not a reason to forget the first. So a plan for Steel
+   * could not buy the gravel that carries a carbon for five atoms and bought
+   * Dolomite instead, at twenty atoms for the same carbon, to crack the gravel
+   * out of it.
+   *
+   * Being minable is checked rather than the mine being allowed to run: what
+   * the world hands over does not depend on whether this plan is permitted to
+   * swing the pick, any more than Hematite stops existing when mining is off.
+   */
+  if (dugUp(graph, name)) return true;
   if (graph.isManufactured(name)) return false;
 
   /**

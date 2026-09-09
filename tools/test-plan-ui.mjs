@@ -404,13 +404,22 @@ console.log('\n--- changing it and reloading it agree ---');
   const wide = amount();
   check(wide === '4/4', `four of each with the workshop on, as it is by default: ${wide}`);
 
-  // Narrowed to what the world hands over directly, it comes to something else.
-  app.setPlan({ ...ask, sources: ['world', 'weather', 'air'] });
+  /**
+   * Narrowed to the sky alone, it comes to something else.
+   *
+   * This used to turn the workshop off, which no longer moves this question:
+   * Sparr's point that Limestone Gravel is dug out of a limestone tile rather
+   * than manufactured means a good deal of what needed the workshop before is
+   * now had straight from the ground, and the two answers agree. The guard is
+   * about the cache and not about sources, so it only wants a field that
+   * plainly moves the numbers -- refusing the ground itself does.
+   */
+  app.setPlan({ ...ask, sources: ['weather', 'air'] });
   const narrow = amount();
-  check(narrow !== wide, `and something else once it may not buy what is made: ${narrow}`);
+  check(narrow !== wide, `and something else once it may not dig: ${narrow}`);
 
   // The same address, arrived at cold.
-  globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=world~weather~air';
+  globalThis.location.hash = '#mode=plan&t=Tantalum~Niobium&h=Columbite&sr=weather~air';
   app.reload();
   check(amount() === narrow,
         `changing it gives what loading it gives: ${narrow} against ${amount()}`);
