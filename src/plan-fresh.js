@@ -3204,6 +3204,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    * errand.
    */
   const priming = [];
+  const primingAll = [];
   {
     const prices = fetchPrices(graph, spec.kinds);
     /**
@@ -3758,6 +3759,23 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
     }
     priming.sort((a, b) => a.name.localeCompare(b.name));
+    /**
+     * Sparr: hide the charges that buy nothing, without touching the leavings.
+     *
+     * Some come out of the pass costing no output at all when skipped -- the
+     * aluminium plan's Carbon Monoxide, the Carbon plan's Hydrogen. They are
+     * the ordering being cautious, not something the reader has to find, and
+     * asking for them is asking for nothing.
+     *
+     * Safe to drop from the list because nothing computes with it: what the
+     * plan leaves behind is the linear program's answer and was settled before
+     * this pass ran, and the picture draws a charge beside the flow rather
+     * than as part of it. The whole list stays on `primingAll` so the
+     * measurement is not thrown away with it.
+     */
+    const idle = priming.filter((c) => !c.holdsUp && c.lag <= 0);
+    primingAll.push(...priming);
+    for (const c of idle) priming.splice(priming.indexOf(c), 1);
   }
 
   const plan = {
@@ -3765,6 +3783,8 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     fresh: true,
     steps, frontier, feed, byproducts,
     priming,
+    // Every charge the pass found, including the ones that buy nothing.
+    primingAll,
     brokenLoops: [],
     graph,
     fetchTotal: rnum(rmul(fetchTotal, scale)),
