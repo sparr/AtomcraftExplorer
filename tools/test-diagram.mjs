@@ -318,10 +318,16 @@ console.log('\n--- written out as DOT');
         `no end is a hub: the busiest has ${busiest[1]} arrows (${busiest[0]}), `
         + `no more than the busiest reaction's ${busiestStep[1]}`);
   // Every arrow says what it carries.
-  // Sparr: put the material edge labels closer to the source end -- so the
-  // name rides on `taillabel` now, at the end it leaves from.
+  /**
+   * Sparr: the labels are still ambiguously placed and various of them
+   * overlap.
+   *
+   * So the name is back on a plain `label`, which is part of the layout and
+   * gets a place of its own, rather than a `taillabel` painted in after the
+   * drawing is decided and landing wherever that leaves it.
+   */
   const arrows = [...dot.matchAll(/^\s+"([^"]+)" -> "([^"]+)" \[([^\]]*)\]/gm)]
-    .map(([, a, b, bits]) => [null, a, b, (bits.match(/taillabel="([^"]*)"/) || [, ''])[1]]);
+    .map(([, a, b, bits]) => [null, a, b, (bits.match(/\blabel="([^"]*)"/) || [, ''])[1]]);
   const mute = arrows.filter(([, a, b, l]) =>
     !l && !/^(in|out|prime|spare):/.test(a) && !/^(in|out|prime|spare):/.test(b));
   check(arrows.length > 0 && !mute.length,
