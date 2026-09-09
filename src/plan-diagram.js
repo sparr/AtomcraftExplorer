@@ -24,6 +24,7 @@
  * without the layering has nothing to comb along.
  */
 import { rnum, rstr, rat, radd, rsub, rmul, rdiv, rcmp, rmin, R0 } from './rational.js';
+import { dag } from './dag.js';
 
 /** A step is a box; a material is a chip. Both are nodes here. */
 const STEP = 'step';
@@ -65,112 +66,7 @@ function backEdges(nodes, edges) {
   return back;
 }
 
-/**
- * Longest path from the things nothing makes.
- *
- * A material's layer is one past the step that makes it, and a step's is one
- * past the last of what it eats, so an edge always points right. Only the
- * forward edges are counted; the ones that close a wheel are set aside first.
- */
-function rank(nodes, edges, back) {
-  const into = new Map();
-  for (const e of edges) {
-    if (back.has(e)) continue;
-    if (!into.has(e.to)) into.set(e.to, []);
-    into.get(e.to).push(e.from);
-  }
-  for (const n of nodes) n.rank = 0;
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  for (let pass = 0; pass < nodes.length; pass++) {
-    let moved = false;
-    for (const n of nodes) {
-      let want = 0;
-      for (const from of into.get(n.id) || []) {
-        want = Math.max(want, (byId.get(from)?.rank ?? 0) + 1);
-      }
-      if (want > n.rank) { n.rank = want; moved = true; }
-    }
-    if (!moved) break;
-  }
-}
 
-/**
- * Fewer crossings, by putting each node beside the average of its neighbours.
- *
- * The median heuristic, swept forwards and back a few times. It is not
- * optimal -- minimising crossings exactly is NP-hard and nobody needs the
- * exact answer -- but it is what turns a plan of twenty steps from a cat's
- * cradle into something with legible strands, and it costs a few passes over
- * the edge list.
- */
-function comb(layers, edges, rounds = 4, settle = null) {
-  const near = new Map();
-  const add = (a, b) => { if (!near.has(a)) near.set(a, []); near.get(a).push(b); };
-  for (const e of edges) { add(e.to, e.from); add(e.from, e.to); }
-
-  const place = (layer) => new Map(layer.map((n, i) => [n.id, i]));
-
-  /**
-   * How many pairs of edges cross, read off the running order alone.
-   *
-   * Wanted during the sweeping, before anything has coordinates, so it counts
-   * on `at` rather than on `y`: two edges between the same pair of layers
-   * cross when one starts above the other and ends below it.
-   */
-  const tangled = () => {
-    const at = new Map();
-    layers.forEach((layer, r) => layer.forEach((n, i) => at.set(n.id, [r, i])));
-    const spans = [];
-    for (const e of edges) {
-      const a = at.get(e.from);
-      const b = at.get(e.to);
-      if (a && b && b[0] === a[0] + 1) spans.push([a[0], a[1], b[1]]);
-    }
-    let n = 0;
-    for (let i = 0; i < spans.length; i++) {
-      for (let j = i + 1; j < spans.length; j++) {
-        if (spans[i][0] !== spans[j][0]) continue;
-        if ((spans[i][1] - spans[j][1]) * (spans[i][2] - spans[j][2]) < 0) n++;
-      }
-    }
-    return n;
-  };
-
-  /**
-   * Keep the best sweep, not the last one.
-   *
-   * The sweeps alternate direction and each is only a heuristic, so they
-   * wander: the Lepidolite plan goes from twenty-five crossings to twelve on
-   * the first pass and back up to eighteen by the fourth, and the Columbite
-   * one from twelve to three to two. Running more rounds and taking whatever
-   * fell out last was leaving the picture worse than one round would have.
-   */
-  if (settle) layers.forEach(settle);
-  let best = layers.map((layer) => [...layer]);
-  let fewest = tangled();
-  for (let round = 0; round < rounds; round++) {
-    const list = round % 2 === 0 ? layers : [...layers].reverse();
-    for (let i = 1; i < list.length; i++) {
-      const fixed = place(list[i - 1]);
-      const median = (n) => {
-        const seen = (near.get(n.id) || []).map((m) => fixed.get(m)).filter((v) => v !== undefined);
-        if (!seen.length) return n.at ?? 0;
-        seen.sort((a, b) => a - b);
-        return seen[(seen.length - 1) >> 1];
-      };
-      list[i].sort((a, b) => median(a) - median(b));
-      list[i].forEach((n, k) => { n.at = k; });
-    }
-    if (settle) layers.forEach(settle);
-    const now = tangled();
-    if (now < fewest) { fewest = now; best = layers.map((layer) => [...layer]); }
-  }
-  layers.forEach((layer, r) => {
-    layer.length = 0;
-    layer.push(...best[r]);
-    layer.forEach((n, k) => { n.at = k; });
-  });
-}
 
 /**
  * The plan as nodes and edges, laid out.
@@ -191,8 +87,8 @@ function comb(layers, edges, rounds = 4, settle = null) {
  * overlapping boxes with vast gaps between the rows.
  */
 export const SPACING = {
-  down: { gapX: 190, gapY: 58 },        // flow left to right
-  across: { gapX: 72, gapY: 176 },      // flow top to bottom, the boxes side by side
+  down: { gapX: 190, gapY: 58 },                 // flow left to right
+  across: { gapX: 72, gapY: 176, turned: true }, // flow top to bottom, boxes side by side
 };
 
 /**
@@ -659,7 +555,7 @@ export function planGraph(plan, { materials = false, foldPhases = true,
   return { nodes, edges };
 }
 
-export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
+export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4, turned = false,
                                    materials = false, foldPhases = true } = {}) {
   const built = planGraph(plan, { materials, foldPhases });
   const nodes = built.nodes;
@@ -668,64 +564,85 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
 
   const back = backEdges(nodes, edges);
   for (const e of edges) e.back = back.has(e);
-  rank(nodes, edges, back);
 
   /**
-   * A long arrow gets somewhere to stand in every column it crosses.
+   * Sparr: ship d3-dag.
    *
-   * Sparr: the line from the Columbite to its reaction cuts behind a dozen
-   * other things. It does, and no amount of reordering the two ends will fix
-   * it, because nothing in the columns between knows the line is passing
-   * through. So it is given a place there: an invisible node in each column it
-   * crosses, threaded onto the same combing as everything else. The comb then
-   * treats the line as a thing to be kept out of the way, and it comes out
-   * running between the nodes rather than behind them.
+   * The ranking, the ordering within a rank and the places along it were ours,
+   * and ours came last of everything measured: fifty crossing pairs on the
+   * fluorine plan where d3-dag has twenty and graphviz twenty-three. What is
+   * kept is everything above and below the layout -- the graph we hand it, and
+   * the drawing, dragging and turning that read what comes back -- so this is
+   * a swap of the middle and not of the picture.
    *
-   * This is the piece that makes a layered drawing readable, and it is why
-   * long edges are the standard hard case: without it the picture is only
-   * tidy where the arrows happen to be short.
+   * It wants a graph with no cycles, so the arrows that close a loop are held
+   * out and drawn straight afterwards, which is worse than what graphviz does
+   * with them and is the first thing to improve.
+   *
+   * Laid out with the ranks running down and turned a quarter on the way out,
+   * because the rest of the code has ranks running across: our x is its y.
    */
-  const byId0 = new Map(nodes.map((n) => [n.id, n]));
-  const segments = [];
+  const BOX = { w: 150, h: 34 };
+  /**
+   * How much room a box wants, in the layout's own frame: across the rank
+   * first, along it second. Which way round that is depends on which way the
+   * picture runs -- a box is 150 wide and 34 tall however it is turned, so
+   * one pair of numbers for both orientations made the turned picture a
+   * column of overlapping boxes.
+   */
+  const sizeOf = (n) => (n.hold ? [7, 7]
+    : (turned ? [BOX.w, BOX.h] : [BOX.h, BOX.w]));
+  const size = new Map(nodes.map((n) => [n.id, sizeOf(n)]));
+  const forward = edges.filter((e) => !e.back);
+  const placed = new Map();
   const wires = [];
-  let bends = 0;
+  const segments = [];
+
+  let dim = { width: 0, height: 0 };
+  if (forward.length) {
+    const built2 = dag.graphConnect().nodeDatum((id) => id)(
+      forward.map((e) => [e.from, e.to]));
+    dim = dag.sugiyama()
+      .nodeSize((n) => size.get(n.data) || sizeOf({}))
+      .gap([Math.max(6, gapY - (turned ? BOX.w : BOX.h)),
+            Math.max(6, gapX - (turned ? BOX.h : BOX.w))])(built2);
+    for (const n of built2.nodes()) placed.set(n.data, { x: n.y, y: n.x });
+    for (const l of built2.links()) {
+      const key = `${l.source.data}\u0000${l.target.data}`;
+      const pts = l.points.map(([x, y]) => ({ x: y, y: x }));
+      if (!placed.has(`p:${key}`)) placed.set(`p:${key}`, pts);
+    }
+  }
+
+  /**
+   * Anything the layout never saw: a box whose only arrows close a loop is not
+   * in the graph handed over, and it still has to go somewhere.
+   */
+  const ranks = [...new Set([...placed.values()]
+    .filter((p) => p && p.x !== undefined).map((p) => p.x))].sort((a, b) => a - b);
+  let spare = (ranks[ranks.length - 1] ?? 0) + gapX;
+  for (const n of nodes) {
+    const at = placed.get(n.id);
+    if (at && at.x !== undefined) { n.x = at.x; n.y = at.y; continue; }
+    n.x = spare;
+    n.y = 0;
+    spare += gapX;
+  }
+  // A column apiece, for the springs and for anything that asks which rank a
+  // box is in. The layout gives places, not numbers.
+  const column = new Map([...new Set(nodes.map((n) => n.x))].sort((a, b) => a - b)
+    .map((x, i) => [x, i]));
+  for (const n of nodes) n.rank = column.get(n.x);
+
   for (const e of edges) {
-    const a = byId0.get(e.from);
-    const b = byId0.get(e.to);
+    segments.push(e);
+    const a = nodes.find((n) => n.id === e.from);
+    const b = nodes.find((n) => n.id === e.to);
     if (!a || !b) continue;
-    /**
-     * The arrows that close a wheel need standing room too.
-     *
-     * Sparr: the dotted lines intersect many things and probably need their
-     * own invisible nodes. They do, and for the same reason the forward ones
-     * did -- a line drawn straight from a step back to something five columns
-     * behind it passes over everything in between, and nothing in between
-     * knows. The only difference is which way it is read: the waypoints are
-     * laid down along the columns it crosses exactly as before, and the line
-     * is drawn through them backwards.
-     */
-    const lo = Math.min(a.rank, b.rank);
-    const hi = Math.max(a.rank, b.rank);
-    if (hi - lo <= 1) {
-      segments.push(e);
-      wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
-                   label: e.label, role: e.role, join: e.join, points: [a, b] });
-      continue;
-    }
-    const low = a.rank < b.rank ? a : b;
-    const high = a.rank < b.rank ? b : a;
-    const through = [];
-    let last = low;
-    for (let r = lo + 1; r < hi; r++) {
-      const bend = { id: `b:${bends++}`, kind: 'bend', rank: r, label: '' };
-      nodes.push(bend);
-      through.push(bend);
-      segments.push({ from: last.id, to: bend.id, bend: true });
-      last = bend;
-    }
-    segments.push({ from: last.id, to: high.id, bend: true });
-    // Drawn the way the arrow is read, which for a closing edge is backwards.
-    const points = a === low ? [a, ...through, b] : [a, ...through.reverse(), b];
+    const through = placed.get(`p:${e.from}\u0000${e.to}`);
+    const points = through && through.length > 2
+      ? [a, ...through.slice(1, -1).map((q) => ({ ...q, id: `b:${e.from}:${e.to}` })), b]
+      : [a, b];
     wires.push({ from: e.from, to: e.to, back: e.back, count: e.count,
                  label: e.label, role: e.role, join: e.join, points });
   }
@@ -760,50 +677,17 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
     wires.splice(wires.indexOf(b), 1);
   }
 
-  const byRank = new Map();
-  for (const n of nodes) {
-    if (!byRank.has(n.rank)) byRank.set(n.rank, []);
-    byRank.get(n.rank).push(n);
-  }
-  const layers = [...byRank.keys()].sort((a, b) => a - b).map((r) => byRank.get(r));
-  layers.forEach((layer) => layer.forEach((n, i) => { n.at = i; }));
-  /**
-   * Sparr: the oxide leftovers are spread among the useful outputs; they
-   * should be together at one end, and the ones with further use grouped.
-   *
-   * Nothing waits on a leftover, so the comb has no opinion about where one
-   * goes and drops it wherever the median landed -- among the things that do
-   * matter. Sorted to the end of its column it costs no crossing the comb was
-   * avoiding, because an arrow that ends there ends there whatever height it
-   * ends at.
-   *
-   * Applied inside the sweep rather than after it, which is where it started:
-   * the comb keeps its best round, and a round rearranged afterwards is not
-   * the round it measured. On the smallest plan that turned one crossing into
-   * three.
-   */
-  const feedsOn = new Set();
-  for (const e of segments) feedsOn.add(e.from);
-  const endsHere = (n) => !feedsOn.has(n.id) && n.kind !== 'bend';
-  const groupDeadEnds = (layer) => {
-    const going = layer.filter((n) => !endsHere(n));
-    const ending = layer.filter(endsHere);
-    if (!ending.length || !going.length) return;
-    layer.length = 0;
-    layer.push(...going, ...ending);
-    layer.forEach((n, i) => { n.at = i; });
-  };
-  comb(layers, segments, rounds, groupDeadEnds);
-
-  const tallest = Math.max(1, ...layers.map((l) => l.length));
-  for (const layer of layers) {
-    // Centred in the column, so a short layer sits beside the middle of a long
-    // one rather than at its top.
-    const top = (tallest - layer.length) / 2;
-    layer.forEach((n, i) => {
-      n.x = n.rank * gapX;
-      n.y = (top + i) * gapY;
-    });
+  const xs = nodes.map((n) => n.x);
+  const ys = nodes.map((n) => n.y);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  for (const n of nodes) { n.x -= left; n.y -= top; }
+  for (const w of wires) {
+    for (const p of w.points) {
+      if (p.id) continue;                   // a box, already moved
+      p.x -= left;
+      p.y -= top;
+    }
   }
   return {
     nodes,
@@ -811,8 +695,8 @@ export function layoutPlan(plan, { gapX = 190, gapY = 58, rounds = 4,
     wires,
     gapX,
     gapY,
-    width: (layers.length - 1) * gapX,
-    height: (tallest - 1) * gapY,
+    width: Math.max(...nodes.map((n) => n.x)),
+    height: Math.max(...nodes.map((n) => n.y)),
   };
 }
 

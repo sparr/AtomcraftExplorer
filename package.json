@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@ciberus/find-steam-app": "^4.0.0",
+    "d3-dag": "^1.2.2",
     "find-itch-games": "^0.1.0"
   }
 }

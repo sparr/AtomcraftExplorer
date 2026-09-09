@@ -162,31 +162,13 @@ for (const [what, ask] of plans) {
         `${long.length} long arrows, each standing in every column it crosses (${bends.length} places)`);
 
   /**
-   * And the dead ends are together rather than sprinkled through.
+   * Sparr: ship d3-dag.
    *
-   * Sparr: the oxide leftovers are spread among the useful outputs. Nothing
-   * waits on a leftover, so the comb has no opinion about where it goes and
-   * drops it wherever the median landed. They are sorted to one end after the
-   * combing, which costs nothing it was avoiding.
+   * Keeping the dead ends together in a column was part of our own ordering
+   * pass, and went with it. d3-dag orders by crossings alone and has no notion
+   * of a leftover, so this is worth putting back on top of it later; there is
+   * nothing to check in the meantime.
    */
-  const feeds = new Set(state.edges.map((e) => e.from));
-  const layers = new Map();
-  for (const n of state.nodes) {
-    if (!layers.has(n.rank)) layers.set(n.rank, []);
-    layers.get(n.rank).push(n);
-  }
-  const mixed = [...layers.values()].filter((layer) => {
-    const sorted = [...layer].sort((a, b) => a.at - b.at);
-    let seenEnd = false;
-    for (const n of sorted) {
-      const ends = !feeds.has(n.id) && n.kind !== 'bend';
-      if (ends) seenEnd = true;
-      else if (seenEnd) return true;
-    }
-    return false;
-  });
-  check(!mixed.length,
-        `nothing with further use sits below a dead end (${mixed.length} columns mixed)`);
 
   /**
    * The closing arrows are routed like the rest.
@@ -196,13 +178,23 @@ for (const [what, ask] of plans) {
    * something five columns behind passes over everything between, and nothing
    * between knows it is there.
    */
+  /**
+   * Sparr: ship d3-dag.
+   *
+   * Which wants a graph with no cycles, so the arrows that close a loop are
+   * held out of the layout and drawn straight from box to box afterwards. They
+   * cross whatever lies between, which is worse than what they had and is the
+   * first thing to improve. What can still be checked is that they are all
+   * there, marked, and joined to boxes the layout placed.
+   */
   const loopWires = state.wires.filter((w) => w.back);
-  const straightLoops = loopWires.filter((w) => {
-    const span = Math.abs(byId.get(w.to).rank - byId.get(w.from).rank);
-    return span > 1 && w.points.length !== span + 1;
+  const stranded = loopWires.filter((w) => {
+    const a = byId.get(w.from);
+    const b = byId.get(w.to);
+    return !a || !b || !Number.isFinite(a.x) || !Number.isFinite(b.x);
   });
-  check(!straightLoops.length,
-        `each of the ${loopWires.length} closing arrows has standing room in every column it crosses`);
+  check(!stranded.length,
+        `each of the ${loopWires.length} closing arrows joins two boxes that were placed`);
 
   /**
    * And both ways round fit the boxes they hold.
@@ -219,10 +211,15 @@ for (const [what, ask] of plans) {
       if (!layers.has(n.rank)) layers.set(n.rank, []);
       layers.get(n.rank).push(n);
     }
-    const boxAcross = way === 'in columns' ? 34 : 150;
+    /**
+     * Each box wants its own room, and a joint is a dot rather than a box.
+     * Two joints thirty-one apart do not overlap; two boxes would.
+     */
+    const room = (n) => (n.hold ? 7 : (way === 'in columns' ? 34 : 150));
     const tooClose = [...layers.values()].some((layer) => {
-      const ys = layer.filter((n) => n.kind !== 'bend').map((n) => n.y).sort((a, b) => a - b);
-      return ys.some((y, i) => i > 0 && y - ys[i - 1] < boxAcross);
+      const inLine = layer.filter((n) => n.kind !== 'bend').sort((a, b) => a.y - b.y);
+      return inLine.some((n, i) => i > 0
+        && n.y - inLine[i - 1].y < (room(n) + room(inLine[i - 1])) / 2);
     });
     check(!tooClose, `${way}, nothing in a column overlaps its neighbour`);
   }
