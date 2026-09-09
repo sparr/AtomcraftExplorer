@@ -93,6 +93,44 @@ let met = 0, missed = 0, broke = 0;
  * Oxide and Zinc Sulfate Decomposition -- three reactions to do what cooling
  * does by itself.
  */
+/**
+ * Sparr: how do we explain to the solver that some charges amortize away?
+ *
+ * By running the factory without each one, at the size asked for and at twice
+ * that. A charge is laid in once however long the plant runs, so a cost that
+ * is the same at both sizes was filling the pipe, and one that doubles with
+ * the plant is holding it up.
+ */
+console.log('--- what each charge is buying');
+{
+  const alu = solveFresh(graph, { targets: [{ name: 'Aluminum', amount: 1 }],
+                                  have: ['Lepidolite'], sources: ['world'] });
+  const of = (n) => alu.priming.find((c) => c.name === n);
+  const checks = [
+    ['every charge says whether it is holding the plan up',
+     alu.priming.length > 0 && alu.priming.every((c) => typeof c.holdsUp === 'boolean'
+                                                     && typeof c.lag === 'number')],
+    /**
+     * The sulfur wheel is closed -- its only maker is fed by what it makes --
+     * so nothing outside ever turns it and no amount of running helps.
+     */
+    ['the Sulfur Trioxide, which starts a closed wheel, holds the plan up',
+     of('Sulfur Trioxide Gas')?.holdsUp === true],
+    /**
+     * The carbon's chain runs back to Dolomite, which is fetched, so it does
+     * arrive -- later than it is first wanted. Withholding it costs the same
+     * output whether the plan is run once or twice.
+     */
+    ['the Carbon, whose chain reaches fetched Dolomite, does not',
+     of('Carbon')?.holdsUp === false],
+  ];
+  for (const [what, ok] of checks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+  console.log('');
+}
+
 console.log('--- what a material does at a temperature is not on offer');
 {
   const withoutPhase = solveFresh(graph, {

@@ -8855,7 +8855,16 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      * with a shorter or cheaper list, the refusal stands. A charge survives
      * only by being needed under a rule that tried to do without it.
      */
-    const layIn = (refuse, cap = new Map()) => {
+    /**
+     * `dry` runs the factory without ever laying anything in: it fires what it
+     * can from the stock it is handed and stops when nothing moves, reporting
+     * what it managed. `dry.times` runs the same plan that many times over --
+     * every step's run count multiplied, the charge left as it is, because a
+     * charge is laid in once however long the factory runs. That is the whole
+     * measurement: a charge whose absence costs the same at one scale and at
+     * two was only ever filling the pipe.
+     */
+    const layIn = (refuse, cap = new Map(), dry = null) => {
     const said = [];
     const unlimited = (name) => spec.have.has(name) || drawn.has(name);
     const stock = new Map();
@@ -8872,7 +8881,9 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      * batch up front both invented deadlocks that were not there and, where
      * one really was, charged twenty times what it takes to break it.
      */
-    const owed = new Map(steps.map((step) => [step, step.runs]));
+    const owed = new Map(steps.map((step) => [step,
+      dry ? rmul(step.runs, rat(BigInt(dry.times))) : step.runs]));
+    if (dry) for (const [name, amount] of dry.hold) stock.set(name, amount);
     const floorR = (v) => (rcmp(v, R0) <= 0 ? R0 : rat(v.n / v.d));
 
     /** How many more times this could run right now, whole times only. */
@@ -8973,7 +8984,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
      */
     let totalRuns = 0;
     for (const step of steps) totalRuns += rnum(step.runs);
-    let guard = steps.length * 64 + 64 + Math.ceil(totalRuns) * 8;
+    let guard = (steps.length * 64 + 64 + Math.ceil(totalRuns) * 8) * (dry?.times ?? 1);
     for (;;) {
       const left = stillOwed();
       if (!left.length || guard-- <= 0) break;
@@ -9022,6 +9033,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       // Nothing stirred what was watched; before giving up, look at everything.
       if (stirred !== null) { stirred = null; guard++; continue; }
 
+      if (dry) break;                         // a dry run never lays anything in
       /**
        * Only a wheel needs a push.
        *
@@ -9203,7 +9215,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
       stirred = null;                         // a charge can wake anything
     }
-      return { charge, chargedFor, said };
+      return { charge, chargedFor, said, stock, owed };
     };
 
     /**
@@ -9332,11 +9344,46 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
       }
     }
 
+    /**
+     * What each charge is actually buying, measured rather than reasoned about.
+     *
+     * Sparr: how do we explain that to the solver?
+     *
+     * By running the factory without it, twice: once at the size asked for and
+     * once at twice that. A charge is laid in once however long the plant
+     * runs, so if withholding it costs the same output at both sizes it was
+     * filling the pipe and the factory repays it on the first cycle. If the
+     * cost doubles with the plant, the charge is load-bearing and is wanted at
+     * any size.
+     *
+     * Guessing at this from the shape of the graph does not work. Asking
+     * whether a material is reachable without its own charge says the Columbite
+     * plan's Carbon and Carbon Monoxide are both dispensable, because each is
+     * reachable given the other; withhold both and the plan makes nothing at
+     * all. Two charges can each look redundant and be jointly required, and no
+     * per-material test sees that. Running it does.
+     */
+    const wants = [...new Set(spec.targets.map((t) => t.name))];
+    const madeIn = (got) => wants.reduce((a, n) => a + rnum(got?.stock?.get(n) || R0), 0);
+    const dryWith = (hold, times) => layIn(refused, caps, { hold, times });
+    const full = [1, 2].map((t) => madeIn(dryWith(laid.charge, t)));
+    const buys = new Map();
+    for (const name of laid.charge.keys()) {
+      const without = new Map([...laid.charge].filter(([n]) => n !== name));
+      const lost = [1, 2].map((t, i) => full[i] - madeIn(dryWith(without, t)));
+      // Costing the same at both sizes means it is a first-cycle lag; growing
+      // with the plant means the plant cannot do without it.
+      buys.set(name, { lag: lost[0], holdsUp: lost[1] > lost[0] + 1e-9 });
+    }
+
     if (notes) notes.push(...laid.said);
 
     for (const [name, amount] of laid.charge) {
       if (rcmp(amount, R0) > 0) {
         priming.push({ name, amount,
+                       // Measured, not guessed: see `buys` above.
+                       holdsUp: buys.get(name)?.holdsUp ?? true,
+                       lag: buys.get(name)?.lag ?? 0,
                        forSteps: [...(laid.chargedFor.get(name) || new Map())]
                          .map(([step, part]) => ({ step, amount: part })) });
       }
