@@ -16,7 +16,8 @@
     "locate": "node tools/locate-game.mjs",
     "pck-tools": "node tools/pck-tool.mjs",
     "audit": "node tools/audit-grouping.mjs",
-    "extract-patterns": "node tools/extract-patterns.mjs"
+    "extract-patterns": "node tools/extract-patterns.mjs",
+    "find-wheels": "node tools/find-wheels.mjs"
   },
   "dependencies": {
     "@ciberus/find-steam-app": "^4.0.0",
