@@ -445,13 +445,32 @@ console.log('\n--- what has to be in there before it starts ---');
         `the plan says what has to be in the chamber first: ${charges.join(', ')}`);
   check(/put in once, never spent/.test(text('#plan-side')),
         'and that it is not spent, so it is not a shopping list');
-  // The one thing you can say back: not that one, start it some other way.
-  const refuse = nodes($('#plan-side'), 'plan-item')
-    .filter((n) => n.dataset.material === 'Steam')
-    .flatMap((n) => nodes(n, 'small')).find((b) => b.textContent === 'Not this one');
-  check(!!refuse, 'with a way to refuse a charge you would rather not lay in');
-  refuse.click();
-  check(app.getPlan().noPrime.includes('Steam'), 'which the solver is told about');
+  /**
+   * The one thing you can say back: not that one, start it some other way.
+   *
+   * Which charge this plan lays in depends on the route, and the route has
+   * moved once already -- it used to buy its hydrochloric acid and charge the
+   * chamber with Steam, and now makes the acid and charges it with Water,
+   * which is a better answer by the two questions the solver asks. So the
+   * charge is read off the list. What is being tested is that a charge can be
+   * refused and that the refusal reaches the solver.
+   */
+  const refusable = nodes($('#plan-side'), 'plan-item')
+    // A charge, not a thing to fetch. Both offer "Not this one" and they mean
+    // different things: taken from the shopping list instead, this found the
+    // Borax and then asked why refusing it had not touched `noPrime`.
+    .filter((n) => n.textContent.includes('never spent'))
+    .map((n) => ({ name: n.dataset.material,
+                   button: nodes(n, 'small').find((b) => b.textContent === 'Not this one') }))
+    .find((c) => c.button && c.name);
+  check(!!refusable,
+        `with a way to refuse a charge you would rather not lay in: ${refusable?.name ?? 'none offered'}`);
+  if (refusable) {
+    refusable.button.click();
+    check(app.getPlan().noPrime.includes(refusable.name), 'which the solver is told about');
+  } else {
+    check(false, 'which the solver is told about');
+  }
 }
 
 console.log('\n--- the URL carries both ---');

@@ -936,11 +936,21 @@ function walkSubgraph(graph, spec) {
     front = next;
   }
 
-  // Forward: what the reader's stock can turn into, which a backward walk
-  // cannot see -- "I have carbon dioxide" is only worth saying if something
-  // that eats carbon dioxide is on the table.
+  /**
+   * Forward: what the reader's stock can turn into, which a backward walk
+   * cannot see -- "I have carbon dioxide" is only worth saying if something
+   * that eats carbon dioxide is on the table.
+   *
+   * An ore that may be bought is stock too. Seeded from what is held alone,
+   * "I will go and fetch a Zirconium(IV) Orthosilicate" and "I have a
+   * Zirconium(IV) Orthosilicate" were different questions: held, the one
+   * reaction in the game that consumes it arrives in the first ring, which is
+   * taken whole; bought, it had to survive the backward cap on the nine ways
+   * of making Sand, where it ranks last of the nine and does not. Same ore,
+   * same target, a plan one way and nothing the other.
+   */
   const seenFwd = new Set();
-  front = [...spec.have];
+  front = [...spec.have, ...spec.oreAllowed];
   for (let d = 0; d < spec.reach && front.length; d++) {
     const next = [];
     for (const name of front) {
