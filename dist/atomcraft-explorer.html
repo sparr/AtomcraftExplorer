@@ -7838,21 +7838,28 @@ const ratioOf = (amounts) => {
 };
 const hcfOf = (a, b) => (b ? hcfOf(b, a % b) : a);
 
-function shortlist(graph, spec, sub, build) {
+function shortlist(graph, spec, sub, build, why = null) {
   let store = shortlistCache.get(graph);
   if (!store) shortlistCache.set(graph, store = new Map());
   const key = `${subgraphKey(spec)}|${ratioOf(spec.targets.map((t) => t.amount)).join(',')}`;
   const had = store.get(key);
-  if (had !== undefined) return had;
-  const found = narrowTo(graph, spec, sub, build);
+  if (had !== undefined) {
+    if (why) Object.assign(why, had.why);
+    return had.found;
+  }
+  const mine = {};
+  const found = narrowTo(graph, spec, sub, build, mine);
   if (store.size >= KEEP_SHORTLISTS) store.delete(store.keys().next().value);
-  store.set(key, found);
+  // The verdict is cached with the shortlist. Without it a second ask for the
+  // same plan got the failure back but not the reason for it.
+  store.set(key, { found, why: mine });
+  if (why) Object.assign(why, mine);
   return found;
 }
 
-function narrowTo(graph, spec, sub, build) {
+function narrowTo(graph, spec, sub, build, why = {}) {
   const model = build(sub.processes, sub.materials);
-  if (!model) return null;
+  if (!model) { why.reason = 'no model to walk'; return null; }
   /**
    * Rows that cannot fail are not worth carrying to a float solve.
    *
@@ -7874,7 +7881,10 @@ function narrowTo(graph, spec, sub, build) {
    */
   const idle = (row) => row.op === '>=' && rnum(row.rhs) <= 0 &&
     [...row.coeffs.values()].every((a) => rnum(a) >= 0);
+  // The name is carried so a solver that fails can say which material it
+  // failed on. Nothing in the walk reads it.
   const rows = model.rows.filter((row) => !idle(row)).map((row) => ({
+    name: row.name,
     coeffs: new Map([...row.coeffs].map(([i, a]) => [i, rnum(a)])),
     op: row.op,
     rhs: rnum(row.rhs),
@@ -7920,7 +7930,11 @@ function narrowTo(graph, spec, sub, build) {
   // doubled the shortlist. The plain question is the one that decides whether
   // there is an answer at all, so it is what we fall back to.
   const answer = nudged.ok ? nudged : solveLPFloat({ vars: model.vars, rows, cost: plainCost });
-  if (!answer.ok) return null;
+  if (!answer.ok) {
+    why.reason = answer.reason;
+    why.infeasible = !!answer.infeasible;
+    return null;
+  }
 
   /**
    * Shortlist on both questions, not just the first.
@@ -8704,7 +8718,8 @@ function planOnce(graph, rawSpec) {
   }
 
   const build = (procs, materials) => model(graph, spec, procs, materials);
-  const narrow = shortlist(graph, spec, whole, build);
+  const why = {};
+  const narrow = shortlist(graph, spec, whole, build, why);
 
   /**
    * Falling back to the whole candidate set is fine, until it is not.
@@ -8720,8 +8735,25 @@ function planOnce(graph, rawSpec) {
    */
   const TOO_BIG_TO_GRIND = 400;
   if (!narrow && whole.processes.length > TOO_BIG_TO_GRIND) {
-    return giveUp(`the doubles could not settle and the whole candidate set is ` +
-      `${whole.processes.length}, past the ${TOO_BIG_TO_GRIND} an exact solve finishes`);
+    /**
+     * Two failures wearing one message.
+     *
+     * The ceiling is an answer to a walk that ran out of pivots: the exact
+     * solver would decide it and cannot be afforded, so the size is the
+     * reason and worth saying. It is no answer at all to a walk that finished
+     * and found the model infeasible -- the exact solver would agree, slowly,
+     * and the candidate set could be a tenth the size and still have no
+     * answer. Said the same way, the second sent us looking at the solver for
+     * a fortnight when the fault was a route pruned before the model was
+     * built.
+     */
+    if (why.infeasible) {
+      return giveUp(`${why.reason} -- nothing in the ${whole.processes.length} ` +
+        `processes offered can balance that, so there is no plan to find here`);
+    }
+    return giveUp(`the doubles could not settle (${why.reason}) and the whole ` +
+      `candidate set is ${whole.processes.length}, past the ${TOO_BIG_TO_GRIND} ` +
+      `an exact solve finishes`);
   }
 
   const sub = narrow || whole;
