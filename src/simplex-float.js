@@ -23,6 +23,22 @@ const EPS = 1e-9;
 /** A column entry this small is not worth pivoting on, but bigger ones are. */
 const PIVOT_MIN = 1e-11;
 
+/**
+ * How far below the largest entry in its own column a pivot may sit.
+ *
+ * An absolute floor is the wrong shape for this question. Dividing a row
+ * through by 1e-14 multiplies everything in it by 1e14, and one such pivot is
+ * enough to lose the tableau: on the Zirconium route to Glass the right-hand
+ * side reached -2.7e32, after which phase one could not be satisfied by any
+ * walk and both solvers reported not settling on a plan that is perfectly
+ * feasible. No budget and no pivot rule recovers from that, because the
+ * numbers being walked are no longer the numbers of the problem.
+ *
+ * What makes an entry unusable is being tiny next to the rest of its own
+ * column, so that is what is measured.
+ */
+const PIVOT_REL = 1e-7;
+
 /** Far above any tableau this is asked for; a stuck problem stops here. */
 const MAX_PIVOTS = 20000;
 
@@ -42,16 +58,54 @@ const MAX_PIVOTS = 20000;
  * comes back with nothing. Each costs tens of milliseconds; between them they
  * answer every plan tried here.
  */
+/**
+ * Why there is no answer, when there is no answer.
+ *
+ * "Neither walk settled" was told about two different events. A walk that runs
+ * out of pivots has not decided anything, and asking the exact solver instead
+ * is the right move. A walk that reaches the end of phase one with an
+ * artificial still standing has decided: there is no answer to this model, and
+ * no amount of slower arithmetic will find one. Reported alike, the second was
+ * read as the first for as long as the Zirconium route to Glass was being
+ * chased -- the model there was infeasible because the route had been pruned
+ * before it was built, and the message blamed the size of the candidate set.
+ *
+ * The permissive walk is the one to believe. Barring artificials can turn a
+ * feasible model infeasible, so a verdict from the barred walk is not a
+ * verdict at all; whichever unbarred walk got furthest is what is reported.
+ */
+function verdict(walks, rows) {
+  const open = walks.filter((w) => !w.barred);
+  const last = open[open.length - 1] || walks[walks.length - 1];
+  if (!last) return { reason: 'no walk ran' };
+  if (last.why !== 'infeasible') {
+    return { reason: `no walk settled inside ${MAX_PIVOTS} pivots`, stuck: true };
+  }
+  const named = last.rows.slice(0, 3).map((i) => rows[i] && rows[i].name)
+    .filter(Boolean);
+  const rest = last.rows.length - named.length;
+  return {
+    reason: `phase one settled ${+last.short.toFixed(4)} short` +
+      (named.length ? ` on ${named.join(', ')}${rest > 0 ? ` and ${rest} more` : ''}` : ''),
+    infeasible: true,
+    short: last.short,
+    rows: last.rows.map((i) => rows[i] && rows[i].name).filter(Boolean),
+  };
+}
+
 export function solveLPFloat(problem) {
   // The first walk gets a short leash. When it is going to fail it fails by
   // pivoting in circles until the cap, and on the Lepidolite plan that was
   // seven seconds spent before the walk that works even started.
-  return attempt(problem, true, 2000) || attempt(problem, false, MAX_PIVOTS) ||
-         attempt(problem, false, MAX_PIVOTS, true) ||
-         { ok: false, reason: 'neither walk settled' };
+  const walks = [];
+  return attempt(problem, true, 2000, false, walks) ||
+         attempt(problem, false, MAX_PIVOTS, false, walks) ||
+         attempt(problem, false, MAX_PIVOTS, true, walks) ||
+         { ok: false, ...verdict(walks, problem.rows) };
 }
 
-function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = false) {
+function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = false,
+                 walks = []) {
   const shift = (i) => lo.get(i) || 0;
   const prepared = rows.map((row) => {
     let rhs = row.rhs;
@@ -191,6 +245,19 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
     const open = new Uint8Array(width);
     for (let j = 0; j < width; j++) open[j] = allowed(j) ? 1 : 0;
 
+    /**
+     * A pivot too small to trust is a last resort, not a forbidden move.
+     *
+     * Refusing them outright is its own failure: the column is set aside, and
+     * with nothing left to bring in the walk reports itself finished while
+     * phase one is still unsatisfied. So the relative floor is only the first
+     * pass. When every remaining column has been set aside, the floor drops to
+     * the absolute one and they are all tried again; any pivot that lands puts
+     * the relative floor back, because whether a row is stable is a fact about
+     * the tableau and the tableau has just moved.
+     */
+    let relaxed = false;
+
     for (let step = 0; step < budget; step++) {
       let enter = -1;
       let best = -EPS;
@@ -198,7 +265,13 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
         if (!open[j] || dead[j]) continue;
         if (dual[j] < best) { best = dual[j]; enter = j; }
       }
-      if (enter < 0) return true;
+      if (enter < 0) {
+        if (relaxed || !anyDead) return true;
+        relaxed = true;
+        dead.fill(0);
+        anyDead = false;
+        continue;
+      }
 
       /**
        * A pivot may be small without being absent.
@@ -211,20 +284,36 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
        * "this number is interesting".
        */
       /**
-       * Among rows that tie, pivot on the biggest number.
+       * Which of two rows tied on the ratio should leave.
        *
        * Ties are the normal case here -- most of these rows have a zero on the
-       * right and every one of them gives a ratio of nothing -- and choosing
-       * between them by row order is choosing by nothing at all. The largest
-       * coefficient is the one that divides cleanest, which is the usual
-       * defence against a walk that grinds round the same degenerate corner.
+       * right and every one of them gives a ratio of nothing -- so the choice
+       * between them is the whole difference between a walk that finishes and
+       * one that circles the same corner. Pivoting on the biggest number was
+       * a guess at which divides cleanest; it is a numerical instinct and says
+       * nothing about termination.
+       *
+       * Comparing the tied rows entry by entry, each scaled by its own pivot,
+       * and taking the first that differs is the choice an infinitesimal nudge
+       * to the right-hand side would have forced -- so the walk behaves like
+       * one on a problem with no ties at all. Unlike an actual perturbation it
+       * leaves the answer alone, and unlike Bland's rule it says nothing about
+       * which column comes in, so the steepest choice is kept.
        */
+      let colMax = 0;
+      for (let i = 0; i < height; i++) {
+        const a = Math.abs(table[i * stride + enter]);
+        if (a > colMax) colMax = a;
+      }
+      const weak = loose ? 1e-14 : PIVOT_MIN;
+      const floor = relaxed ? weak : Math.max(weak, colMax * PIVOT_REL);
+
       let leave = -1;
       let ratio = Infinity;
       let pivotAt = 0;
       for (let i = 0; i < height; i++) {
         const a = table[i * stride + enter];
-        if (a <= (loose ? 1e-14 : PIVOT_MIN)) continue;
+        if (a <= floor) continue;
         const r = table[i * stride + width] / a;
         if (r < ratio - EPS || (Math.abs(r - ratio) <= EPS && a > pivotAt)) {
           ratio = r; leave = i; pivotAt = a;
@@ -238,10 +327,15 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
        * the same as a rule that finds the answer. This is a shortlist and not
        * a verdict, so when it gives up the caller falls back to asking the
        * exact solver about everything -- slow, and right.
+       *
+       * What looked like cycling here usually was not. A walk that will not
+       * finish is nearly always one that pivoted on a number too small to
+       * divide by, and the floor below fixes that at the source.
        */
       if (leave < 0) { dead[enter] = 1; anyDead = true; continue; }
       pivot(leave, enter);
       carry(leave, enter);
+      relaxed = false;
       if (anyDead) { dead.fill(0); anyDead = false; }
     }
     return false;
@@ -253,7 +347,10 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
     for (const j of artificial) isArt[j] = 1;
     // An artificial is scaffolding: it is there to give the basis somewhere to
     // start, and once it has left there is never a reason to let it back.
-    if (!run((j) => isArt[j], barred ? (j) => !isArt[j] : () => true)) return null;
+    if (!run((j) => isArt[j], barred ? (j) => !isArt[j] : () => true)) {
+      walks.push({ barred, loose, why: 'phase one out of pivots' });
+      return null;
+    }
     let total = 0;
     for (let i = 0; i < height; i++) if (art.has(basis[i])) total += table[i * stride + width];
 
@@ -271,8 +368,22 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
      * So when that happens, try once more taking whatever pivot can be found,
      * however small. It is worse arithmetic and it is the difference between
      * an answer and none.
+     *
+     * What the looser walk buys is a smaller pivot, not a lower bar. Letting
+     * it through with artificials still standing was accepting a point that is
+     * not on the problem at all: the Zirconium route to Glass came back `ok`
+     * holding one column and breaking "Molten Silica >= 0" by a whole unit,
+     * and the exact solver had to catch it downstream. A residual is a verdict
+     * of infeasible however small the pivots that got here were.
      */
-    if (total > 1e-6 && !loose) return null;
+    if (total > 1e-6) {
+      const short = [];
+      for (let i = 0; i < height; i++) {
+        if (art.has(basis[i]) && table[i * stride + width] > 1e-9) short.push(i);
+      }
+      walks.push({ barred, loose, why: 'infeasible', short: total, rows: short });
+      return null;
+    }
     for (let i = 0; i < height; i++) {
       if (!art.has(basis[i])) continue;
       let swap = -1;
@@ -283,8 +394,12 @@ function attempt({ vars, rows, cost, lo = new Map() }, barred, budget, loose = f
       if (swap >= 0) pivot(i, swap);
     }
     const live = (j) => !isArt[j];
-    if (!run((j) => cost.get(j) || 0, live)) return null;
+    if (!run((j) => cost.get(j) || 0, live)) {
+      walks.push({ barred, loose, why: 'phase two out of pivots' });
+      return null;
+    }
   } else if (!run((j) => cost.get(j) || 0, () => true)) {
+    walks.push({ barred, loose, why: 'phase two out of pivots' });
     return null;
   }
 
