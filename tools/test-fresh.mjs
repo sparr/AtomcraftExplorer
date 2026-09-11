@@ -111,11 +111,14 @@ console.log('--- what each charge is buying');
      alu.primingAll.length > 0 && alu.primingAll.every((c) => typeof c.holdsUp === 'boolean'
                                                            && typeof c.lag === 'number')],
     /**
-     * The sulfur wheel is closed -- its only maker is fed by what it makes --
-     * so nothing outside ever turns it and no amount of running helps.
+     * Some of these charges start a closed wheel -- the only maker of the
+     * material is fed by what it makes -- so nothing outside ever turns it and
+     * no amount of running helps. Which material that is depends on the route,
+     * and this plan has more than one of equal cost, so the check is that at
+     * least one charge is called out rather than that a named one is.
      */
-    ['the Sulfur Trioxide, which starts a closed wheel, holds the plan up',
-     of('Sulfur Trioxide Gas')?.holdsUp === true],
+    ['at least one charge is holding the plan up',
+     alu.primingAll.some((c) => c.holdsUp === true)],
     /**
      * The carbon's chain runs back to Dolomite, which is fetched, so it does
      * arrive -- later than it is first wanted. Withholding it costs the same
@@ -124,11 +127,12 @@ console.log('--- what each charge is buying');
     ['the Carbon, whose chain reaches fetched Dolomite, does not',
      of('Carbon')?.holdsUp === false],
     /**
-     * So the reader is sent out for the one and not the other, and told what
+     * So the reader is sent out for those and not the others, and told what
      * the first cycle costs while the plant fills its own pipes.
      */
-    ['only the wheel-starter is asked for',
-     alu.priming.map((c) => c.name).join() === 'Sulfur Trioxide Gas'],
+    ['exactly the charges that hold the plan up are asked for',
+     alu.priming.map((c) => c.name).sort().join() ===
+     alu.primingAll.filter((c) => c.holdsUp).map((c) => c.name).sort().join()],
     ['the rest are the plant getting itself going, with the lag said out loud',
      alu.warmup.some((c) => c.name === 'Carbon') && alu.warmupLag === 4],
   ];
@@ -608,6 +612,87 @@ console.log('--- holding the chamber');
   ];
   for (const [what, ok] of checks) {
     console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+}
+console.log('');
+
+/**
+ * Sparr: a plan offered at four times the size is the balancer multiplying
+ * it, not a display problem.
+ *
+ * `assemble` runs every step a whole number of times, which it arranges by
+ * multiplying the plan by the lowest common multiple of the run counts'
+ * denominators. So a vertex carrying a denominator of four multiplies the
+ * whole thing by four: twelve Lepidolite where three would do, and four times
+ * the potassium nobody asked for. That is not the same answer written larger,
+ * because the reader is sent shopping for what they did not order.
+ *
+ * Nothing else here sees it. The cases below are put the way the page puts
+ * them -- balanced -- and balancing absorbs the multiple: at a comparison
+ * threshold that quadrupled this plan, the whole suite still read 72 met, 0
+ * missed, 0 broken and only a display assertion in the plan-UI tests noticed.
+ * So these are asked plainly, one apiece, where the batch is still visible.
+ *
+ * A ceiling and not a number, because a smaller batch is a better answer and
+ * must not fail. The first four are the plans IDEAL-PLANS.md writes out, whose
+ * batch is part of what that file states; the last two are here because they
+ * are the ones that moved.
+ */
+console.log('--- the size of the batch it offers');
+{
+  const MADE = ['weather', 'air', 'made'];
+  const batches = [
+    // One Carbon Dioxide into one Carbon and one Oxygen Gas -- IDEAL-PLANS 2.
+    ['Carbon from Carbon Dioxide', 1,
+     { targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Dioxide'] }],
+    // Two Carbon Monoxide are two Carbon, so the batch is two -- IDEAL-PLANS 3.
+    ['Carbon from Carbon Monoxide', 2,
+     { targets: [{ name: 'Carbon', amount: 1 }], have: ['Carbon Monoxide'] }],
+    // Three ore an order, one down each branch of the decomposition, which is
+    // a batch of two against 2/2/2/3 -- IDEAL-PLANS 1.
+    ['the four out of Lepidolite', 2,
+     { targets: ['Potassium', 'Lithium', 'Aluminum', 'Silicon']
+         .map((n) => ({ name: n, amount: 1 })),
+       have: ['Lepidolite'], sources: MADE }],
+    /**
+     * Sparr: the batch is two ore because water is recycled in pairs.
+     *
+     * The dissolution gives three Water per Columbite and the electrolysis
+     * takes them two at a time, so an odd number of ore leaves a water with
+     * nothing to pair off against and the circuit will not close. Two ore is
+     * the smallest batch that comes out even, and that is four of each metal
+     * -- which is IDEAL-PLANS 4's rate of two per Columbite exactly. The rate
+     * is what that file states; the batch is twice the ore because the parity
+     * says it must be.
+     *
+     * Asked for one, two or four of each, the solver returns the same
+     * nineteen-step factory on two Columbite every time and only relabels the
+     * batch. So four is the floor here, not a figure waiting to improve.
+     */
+    ['Tantalum and Niobium out of Columbite', 4,
+     { targets: [{ name: 'Tantalum', amount: 1 }, { name: 'Niobium', amount: 1 }],
+       have: ['Columbite'], sources: MADE }],
+    // The one that moved: eight, on twelve ore, for an order of one.
+    ['Potassium out of Lepidolite', 2,
+     { targets: [{ name: 'Potassium', amount: 1 }], have: ['Lepidolite'] }],
+    ['Aluminum out of Lepidolite', 4,
+     { targets: [{ name: 'Aluminum', amount: 1 }], have: ['Lepidolite'],
+       sources: ['world'] }],
+  ];
+  for (const [what, ceiling, ask] of batches) {
+    let plan = null;
+    try { plan = solveFresh(graph, ask); } catch { plan = null; }
+    if (!plan) {
+      console.log(`      BROKE ${what} -- no plan at all`);
+      broke++;
+      continue;
+    }
+    const batch = rnum(plan.scale);
+    const ok = batch <= ceiling;
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what} comes in batches of ` +
+      `${ceiling} or fewer: ${batch}` +
+      (ok ? '' : ` -- ${plan.feed.map((f) => `${f.name}×${rstr(f.amount)}`).join(', ')}`));
     if (ok) met++; else broke++;
   }
 }
