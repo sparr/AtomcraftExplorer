@@ -49,10 +49,34 @@ export function atomsIn(graph, name, element) {
  * Carbon and three Oxygen Gas going in and three Carbon Dioxide coming out:
  * one carbon atom in and three out.
  */
-export function mintsElement(graph, a, b, element) {
+/**
+ * Whichever of the two is named first.
+ *
+ * The handoff is looked for one way round -- what `a` makes that `b` eats --
+ * and a pair named the other way finds nothing and is declared unprovable at
+ * the first line. Three of the sixteen pairs `find-wheels.mjs` turns up are
+ * named that way: the manganese dissolve against the condense that hands the
+ * manganese back, the quicklime against the recipe that makes its hydrochloric
+ * acid, and the potassium sulfide decomposition against the recipe that makes
+ * the sulfide. All three were reported as "cannot count the H" or "cannot
+ * count the O" -- which was never the trouble, every material in them counts
+ * -- and all three exclusions sat disarmed.
+ *
+ * What they let through is not subtle. Asked for Oxygen Gas, the plan buys
+ * nothing at all and hands back three of it a batch, turning potassium and
+ * sulfur in a circle while the oxygen falls out of
+ * `rx:Potassium Sulfide Decomposition`, which takes two Potassium Sulfide and
+ * gives back two Potassium Oxide and two Sulfur Dioxide Gas.
+ *
+ * So the pair is tried the other way round before being given up on, which is
+ * what the comment beside `KNOWN_BUGS` always said happened. The arithmetic
+ * below nets the element whichever recipe is named first, so nothing else
+ * needs to change.
+ */
+export function mintsElement(graph, a, b, element, swapped = false) {
   if (!a || !b) return false;
   const shared = a.produces.find((o) => b.consumes.some((c) => c.name === o.name));
-  if (!shared) return false;
+  if (!shared) return swapped ? false : mintsElement(graph, b, a, element, true);
   const per = b.consumes.find((c) => c.name === shared.name).count;
   const times = shared.count / per;
 
