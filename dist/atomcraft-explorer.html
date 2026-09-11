@@ -981,6 +981,27 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 
 /* A step that is only here because the alternative was a priming charge. */
 .step-loop { font-size: 12px; color: var(--ok); margin-top: 2px; }
+.step-flags { display: flex; gap: 5px; margin-top: 3px; }
+.step-flag {
+  font: inherit; font-size: 11px; line-height: 1.5; padding: 0 5px;
+  background: none; border: 1px solid currentColor; border-radius: 3px;
+  opacity: 0.8; cursor: pointer;
+}
+.step-flag:hover, .step-flag.open { opacity: 1; }
+.step-flag.open { background: currentColor; }
+/* The label has to stay readable once the button fills in behind it. */
+.step-flag.open { color: var(--bg); }
+.step-flag-info.open { background: var(--fg-dim); }
+.step-flag-warn.open { background: var(--warm); }
+.step-flag-danger.open { background: var(--danger); }
+.step-note { font-size: 12px; margin-top: 3px; }
+.step-note-line + .step-note-line { margin-top: 1px; }
+.step-note-info { color: var(--fg-dim); }
+.step-note-warn { color: var(--warm); }
+.step-note-danger { color: var(--danger); }
+.step-flag-info { color: var(--fg-dim); }
+.step-flag-warn { color: var(--warm); }
+.step-flag-danger { color: var(--danger); }
 
 /* Spare output the reader has claimed as a product rather than waste. */
 .plan-panel.kept { border-color: var(--ok); }
@@ -12427,7 +12448,7 @@ const {composition} = __mod_composition;
 const {balanceTargets} = __mod_balance;
 const {routesFor} = __mod_routes;
 const {drawPlan} = __mod_plan_picture;
-const {rat, rmul, rsub, rstr, rcmp, R0} = __mod_rational;
+const {rat, rmul, rsub, rdiv, rstr, rcmp, R0} = __mod_rational;
 const {solveFresh, blankFresh, questionShape, oreReach, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
 const {SCORES, optionSets, digest} = __mod_plan_menu;
 const {rnum} = __mod_rational;
@@ -12693,7 +12714,20 @@ function renderGoals() {
 /* ------------------------------------------------------------------ steps */
 
 /** The conditions a step runs under, as the game states them. */
-function conditions(step) {
+/**
+ * Sparr: the hazards go behind a button, not down the side of every step.
+ *
+ * What a step avoids, what it drags along with it, and why the batch is the
+ * size it is are all worth knowing and none of them are worth three lines of
+ * the plan each. They are gathered into `notes` and the caller puts them under
+ * a flag the reader can hover: grey for something merely worth saying, orange
+ * for a hazard this step is dodging on purpose, red for one it cannot dodge.
+ *
+ * A side reaction the plan was going to run anyway is not a danger and is
+ * filed as information, which is the distinction `.rx-also.wanted` was already
+ * drawing in the stylesheet.
+ */
+function conditions(step, notes) {
   const c = step.process.conditions;
   const w = step.window;
   const out = el('div', 'rx-cond');
@@ -12726,11 +12760,9 @@ function conditions(step) {
   }
   // Kept out of this range: what would happen, and where.
   for (const a of w.avoided) {
-    const line = el('span', 'rx-avoids', `avoids ${a.label} at ${firesAt(a.range)}`);
-    line.title = a.binding
-      ? "The step's range stops just short of this one."
-      : 'Also dodged, though something else is the tighter limit.';
-    out.append(line);
+    notes.warn.push(`avoids ${a.label} at ${firesAt(a.range)} — ` + (a.binding
+      ? "the step's range stops just short of this one"
+      : 'also dodged, though something else is the tighter limit'));
   }
   // Not kept out: no temperature in the range avoids these, so they happen.
   // Anything sharing the feed is left out here: it is a step of its own now,
@@ -12740,15 +12772,10 @@ function conditions(step) {
   for (const u of w.unavoidable) {
     if (sharing.has(u.id)) continue;
     const wanted = solved.dag.processes.has(u.id);
-    const line = el('span', 'rx-also');
-    line.append(`this also runs ${u.label} at ${firesAt(u.range)}`);
-    line.append(el('span', 'rx-why',
-      wanted ? ' — which is a step of this plan anyway'
-             : ' — no temperature in range avoids it'));
-    if (wanted) line.classList.add('wanted');
-    line.title = 'The same chamber contents drive this too, at every temperature ' +
-      'the step can be run at.';
-    out.append(line);
+    const line = `this also runs ${u.label} at ${firesAt(u.range)} — ` +
+      (wanted ? 'which is a step of this plan anyway'
+              : 'no temperature in range avoids it');
+    (wanted ? notes.info : notes.danger).push(line);
   }
   return out;
 }
@@ -12878,6 +12905,43 @@ function renderSteps() {
   }
   box.append(head);
 
+  /**
+   * Which steps are the reason the plan comes in the batch it does.
+   *
+   * The batch is the lowest common multiple of what the run counts would
+   * otherwise be fractions of, so a step whose count divides by it cleanly was
+   * never the cause -- one order takes a whole number of those either way. The
+   * ones that do not divide are the whole of the reason, and there are usually
+   * very few: the Tantalum plan runs twenty-one steps four times over because
+   * of exactly one of them, the water electrolysis, which would have to run
+   * three and a quarter times for a single order.
+   *
+   * Sparr: water is where this lands most often. Splitting it takes two at a
+   * time, it is the compound most reactors recycle, and a loop that comes out
+   * odd has to go round twice before the electrolysis has a whole pair to work
+   * on.
+   *
+   * The same multiple reaches the reader by two different routes and the note
+   * belongs on both. Unbalanced, it is `scale` and the goal bar still says one
+   * -- balanced, `scale` is one because the multiple was folded into the
+   * amounts instead, and the reader is looking at a goal bar that says four
+   * without being told why. Multiplying the two gives the batch whichever way
+   * the question was put. Where balancing has moved the targets unequally --
+   * Lepidolite comes out at 2/2/2/3 because that is the ratio in the ore --
+   * the smallest of the moves is the one the whole plan made.
+   */
+  const asked = new Map(plan.targets.map((t) => [t.name, t.amount]));
+  let times = rat(1);
+  for (const t of shownTargets) {
+    const was = asked.get(t.name);
+    if (!was) continue;
+    const grew = rdiv(rat(t.amount), rat(was));
+    if (rcmp(grew, times) > 0 && (times.n === 1n && times.d === 1n)) times = grew;
+    else if (rcmp(grew, times) < 0 && rcmp(grew, rat(1)) > 0) times = grew;
+  }
+  const batch = rmul(solved.scale, times);
+  const multiplied = batch.d === 1n && batch.n > 1n;
+
   const table = el('table', 'plan-table');
   const tbody = el('tbody');
   for (const step of solved.steps) {
@@ -12909,7 +12973,8 @@ function renderSteps() {
       if (step.share.rounded) note.append(' (roughly)');
       what.append(note);
     }
-    what.append(conditions(step));
+    const notes = { info: [], warn: [], danger: [] };
+    what.append(conditions(step, notes));
     tr.append(what);
 
     const acts = el('td', 'step-acts');
@@ -12940,6 +13005,57 @@ function renderSteps() {
                  'does not have to be laid in');
       what.append(why);
     }
+    if (multiplied) {
+      const each = rdiv(step.runs, batch);
+      if (each.d !== 1n) {
+        /**
+         * What this step forces, not what the batch happens to be.
+         *
+         * Saying "the plan runs four times over" on every step that does not
+         * divide is true and misleading: on the Tantalum plan nine steps do
+         * not divide, and eight of them only ever needed two. The step that
+         * takes the batch from two to four is the one whose share is a
+         * quarter, and it should be the one that says so.
+         */
+        notes.info.push(`one order would take ${rstr(each)} of these, so the batch ` +
+          `has to be a multiple of ${each.d}` +
+          (each.d === batch.n ? `, which is what sets it at ${rstr(batch)}` : ''));
+      }
+    }
+    /**
+     * One flag per kind, and nothing at all when there is nothing to say.
+     *
+     * The word rather than a glyph, because a coloured dot beside a reaction
+     * reads as part of the chemistry. Pressing one opens its lines underneath
+     * in the colour they used to be written in; pressing again shuts them.
+     * Each flag opens only its own kind, so a plan with a danger to read is
+     * not also unfolding the arithmetic behind the batch.
+     *
+     * No tooltip. It held the same words the button now writes out, and a
+     * control that says one thing on hover and the same thing on press is
+     * offering the reader a choice that is not worth making -- the hover also
+     * arrives on its own schedule, cannot be styled, and never appears at all
+     * for anyone reaching the button by keyboard.
+     */
+    const flags = el('div', 'step-flags');
+    const panels = [];
+    for (const [kind, label, lines] of [['info', 'info', notes.info],
+                                        ['warn', 'warning', notes.warn],
+                                        ['danger', 'danger', notes.danger]]) {
+      if (!lines.length) continue;
+      const panel = el('div', `step-note step-note-${kind}`);
+      for (const line of lines) panel.append(el('div', 'step-note-line', line));
+      panel.hidden = true;
+      const flag = button(`step-flag step-flag-${kind}`, label, null, () => {
+        panel.hidden = !panel.hidden;
+        flag.setAttribute('aria-expanded', String(!panel.hidden));
+        flag.classList.toggle('open', !panel.hidden);
+      });
+      flag.setAttribute('aria-expanded', 'false');
+      flags.append(flag);
+      panels.push(panel);
+    }
+    if (panels.length) what.append(flags, ...panels);
     if (made) {
       acts.append(button('ghost small', 'Other ways',
                          `Every way of getting ${made}, to choose from`,

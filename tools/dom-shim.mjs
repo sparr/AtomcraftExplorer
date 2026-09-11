@@ -7,6 +7,14 @@ class ClassList {
   add(...c) { c.forEach((x) => x && this.set.add(x)); this.sync(); }
   remove(...c) { c.forEach((x) => this.set.delete(x)); this.sync(); }
   contains(c) { return this.set.has(c); }
+  // Standard, and the shim simply did not have it: the step flags toggle their
+  // own `open` class when pressed.
+  toggle(c, force) {
+    const on = force === undefined ? !this.set.has(c) : !!force;
+    if (on) this.set.add(c); else this.set.delete(c);
+    this.sync();
+    return on;
+  }
   sync() { this.node._class = [...this.set].join(' '); }
 }
 

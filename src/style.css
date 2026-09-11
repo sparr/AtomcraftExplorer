@@ -974,6 +974,27 @@ button.ghost.on { color: var(--accent); border-color: var(--accent-dim); }
 
 /* A step that is only here because the alternative was a priming charge. */
 .step-loop { font-size: 12px; color: var(--ok); margin-top: 2px; }
+.step-flags { display: flex; gap: 5px; margin-top: 3px; }
+.step-flag {
+  font: inherit; font-size: 11px; line-height: 1.5; padding: 0 5px;
+  background: none; border: 1px solid currentColor; border-radius: 3px;
+  opacity: 0.8; cursor: pointer;
+}
+.step-flag:hover, .step-flag.open { opacity: 1; }
+.step-flag.open { background: currentColor; }
+/* The label has to stay readable once the button fills in behind it. */
+.step-flag.open { color: var(--bg); }
+.step-flag-info.open { background: var(--fg-dim); }
+.step-flag-warn.open { background: var(--warm); }
+.step-flag-danger.open { background: var(--danger); }
+.step-note { font-size: 12px; margin-top: 3px; }
+.step-note-line + .step-note-line { margin-top: 1px; }
+.step-note-info { color: var(--fg-dim); }
+.step-note-warn { color: var(--warm); }
+.step-note-danger { color: var(--danger); }
+.step-flag-info { color: var(--fg-dim); }
+.step-flag-warn { color: var(--warm); }
+.step-flag-danger { color: var(--danger); }
 
 /* Spare output the reader has claimed as a product rather than waste. */
 .plan-panel.kept { border-color: var(--ok); }

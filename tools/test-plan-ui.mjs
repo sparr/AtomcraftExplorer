@@ -102,18 +102,58 @@ app.setPlan(farming(addTarget(emptyPlan(), 'Vinegar')));
 app.setMode('plan');
 check($('#plan-empty').hidden && !$('#plan-work').hidden, 'a plan with a target shows the table');
 
-// Every side reaction says when it would happen, since a step may dodge
-// several and only one of them explains the limit it ended up with.
-const avoided = nodes($('#plan-steps'), 'rx-avoids');
-check(avoided.length > 0 && avoided.every((n) => /at [≥≤]|at \d|any temperature/.test(n.textContent)),
+/**
+ * Every side reaction says when it would happen, since a step may dodge
+ * several and only one of them explains the limit it ended up with.
+ *
+ * These are behind the step's flags now rather than written down the side of
+ * it, so the text is read off the hover. Which flag a line sits under is part
+ * of what is being checked: a hazard the step dodges is a warning, one it
+ * cannot dodge is a danger, and one the plan was going to run anyway is
+ * neither.
+ */
+const said = (kind) => nodes($('#plan-steps'), `step-note-${kind}`)
+  .flatMap((n) => nodes(n, 'step-note-line').map((l) => l.textContent));
+check(nodes($('#plan-steps'), 'step-flag').every((n) => !n.getAttribute('title')),
+      'a flag carries no tooltip, since pressing it says the same thing');
+check(nodes($('#plan-steps'), 'step-flag').length ===
+      nodes($('#plan-steps'), 'step-note').length,
+      'and every flag has a panel of its own to open');
+/**
+ * And pressing one writes it out under the step.
+ *
+ * Hovering is the glance; pressing is for reading it beside the reaction while
+ * looking at something else. Shut until asked, open on the press, shut again
+ * on the next -- and only the flag pressed, so opening a danger does not also
+ * unfold the arithmetic behind the batch.
+ */
+{
+  const withFlags = nodes($('#plan-steps'), 'plan-step')
+    .find((r) => nodes(r, 'step-flag').length > 1);
+  const flag = nodes(withFlags, 'step-flag')[0];
+  const shown = () => nodes(withFlags, 'step-note').filter((n) => !n.hidden);
+  check(shown().length === 0, 'the lines stay shut until a flag is pressed');
+  flag.click();
+  check(shown().length === 1 && shown()[0].textContent.trim().length > 0,
+        'pressing one writes its lines out under the step');
+  check(flag.getAttribute('aria-expanded') === 'true', 'and says so for a screen reader');
+  check(nodes(withFlags, 'step-flag').filter((f) => f.classList.contains('open')).length === 1,
+        'and only the one pressed');
+  flag.click();
+  check(shown().length === 0, 'pressing it again shuts it');
+}
+const avoided = said('warn').filter((t) => t.startsWith('avoids '));
+check(avoided.length > 0 && avoided.every((t) => /at [≥≤]|at \d|any temperature/.test(t)),
       'each dodged side reaction says at what temperature it would happen');
-check(avoided.some((n) => /at ≥|at ≤/.test(n.textContent)),
+check(avoided.some((t) => /at ≥|at ≤/.test(t)),
       'as a bound rather than a sentence');
-const also = nodes($('#plan-steps'), 'rx-also');
-check(also.every((n) => /°C|any temperature/.test(n.textContent)),
+const also = [...said('danger'), ...said('info')].filter((t) => t.startsWith('this also runs'));
+check(also.every((t) => /°C|any temperature/.test(t)),
       'so does one that cannot be dodged');
-check(also.some((n) => /a step of this plan|no temperature in range/.test(n.textContent)),
+check(also.some((t) => /a step of this plan|no temperature in range/.test(t)),
       'and it says why it could not be');
+check(said('danger').every((t) => !/a step of this plan/.test(t)),
+      'and a side reaction the plan wanted anyway is not called a danger');
 
 const steps = nodes($('#plan-steps'), 'plan-step');
 check(steps.length === 5, `Vinegar comes out as ${steps.length} steps`);
@@ -139,7 +179,20 @@ check(steps.length === 5, `Vinegar comes out as ${steps.length} steps`);
 }
 check(text('#plan-steps').includes('Acetic Acid'), 'naming the materials along the way');
 check(goals().includes('Vinegar'), 'and the goal bar says what it is for');
-check(text('#plan-side').includes('Death Moss Spore'), 'the side lists what to go and fetch');
+/**
+ * Which spore this asks for is a coin toss between equals.
+ *
+ * Vinegar wants a spore blended into yeast and several of them do that at the
+ * same cost, so which one comes back is down to how a tie inside the solver
+ * falls -- it has moved from Death Moss to Ember Crown without the plan
+ * getting any better or any worse. What is being tested here is that the thing
+ * to fetch is listed, offered, and can be handed over, so the name is read off
+ * the list rather than written down.
+ */
+const spores = () => nodes($('#plan-side'), 'plan-item')
+  .filter((n) => (n.dataset.material || '').endsWith('Spore'));
+const sporeName = spores()[0]?.dataset.material;
+check(!!sporeName, `the side lists what to go and fetch: ${sporeName}`);
 // A catalyst belongs on the step that needs it, named once. Not on the
 // shopping list, since nothing consumes it, and not repeated in the summary.
 check(text('#plan-steps').includes('needs Blender'), 'a catalyst is named on its step');
@@ -149,18 +202,15 @@ check(!text('#plan-side').includes('needs Blender'),
       'and not said a second time in the summary');
 
 // The frontier's "I have it" is the loop the whole mode is built around.
-const fetchList = nodes($('#plan-side'), 'plan-item');
-const spore = fetchList.find((n) => n.textContent.includes('Death Moss Spore'));
-const haveIt = nodes(spore, 'small').find((b) => b.textContent === 'I have it');
+const haveIt = nodes(spores()[0], 'small').find((b) => b.textContent === 'I have it');
 check(!!haveIt, 'each thing to fetch offers "I have it"');
 haveIt.click();
-check(app.getPlan().have.includes('Death Moss Spore'), 'pressing it moves the material to have');
-const stillListed = nodes($('#plan-side'), 'plan-item')
-  .some((n) => n.textContent.includes('Death Moss Spore'));
-check(!stillListed, 'and off the shopping list');
-check(goals().includes('Death Moss Spore'), 'into the goal bar');
+check(app.getPlan().have.includes(sporeName), 'pressing it moves the material to have');
+check(!spores().some((n) => n.dataset.material === sporeName),
+      'and off the shopping list');
+check(goals().includes(sporeName), 'into the goal bar');
 // And the have row says how much of it the plan actually wants.
-check(/1\s*Death Moss Spore/.test(text('#goal-haves')),
+check(new RegExp(`1\\s*${sporeName}`).test(text('#goal-haves')),
       `saying how much has to be supplied: ${text('#goal-haves').trim()}`);
 
 // Excluding a step has to change the answer, not just grey something out.
@@ -341,6 +391,17 @@ console.log('\n--- claiming what is left over ---');
 
 console.log('\n--- the shopping list says what it is for ---');
 {
+  /**
+   * Sparr: the note belongs on the balanced view, to explain what drove the
+   * multiplier.
+   *
+   * Balanced is where it is least obvious and most wanted. The multiple has
+   * been folded into the goal bar, which now says four where the reader typed
+   * one, and `scale` reads one because there is nothing left for it to carry
+   * -- so the batch is on the screen without a word about where it came from.
+   * Both views are covered: the amounts hold the multiple here, `scale` holds
+   * it when balancing is off, and the render multiplies the two.
+   */
   app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Tantalum'), 'Niobium'), 'Columbite'));
   app.setMode('plan');
   // Whatever it buys, not a named material: what the plan reaches for moves
@@ -423,6 +484,37 @@ console.log('\n--- changing it and reloading it agree ---');
   app.reload();
   check(amount() === narrow,
         `changing it gives what loading it gives: ${narrow} against ${amount()}`);
+}
+
+/**
+ * Why the batch is the size it is, said on the steps that set it.
+ *
+ * Sparr: mark every step whose count does not divide by the multiplier. The
+ * batch is the lowest common multiple of what the counts would otherwise be
+ * fractions of, so a step that divides cleanly was never the cause; the ones
+ * that do not are the whole of the reason.
+ *
+ * Each says what it forces rather than what the batch happens to be. On the
+ * Tantalum plan nine steps do not divide and eight of them only ever needed
+ * two -- the water electrolysis is the one that takes it from two to four, and
+ * it is the one that should say four.
+ */
+console.log('\n--- why the batch is the size it is ---');
+{
+  app.setPlan(addHave(addTarget(addTarget(emptyPlan(), 'Tantalum'), 'Niobium'), 'Columbite'));
+  app.setMode('plan');
+  const marks = nodes($('#plan-steps'), 'step-note-info')
+    .flatMap((n) => nodes(n, 'step-note-line').map((l) => l.textContent))
+    .filter((t) => t.startsWith('one order would take'));
+  check(marks.length > 0, `the steps that set the batch say so: ${marks.length} of them`);
+  check(marks.every((t) => /has to be a multiple of \d/.test(t)),
+        'each naming the multiple it forces');
+  const sets = marks.filter((t) => /which is what sets it at/.test(t));
+  check(sets.length > 0, 'and the one that fixes the batch says which it is');
+  // A step whose count divides the batch cleanly was not the reason for it.
+  const rows = nodes($('#plan-steps'), 'plan-step');
+  check(rows.length > marks.length,
+        'while the steps that divide cleanly stay quiet');
 }
 
 console.log('\n--- what has to be in there before it starts ---');
