@@ -1089,6 +1089,22 @@ function walkSubgraph(graph, spec) {
    */
   for (const g of rivalGroups(graph)) {
     if (!g.ids.some((id) => chosen.has(id))) continue;
+    /**
+     * Including a member the exclusions dropped, which is not an oversight.
+     *
+     * `usable` refuses a barred step and this hands it straight back, because
+     * a chamber is all or none of it and a rival of it was worth having. That
+     * looks like the bar being ignored and is the physics being obeyed: the
+     * tile runs whichever of its reactions is valid on the tick, so half a
+     * competition cannot be had at any price.
+     *
+     * It does mean a bar on a chambered step cannot bite, which the free-lunch
+     * pass has to know about -- see `blame` in `freeLunch`, which takes out a
+     * member of the wheel it can actually take out. Refusing the whole chamber
+     * instead was tried and is far worse: barring one wheel member then costs
+     * every route through that chamber, and Copper Oxide went from two steps
+     * to twenty-eight.
+     */
     for (const id of g.ids) {
       const q = graph.byId.get(id);
       if (!q || chosen.has(id)) continue;
@@ -2235,14 +2251,43 @@ function freeLunch(graph, spec, plan) {
       for (const c of inputsOf(p)) out -= c.count * perUnit(c.name);
       return out;
     };
-    let biggest = 0;
-    let blame = null;
-    for (const p of procs) {
-      const runs = answer.x[index.get(p.id)];
-      if (minted(p) <= 1e-9 || runs <= biggest) continue;
-      biggest = runs; blame = p.id;
-    }
+    /**
+     * And a member barring can actually stop.
+     *
+     * A step that shares a chamber comes back however firmly it is excluded:
+     * the candidate walk drops it and then puts it back, because a chamber is
+     * all or none of it and the walk will not take half a competition. So
+     * naming one is naming a bar that cannot bite, and the round is spent to
+     * no effect -- asked for Lithium Hydroxide, the pass blamed
+     * `rx:Pyrolusite Decomposition`, got it back through `rx:Pyrolusite
+     * Reduction` next round, and blamed it again until the eight rounds ran
+     * out and a question with a perfectly good eighteen-step answer reported
+     * that it could not be planned at all.
+     *
+     * Barring any member stops the wheel, so there is usually another to take.
+     * Only when every member of it is chambered is there nothing to be done,
+     * and then the round loop says so rather than spending five more solves
+     * finding out.
+     */
+    const chambered = new Set();
+    for (const g of rivalGroups(graph)) for (const id of g.ids) chambered.add(id);
+    const pick = (test) => {
+      let biggest = 0;
+      let blame = null;
+      for (const p of procs) {
+        if (chambered.has(p.id)) continue;
+        const runs = answer.x[index.get(p.id)];
+        if (!test(p) || runs <= biggest) continue;
+        biggest = runs; blame = p.id;
+      }
+      return blame;
+    };
+    // Among the members that gain matter, the busiest; failing that the
+    // busiest of any; failing that a chambered one, which will not bite but is
+    // the honest answer to "which step is the culprit".
+    let blame = pick((p) => minted(p) > 1e-9) || pick(() => true);
     if (!blame) {
+      let biggest = 0;
       for (const p of procs) {
         const runs = answer.x[index.get(p.id)];
         if (runs > biggest) { biggest = runs; blame = p.id; }
@@ -2767,6 +2812,24 @@ export function solveFresh(graph, rawSpec) {
     if (!plan.shortfall) best = plan;
     const cheat = freeLunch(graph, normalizeFresh(rawSpec), plan);
     if (!cheat) return plan;
+    /**
+     * The same wheel twice is not a round worth spending.
+     *
+     * Barring it is what we did last time and it came back, so barring it
+     * again will do exactly as much. Spinning out the remaining rounds only
+     * puts the question through five more solves to reach the same answer,
+     * and says nothing on the way about why.
+     */
+    if (barred.has(cheat)) {
+      if (rawSpec.notes) {
+        rawSpec.notes.push(`${cheat} turns for free and is already barred, so ` +
+          `barring it again changes nothing -- something is handing it back`);
+      }
+      return null;
+    }
+    // Which wheel, not merely that there was one: the summary at the end
+    // cannot say what was taken out on the way.
+    if (rawSpec.notes) rawSpec.notes.push(`round ${round + 1}: barring ${cheat}, which turns for free`);
     barred.add(cheat);
   }
   return null;

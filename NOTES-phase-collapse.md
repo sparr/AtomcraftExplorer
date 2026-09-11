@@ -192,3 +192,63 @@ uncollapsed model, restricted to the steps it chose plus the crossings between
 them -- a model of twenty or thirty columns, where the finer rows are back and
 the arithmetic is trivial. Whether its vertices are any less fractional is not
 known; it is more constrained, not less.
+
+
+## The Lithium Hydroxide question, and what was under it
+
+It was the one plan the collapse measurably made dearer -- five units bought
+where it bought two -- and the reason turned out to have nothing to do with the
+collapse.
+
+**Merged, all six ore attempts returned no plan at all.** `solveFresh` fell
+through to the path that may buy no ore, and that is where the five units came
+from. Behind it: `walkSubgraph` drops an excluded step in `usable` and then the
+"a chamber is all or none of it" rule hands it straight back, because a rival
+of it was worth having. The free-lunch pass barred `rx:Pyrolusite
+Decomposition`, got it back through `rx:Pyrolusite Reduction`, and barred it
+again every round until the eight ran out.
+
+Both rules are right and they cannot both bite. A chamber runs whichever of its
+reactions is valid on the tick, so half a competition cannot be had -- and a
+free-lunch bar is a veto on a column of the model, not a claim that the
+reaction cannot happen. Refusing the whole chamber was tried first and is far
+worse: Copper Oxide went from two steps to twenty-eight. So `freeLunch` now
+names a member of the wheel that barring can actually stop, which there almost
+always is, since barring any member stops the wheel. The round loop also gives
+up when the wheel it wants is already barred, rather than spending five more
+solves to reach the same answer.
+
+**What is left is the opposite of a regression.** Merged, Lithium Hydroxide
+costs 1.833 priced units a unit against 1.5 unmerged. The unmerged answer is
+only reached by keeping a plan the free-lunch pass had already flagged: it bars
+`rx:Hydrochloric Acid Dissolves Manganese`, then `rx:Lithium Sulfide + Water`,
+finds the next solve impossible, and hands back the round-two answer -- which
+still contains `rx:Lithium Sulfide + Water`. The merged run bars three wheels
+and then finds a plan that is clean. The cheaper answer is the one with a wheel
+in it.
+
+That is worth keeping separate from the collapse, because it is true without
+it: `return best` after a dead end hands back a plan already judged to turn for
+free, and marks it in no way. `plan.shortfall` says whether a plan delivers,
+and nothing says whether it is honest.
+
+### What the fix moved, and the rule it exposed
+
+Over the 194-plan corpus: **five questions gained a plan where there was none**
+-- Carbon Dioxide, Oxygen Gas, Silica, Liquid Oxygen and Molten Ammonium
+Nitrate -- **none lost one, and seven moved**. The seven all moved the same
+way, and not in a good direction to look at: Copper Oxide from two steps to
+twenty-eight, Hydrogen Bromide from two to thirty-two, Lye from five to
+twenty-seven.
+
+They are the ore loop working for the first time on those questions, and then
+`weighPlan` choosing between its answers by atoms, then units, then reactors,
+strictly in that order. Copper Oxide is the clearest: two Copper at one atom
+each against two Copper(I) Sulfide at three, which is the same two things
+bought and a third of the matter, so the atoms decide it -- and the plan behind
+the cheaper atoms takes twenty-five reactors rather than two. Sparr has called
+that trade wrong before, in as many words, when the welding work had Glass go
+"from one reactor to eighteen to save half an atom".
+
+So the bar is fixed and the ordering underneath it is not. Whether twenty-three
+reactors are worth four atoms is not a thing the measurement can settle.
