@@ -7434,6 +7434,42 @@ function walkSubgraph(graph, spec) {
       for (const o of q.produces) materials.add(o.name);
     }
   }
+  /**
+   * A phase change and its own reverse, around a material nobody else touches.
+   *
+   * Sparr: prevent the LP from considering the free cycles that go back and
+   * forth; they are almost all phase changes. Freezing Carbon Dioxide into Dry
+   * Ice and boiling it straight back is a pair of columns whose net effect is
+   * nothing, and the Glass model carried six of them -- Dry Ice, Liquid
+   * Oxygen, Molten Anorthite, Molten Iron Sulfide, Molten Tungsten, Titanium
+   * Tetrachloride. They can never improve an answer and they are one more
+   * corner apiece for a degenerate walk to sit in.
+   *
+   * Only where the middle material is a dead end: its sole maker and sole
+   * eater are the two halves of the loop, and nobody asked for it or brought
+   * any. Where anything else wants the stuff, or the reader named it, the
+   * round trip is a real route and stays.
+   */
+  {
+    const gone = new Set();
+    for (const name of materials) {
+      if (spec.have.has(name) || spec.wantedNames?.has?.(name)) continue;
+      if (spec.targets.some((t) => t.name === name)) continue;
+      const makers = [...chosen.values()].filter((p) => p.produces.some((o) => o.name === name));
+      const eaters = [...chosen.values()].filter((p) =>
+        inputsOf(p).some((i) => i.name === name));
+      if (makers.length !== 1 || eaters.length !== 1) continue;
+      const [A] = makers, [B] = eaters;
+      if (A.kind !== 'phase' || B.kind !== 'phase') continue;
+      // B undoes A exactly: what A ate is what B hands back.
+      const aIn = inputsOf(A), bOut = B.produces;
+      if (aIn.length !== 1 || bOut.length !== 1) continue;
+      if (aIn[0].name !== bOut[0].name) continue;
+      gone.add(A.id); gone.add(B.id);
+    }
+    for (const id of gone) chosen.delete(id);
+  }
+
   return { processes: [...chosen.values()], materials, depth };
 }
 
@@ -7841,6 +7877,123 @@ function model(graph, spec, procs, materials) {
       rows.push({
         name: `chamber:${g.ids[0]}`,
         coeffs: new Map([[first, otherChance], [other, rsub(R0, firstChance)]]),
+        op: '=',
+        rhs: R0,
+      });
+    }
+  }
+
+  /**
+   * Welded steps: a made material with one maker and one eater ties them.
+   *
+   * Sparr: `rx:Expansion of Hydrogen Gas x2` takes an input that one other
+   * reaction makes, so one necessarily implies the other. That is a fact about
+   * the graph rather than about any plan, and it holds for ninety-four
+   * materials -- Hydrogen Gas x2, Tungsten Disulfide, Sodium Sulfide, the
+   * tantalum and niobium pentoxides, and sixty more no plan here has needed
+   * yet. Nothing else can make the stuff and nothing else wants it, so the two
+   * run in a fixed proportion or they do not run.
+   *
+   * Written as a row rather than by folding the pair into one column. The
+   * arithmetic is the same either way and this way the plan still has two
+   * steps in it -- the reader sees the chemistry, every count reads back where
+   * it always did, and the unbundling costs nothing because nothing was ever
+   * bundled. What it removes is the freedom to run the maker hot and pour the
+   * difference away, which is not a route: it is the model being allowed to
+   * make something for no reason, and it is one more corner for a degenerate
+   * walk to sit in.
+   *
+   * A step already pinned to a chamber is left alone. That row says how the
+   * feed divides between rivals, and two equalities on the same column are one
+   * more chance to make a model infeasible than to make it smaller.
+   */
+  {
+    const mats = materials instanceof Set ? materials : new Set(materials);
+    const chambered = new Set();
+    for (const row of rows) {
+      if (!String(row.name).startsWith('chamber:')) continue;
+      for (const at of row.coeffs.keys()) chambered.add(at);
+    }
+    /**
+     * Counted over the whole graph, never over the candidate set.
+     *
+     * Asked of the candidates, this is not a fact about the game: the walk
+     * keeps a few ways of making each material and throws the rest away, so
+     * anything it pruned down to one maker looks welded. It welded Silica,
+     * Dry Ice and -- for a plan about Carbon -- Bread and Cake, fifty-one of
+     * them in the Glass model, and turned a two-step plan into twenty-three.
+     * The property has to hold in the data or it is an artefact of the cap.
+     */
+    const loose = (p) => p && graph.stateOf(p.id) !== 'Static' &&
+      ![...p.consumes, ...p.requires].some((i) => graph.stateOf(i.name) === 'Static');
+    const here = new Set(procs.map((p) => p.id));
+    for (const name of mats) {
+      /**
+       * Never weld something the reader is in the middle of.
+       *
+       * The weld says everything made is spent, which is true of an
+       * intermediate and false of an answer: welded to its one consumer, the
+       * Tantalum the combined factory exists to produce could not leave the
+       * factory, and phase one came back one short of it. What is asked for,
+       * what is held, and anything the plan means to keep is not a pass-through
+       * and cannot be balanced away.
+       */
+      if (spec.have.has(name)) continue;
+      if (spec.targets.some((t) => t.name === name)) continue;
+      if (spec.kept?.has?.(name)) continue;
+      const makers = graph.producers(name).filter(loose);
+      const eaters = graph.consumers(name).filter(loose);
+      if (makers.length !== 1 || eaters.length !== 1) continue;
+      if (!here.has(makers[0].id) || !here.has(eaters[0].id)) continue;
+      /**
+       * And the eater must want nothing else.
+       *
+       * One maker and one eater is not enough on its own. Forcing the pair to
+       * balance says everything made is spent, and where the eater needs other
+       * things to run, that drags them in: welded on the weaker rule, the
+       * Carbon plan that closes its own hydrogen loop and buys nothing started
+       * buying, and Glass went from one reactor to eighteen to save half an
+       * atom. Both were being made to run a step they only wanted the input of.
+       *
+       * A step whose only input is the welded material is different. It is an
+       * unpacking -- Hydrogen Gas x2 into two Hydrogen Gas -- so insisting it
+       * keeps up with its maker costs nothing and forces nothing.
+       */
+      const feeds = [...eaters[0].consumes, ...eaters[0].requires];
+      if (feeds.length !== 1 || feeds[0].name !== name) continue;
+      /**
+       * And it must put out only a restatement of what it took.
+       *
+       * Taking nothing else is not enough, because what the step *emits* has
+       * to go somewhere too. `rx:Ammonium Paratungstate Roasting` eats only
+       * the paratungstate and hands back Tungsten Trioxide, Ammonia and Steam;
+       * the disulfide roast hands back four Sulfur Dioxide. Insisting those
+       * keep pace with their maker pushes all of that into the plan, and the
+       * plan buys its way out of it. A single output is a state change or an
+       * unpacking -- Silica into Molten Silica, Hydrogen Gas x2 into two
+       * Hydrogen Gas -- and costs nothing to keep in step.
+       */
+      if (eaters[0].produces.length !== 1) continue;
+      const made = makers[0].produces.find((o) => o.name === name)?.count;
+      const eaten = [...eaters[0].consumes, ...eaters[0].requires]
+        .find((i) => i.name === name)?.count;
+      if (!made || !eaten) continue;
+      const makersPair = [[makers[0], made]];
+      const eatersPair = [[eaters[0], eaten]];
+      const { 0: mk } = makersPair, { 0: et } = eatersPair;
+      void mk; void et;
+      // Anything the world hands over has a supply column and so another maker.
+      if (fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
+      const A = makers[0];
+      const B = eaters[0];
+      if (A.id === B.id) continue;
+      const a = index.get(A.id);
+      const b = index.get(B.id);
+      if (a === undefined || b === undefined) continue;
+      if (chambered.has(a) || chambered.has(b)) continue;
+      rows.push({
+        name: `weld:${name}`,
+        coeffs: new Map([[a, rat(made)], [b, rsub(R0, rat(eaten))]]),
         op: '=',
         rhs: R0,
       });
