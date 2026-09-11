@@ -16,7 +16,8 @@
  *
  * Everything else is a consequence, not a rule.
  */
-import { DEFAULT_KINDS, PROCESS_KINDS, operatingWindow, reactorsIn } from './plan-graph.js';
+import { DEFAULT_KINDS, PROCESS_KINDS, operatingWindow, reactorsIn,
+         materialMentions } from './plan-graph.js';
 import { listed } from './prose.js';
 import { composition, elementsOf } from './composition.js';
 import { heatingNeed, coolingNeed } from './units.js';
@@ -1413,6 +1414,85 @@ export function chamberShares(graph, id, wanted) {
 export function rivalsOf(graph, id) {
   for (const g of rivalGroups(graph)) if (g.ids.includes(id)) return g;
   return null;
+}
+
+const familyCache = new WeakMap();
+
+/**
+ * The same substance in another state, and which name stands for the set.
+ *
+ * A phase step that comes back is a state change; one that does not is a
+ * destruction. Melting a Gun gives Molten Iron and no amount of cooling gives
+ * the Gun back, and following that edge welds every gun, wire and oscillator
+ * in the game into one family of a hundred and sixteen. Requiring the return
+ * trip leaves 116 families of two or three -- Aluminum with its vapour and its
+ * melt, Chlorine with its liquid and its solid -- which is what the word means.
+ *
+ * Sparr: keep the member with the shortest name. That lands on the unprefixed
+ * solid where there is one and on the gas where the solid is the prefixed name,
+ * which is what a reader would call the stuff: Aluminum, Ammonia, Chlorine Gas.
+ * Two amendments, because the plain rule picks badly twice. Never a Static
+ * member -- it would make Ice stand for Water and Steam, and a placed pixel
+ * cannot travel. And prefer a member that is not a Molten, Frozen or Dry form,
+ * which keeps Carbon Dioxide from being represented by Dry Ice.
+ */
+export function phaseFamilies(graph) {
+  let found = familyCache.get(graph);
+  if (found) return found;
+  const edge = new Set();
+  for (const p of graph.processes) {
+    if (p.kind !== 'phase') continue;
+    const ins = inputsOf(p);
+    const outs = p.produces;
+    if (ins.length !== 1 || outs.length !== 1) continue;
+    if (ins[0].count !== 1 || outs[0].count !== 1) continue;
+    edge.add(`${ins[0].name}|${outs[0].name}`);
+  }
+  const parent = new Map();
+  const find = (x) => {
+    while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); }
+    return x;
+  };
+  for (const m of graph.db.materials) parent.set(m.name, m.name);
+  for (const key of edge) {
+    const [a, b] = key.split('|');
+    if (!edge.has(`${b}|${a}`)) continue;
+    const x = find(a);
+    const y = find(b);
+    if (x !== y) parent.set(x, y);
+  }
+  const members = new Map();
+  for (const m of graph.db.materials) {
+    const root = find(m.name);
+    if (!members.has(root)) members.set(root, []);
+    members.get(root).push(m.name);
+  }
+  const dressed = (n) => /^(Molten|Frozen|Dry|Liquid|Solid) /.test(n);
+  const repOf = new Map();
+  const family = new Map();
+  for (const group of members.values()) {
+    if (group.length < 2) continue;
+    const fit = group.filter((n) => graph.stateOf(n) !== 'Static');
+    if (!fit.length) continue;
+    const plain = fit.filter((n) => !dressed(n));
+    // Where two names are the same length the shorter rule has nothing left to
+    // say, and alphabetical order made Steam stand for Water. What the recipes
+    // reach for is the better answer.
+    const said = materialMentions(graph);
+    const rank = (plain.length ? plain : fit)
+      .sort((a, b) => a.length - b.length ||
+                      (said.get(b) || 0) - (said.get(a) || 0) ||
+                      a.localeCompare(b));
+    const rep = rank[0];
+    for (const n of group) {
+      if (graph.stateOf(n) === 'Static') continue;   // a placed pixel is not a phase you can carry
+      repOf.set(n, rep);
+    }
+    family.set(rep, group.filter((n) => graph.stateOf(n) !== 'Static'));
+  }
+  found = { repOf, family, stands: (n) => repOf.get(n) ?? n };
+  familyCache.set(graph, found);
+  return found;
 }
 
 export function model(graph, spec, procs, materials) {

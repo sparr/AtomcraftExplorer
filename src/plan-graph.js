@@ -52,6 +52,37 @@ export const PROCESS_KINDS = [
 
 export const KIND = new Map(PROCESS_KINDS.map((k) => [k.id, k]));
 
+const mentionCache = new WeakMap();
+
+/**
+ * How often the chemistry names a material.
+ *
+ * A rough measure of how central a thing is, and the honest tie-break when two
+ * candidates are equally good on the rule that was actually being applied.
+ * Wanted in more than one place -- picking which member of a phase family
+ * stands for it, picking which form of an element a test corpus should ask for
+ * -- so it is counted once and kept.
+ *
+ * Phase steps are left out on purpose. They mention both ends of every family
+ * exactly alike, so counting them makes the tie they were meant to break.
+ * Water beats Steam because the reactions ask for water, not because the
+ * kettle goes both ways.
+ */
+export function materialMentions(graph) {
+  let counts = mentionCache.get(graph);
+  if (counts) return counts;
+  counts = new Map();
+  const bump = (name) => counts.set(name, (counts.get(name) || 0) + 1);
+  for (const p of graph.processes) {
+    if (p.kind === 'phase') continue;
+    for (const i of p.consumes || []) bump(i.name);
+    for (const i of p.requires || []) bump(i.name);
+    for (const o of p.produces || []) bump(o.name);
+  }
+  mentionCache.set(graph, counts);
+  return counts;
+}
+
 /** The kinds a fresh plan allows: everything a mechanism or time can do alone. */
 export const DEFAULT_KINDS = PROCESS_KINDS.filter((k) => k.automatic).map((k) => k.id);
 

@@ -3984,6 +3984,37 @@ const PROCESS_KINDS = [
 
 const KIND = new Map(PROCESS_KINDS.map((k) => [k.id, k]));
 
+const mentionCache = new WeakMap();
+
+/**
+ * How often the chemistry names a material.
+ *
+ * A rough measure of how central a thing is, and the honest tie-break when two
+ * candidates are equally good on the rule that was actually being applied.
+ * Wanted in more than one place -- picking which member of a phase family
+ * stands for it, picking which form of an element a test corpus should ask for
+ * -- so it is counted once and kept.
+ *
+ * Phase steps are left out on purpose. They mention both ends of every family
+ * exactly alike, so counting them makes the tie they were meant to break.
+ * Water beats Steam because the reactions ask for water, not because the
+ * kettle goes both ways.
+ */
+function materialMentions(graph) {
+  let counts = mentionCache.get(graph);
+  if (counts) return counts;
+  counts = new Map();
+  const bump = (name) => counts.set(name, (counts.get(name) || 0) + 1);
+  for (const p of graph.processes) {
+    if (p.kind === 'phase') continue;
+    for (const i of p.consumes || []) bump(i.name);
+    for (const i of p.requires || []) bump(i.name);
+    for (const o of p.produces || []) bump(o.name);
+  }
+  mentionCache.set(graph, counts);
+  return counts;
+}
+
 /** The kinds a fresh plan allows: everything a mechanism or time can do alone. */
 const DEFAULT_KINDS = PROCESS_KINDS.filter((k) => k.automatic).map((k) => k.id);
 
@@ -4776,7 +4807,7 @@ function buildProcessGraph(db) {
   return graph;
 }
 
-return { PROCESS_KINDS, KIND, DEFAULT_KINDS, FALLS_FROM_SKY, LOOSE_ON_THE_GROUND, reactorsIn, operatingWindow, buildProcessGraph };
+return { PROCESS_KINDS, KIND, materialMentions, DEFAULT_KINDS, FALLS_FROM_SKY, LOOSE_ON_THE_GROUND, reactorsIn, operatingWindow, buildProcessGraph };
 })();
 
 const __mod_composition = (() => {
@@ -6355,7 +6386,7 @@ const __mod_plan_fresh = (() => {
  *
  * Everything else is a consequence, not a rule.
  */
-const {DEFAULT_KINDS, PROCESS_KINDS, operatingWindow, reactorsIn} = __mod_plan_graph;
+const {DEFAULT_KINDS, PROCESS_KINDS, operatingWindow, reactorsIn, materialMentions} = __mod_plan_graph;
 const {listed} = __mod_prose;
 const {composition, elementsOf} = __mod_composition;
 const {heatingNeed, coolingNeed} = __mod_units;
@@ -7751,6 +7782,85 @@ function chamberShares(graph, id, wanted) {
 function rivalsOf(graph, id) {
   for (const g of rivalGroups(graph)) if (g.ids.includes(id)) return g;
   return null;
+}
+
+const familyCache = new WeakMap();
+
+/**
+ * The same substance in another state, and which name stands for the set.
+ *
+ * A phase step that comes back is a state change; one that does not is a
+ * destruction. Melting a Gun gives Molten Iron and no amount of cooling gives
+ * the Gun back, and following that edge welds every gun, wire and oscillator
+ * in the game into one family of a hundred and sixteen. Requiring the return
+ * trip leaves 116 families of two or three -- Aluminum with its vapour and its
+ * melt, Chlorine with its liquid and its solid -- which is what the word means.
+ *
+ * Sparr: keep the member with the shortest name. That lands on the unprefixed
+ * solid where there is one and on the gas where the solid is the prefixed name,
+ * which is what a reader would call the stuff: Aluminum, Ammonia, Chlorine Gas.
+ * Two amendments, because the plain rule picks badly twice. Never a Static
+ * member -- it would make Ice stand for Water and Steam, and a placed pixel
+ * cannot travel. And prefer a member that is not a Molten, Frozen or Dry form,
+ * which keeps Carbon Dioxide from being represented by Dry Ice.
+ */
+function phaseFamilies(graph) {
+  let found = familyCache.get(graph);
+  if (found) return found;
+  const edge = new Set();
+  for (const p of graph.processes) {
+    if (p.kind !== 'phase') continue;
+    const ins = inputsOf(p);
+    const outs = p.produces;
+    if (ins.length !== 1 || outs.length !== 1) continue;
+    if (ins[0].count !== 1 || outs[0].count !== 1) continue;
+    edge.add(`${ins[0].name}|${outs[0].name}`);
+  }
+  const parent = new Map();
+  const find = (x) => {
+    while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); }
+    return x;
+  };
+  for (const m of graph.db.materials) parent.set(m.name, m.name);
+  for (const key of edge) {
+    const [a, b] = key.split('|');
+    if (!edge.has(`${b}|${a}`)) continue;
+    const x = find(a);
+    const y = find(b);
+    if (x !== y) parent.set(x, y);
+  }
+  const members = new Map();
+  for (const m of graph.db.materials) {
+    const root = find(m.name);
+    if (!members.has(root)) members.set(root, []);
+    members.get(root).push(m.name);
+  }
+  const dressed = (n) => /^(Molten|Frozen|Dry|Liquid|Solid) /.test(n);
+  const repOf = new Map();
+  const family = new Map();
+  for (const group of members.values()) {
+    if (group.length < 2) continue;
+    const fit = group.filter((n) => graph.stateOf(n) !== 'Static');
+    if (!fit.length) continue;
+    const plain = fit.filter((n) => !dressed(n));
+    // Where two names are the same length the shorter rule has nothing left to
+    // say, and alphabetical order made Steam stand for Water. What the recipes
+    // reach for is the better answer.
+    const said = materialMentions(graph);
+    const rank = (plain.length ? plain : fit)
+      .sort((a, b) => a.length - b.length ||
+                      (said.get(b) || 0) - (said.get(a) || 0) ||
+                      a.localeCompare(b));
+    const rep = rank[0];
+    for (const n of group) {
+      if (graph.stateOf(n) === 'Static') continue;   // a placed pixel is not a phase you can carry
+      repOf.set(n, rep);
+    }
+    family.set(rep, group.filter((n) => graph.stateOf(n) !== 'Static'));
+  }
+  found = { repOf, family, stands: (n) => repOf.get(n) ?? n };
+  familyCache.set(graph, found);
+  return found;
 }
 
 function model(graph, spec, procs, materials) {
@@ -10422,7 +10532,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   return plan;
 }
 
-return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreReach, oreCandidates, questionShape, solveFresh };
+return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, phaseFamilies, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreReach, oreCandidates, questionShape, solveFresh };
 })();
 
 const __mod_plan_state = (() => {
