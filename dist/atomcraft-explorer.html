@@ -6837,7 +6837,26 @@ function fetchable(graph, name, kinds, sources = null, spec = null) {
    * Niobium, nor Niobium Pentoxide, nor Columbite.
    */
   if (sources && sources.has('made')) return true;
-  return !graph.producers(name).some((p) => kinds.has(p.kind));
+  /**
+   * A recipe only ends the question if this plan could actually run it.
+   *
+   * Sparr: turning mining on lost the Vinegar plan entirely. Every producer of
+   * Wood is a mine on a tree -- a branch, a bush root -- and with mining off
+   * none of them counted, so Wood was a thing you go and pick up. Switching
+   * mining on made them count here and Wood stopped being fetchable, while the
+   * candidate walk went on refusing those same steps because their input is a
+   * tile of the world that cannot be put in a reactor. Wood became neither
+   * buyable nor makeable, dropped out of the ores a plan may start from, and
+   * the only route to Vinegar went with it.
+   *
+   * Adding a capability must not take an answer away. So the same test the
+   * walk applies is applied here: a step standing on something placed is no
+   * more a recipe than one that does not exist.
+   */
+  const runnable = (p) => !inputsOf(p).some((i) =>
+    placed(graph, i.name) ||
+    (p.kind !== 'mine' && p.kind !== 'handling' && landscape(graph, i.name)));
+  return !graph.producers(name).some((p) => kinds.has(p.kind) && runnable(p));
 }
 
 /** A process's inputs: what it spends, and what it needs standing by. */
