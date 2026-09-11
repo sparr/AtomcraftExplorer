@@ -58,7 +58,7 @@ Terms are ANDed. Prefix `-` to exclude, quote to group: `name:"Molten Iron"`.
 
 | Term | Matches |
 | --- | --- |
-| `water` | names, formulas, constituent materials and descriptions |
+| `water` | names, formulas and constituent materials |
 | `Cu` | the above **and** composition — finds Chalcopyrite as well as Copper |
 | `H2O` | anything whose formula contains both H and O |
 | `el:Au` / `element:Au` | formula contains gold |

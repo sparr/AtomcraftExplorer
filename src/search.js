@@ -2,9 +2,10 @@
  * Query parsing and ranking for material search.
  *
  * A query is whitespace-separated terms, ANDed together.  A term is either a
- * `field:value` filter or a bare word.  Bare words match names, formulas and
- * descriptions -- and, when the word reads as chemistry ("Cu", "H2O"), the
- * parsed composition as well, so `Cu` finds Chalcopyrite along with Copper.
+ * `field:value` filter or a bare word.  Bare words match names and formulas --
+ * and, when the word reads as chemistry ("Cu", "H2O"), the parsed composition
+ * as well, so `Cu` finds Chalcopyrite along with Copper.  Description text is
+ * searched only when asked for, with `desc:`.
  *
  * Quotes group a phrase: `name:"Molten Iron"`.
  */
@@ -31,7 +32,6 @@ const SCORE = {
   formulaSubstring: 200,
   composition: 160,
   constituent: 140,
-  description: 60,
 };
 
 /**
@@ -145,7 +145,6 @@ function matchWord(m, term, symbolSet) {
   // What the material is made of, which the formula often omits.
   if (m.lcConstituents.includes(v)) bump(SCORE.constituent, 'constituents');
 
-  if (m.lcDescription.includes(v)) bump(SCORE.description, 'description');
   return { score: best, why };
 }
 
