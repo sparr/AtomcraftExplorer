@@ -18,7 +18,8 @@ import { balanceTargets } from './balance.js';
 import { routesFor } from './routes.js';
 import { drawPlan } from './plan-picture.js';
 import { rat, rmul, rsub, rdiv, rstr, rcmp, R0 } from './rational.js';
-import { solveFresh, blankFresh, questionShape, oreReach,
+import { solveFresh, blankFresh, questionShape, oreReach, oreCandidates,
+         withElements, normalizeFresh,
          SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
 import { rnum } from './rational.js';
@@ -1437,14 +1438,40 @@ const menuTools = () => ({
   toNumber: rnum,
 });
 
+/**
+ * What to ask, and in what order.
+ *
+ * Every combination of sources, and then -- when the plan is starting from
+ * nothing and the solver is choosing an ore for it -- one more question per
+ * ore it might have chosen. That choice is a real fork and the menu was hiding
+ * it: Boron Oxide is one step off Boric Acid or eight off Borax, for less than
+ * half the matter, and neither beats the other. The solver picks by its own
+ * weighing and the reader never learns the other existed.
+ *
+ * The ore questions are asked against the sources the plan is already using
+ * rather than crossed with all thirty-one, because the cross is thirty-one
+ * times eleven and the answer to "which ore" does not usually turn on which
+ * sources are switched on.
+ */
+function sweepQueue(ask) {
+  const queue = optionSets([...SOURCES]).map((options) => ({ options }));
+  let ores = [];
+  try {
+    ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
+  } catch { ores = []; }
+  for (const ore of ores) queue.push({ options: [...ask.sources], ore });
+  return queue;
+}
+
 function startSweep(ask) {
   const token = ++sweepToken;
-  sweep = { key: questionKey(ask), ask, entries: [], queue: optionSets([...SOURCES]),
+  sweep = { key: questionKey(ask), ask, entries: [], queue: sweepQueue(ask),
             token, shapes: new Map() };
   const turn = () => {
     if (!sweep || sweep.token !== token) return;      // a newer question won
-    const options = sweep.queue.shift();
-    if (!options) { sweep.queue = null; renderMenu(); return; }
+    const step = sweep.queue.shift();
+    if (!step) { sweep.queue = null; renderMenu(); return; }
+    const { options, ore } = step;
     /**
      * Two source sets can be the same question wearing different clothes.
      *
@@ -1456,16 +1483,19 @@ function startSweep(ask) {
      * the same answer more slowly.
      */
     let answer = null;
-    const shape = questionShape(ctx.graph, { ...ask, sources: options });
+    const asked = { ...ask, sources: options, ...(ore ? { oreAllowed: [ore] } : {}) };
+    // The shape says two source sets are the same question. It knows nothing
+    // about which ore may be bought, so an ore question is never served from it.
+    const shape = ore ? null : questionShape(ctx.graph, asked);
     if (shape !== null && sweep.shapes.has(shape)) {
       answer = sweep.shapes.get(shape);
     } else {
       try {
-        answer = solveFresh(ctx.graph, { ...ask, sources: options });
+        answer = solveFresh(ctx.graph, asked);
       } catch { answer = null; }                      // a combination that cannot: a row of its own
       if (shape !== null) sweep.shapes.set(shape, answer);
     }
-    sweep.entries.push({ options, plan: answer });
+    sweep.entries.push({ options, ore, plan: answer });
     renderMenu();
     setTimeout(turn, 0);
   };
@@ -1476,16 +1506,30 @@ const sameSources = (a, b) => a.length === b.length && a.every((x) => b.includes
 
 function menuRow(row, table) {
   const tr = el('tr', 'menu-row');
-  if (sameSources(row.via[0], plan.sources)) tr.classList.add('is-current');
+  const isOre = !!row.ore;
+  const oreNow = plan.oreAllowed.length === 1 && plan.oreAllowed[0] === row.ore;
+  if (sameSources(row.via[0], plan.sources) && (isOre ? oreNow : !plan.oreAllowed.length)) {
+    tr.classList.add('is-current');
+  }
   for (const score of SCORES) {
     const td = el('td', 'menu-num', String(Math.round(row[score.id] * 100) / 100));
     if (row.best.includes(score.id)) td.classList.add('is-best');
     tr.append(td);
   }
   const via = el('td', 'menu-via');
-  const label = row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+  /**
+   * A row is reached either by which sources are on or by which ore is bought,
+   * and it says which. The ore rows all share the sources the plan is already
+   * using, so naming those again would be noise; what distinguishes them is
+   * the thing on the shopping list.
+   */
+  const label = row.ore
+    ? `buy ${ctx.db.byName.get(row.ore)?.display ?? row.ore}`
+    : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
   const pick = button('link', label, `Switch the plan to ${label}`,
-                      () => setPlan({ ...plan, sources: [...row.via[0]] }));
+                      () => setPlan(row.ore
+                        ? { ...plan, sources: [...row.via[0]], oreAllowed: [row.ore] }
+                        : { ...plan, sources: [...row.via[0]], oreAllowed: [] }));
   via.append(pick);
   if (row.via.length > 1) {
     via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
@@ -1589,6 +1633,9 @@ export function render() {
     // object, and a key built from it could not see a change of sources.
     sources: plan.sources,
     keepLeftovers: plan.keepLeftovers,
+    // Empty is the usual case and means the solver picks; a row of the menu
+    // having been pressed is what puts one here.
+    ...(plan.oreAllowed.length ? { oreAllowed: plan.oreAllowed } : {}),
   };
   shownTargets = targetsFor(question);
 

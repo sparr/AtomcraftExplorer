@@ -29,6 +29,28 @@ check(sets.length === 7, 'three categories make seven non-empty combinations');
 check(sets[0].length === 1, 'and the smallest come first, so the menu offers the least to switch on');
 check(!sets.some((s) => !s.length), 'never the empty set, which can buy nothing');
 
+/**
+ * Which ore a plan buys is part of which row it is.
+ *
+ * Two plans can score alike and still be different answers -- the same metals
+ * out of a different rock -- and collapsing them loses the fork the menu
+ * exists to show. So the ore joins the score in deciding whether two entries
+ * are the same row, while leaving rows with no ore behaving exactly as before.
+ */
+console.log('\n--- the ore is part of the row ---');
+{
+  const one = plan([{ name: 'Ten', amount: 1 }], [], ['rx'], 1);
+  const both = digest([{ options: ['a'], ore: 'Borax', plan: one },
+                       { options: ['a'], ore: 'Boric Acid', plan: one }], tools);
+  check(both.distinct === 2, 'two ores scoring alike are two rows, not one');
+  check(both.menu.length === 2, 'and neither is beaten by the other');
+  check(both.menu.every((r) => r.ore), 'each remembering which ore it buys');
+  const plain = digest([{ options: ['a'], plan: one }, { options: ['b'], plan: one }], tools);
+  check(plain.distinct === 1 && plain.menu[0].via.length === 2,
+        'while rows with no ore still merge on score alone');
+  check(plain.menu[0].ore === undefined, 'and carry no ore');
+}
+
 console.log('\n--- scoring is per unit of target ---');
 const two = measure(plan([{ name: 'Lepidolite', amount: 12 }], [], ['rx', 'rx', 'phase'], 6), tools);
 check(two.atoms === 44, 'twelve Lepidolite at 22 atoms over a batch of six is 44 an item');

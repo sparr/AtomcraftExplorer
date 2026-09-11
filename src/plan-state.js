@@ -110,6 +110,16 @@ export function emptyPlan() {
      */
     balance: true,
     /**
+     * The one ore the plan is allowed to buy, when the reader has picked it.
+     *
+     * Empty means the solver chooses: starting from nothing it tries the
+     * cheapest few ores that could carry what was asked for and keeps the best
+     * answer. That is one answer out of several real ones -- Boron Oxide is a
+     * single step off Boric Acid or eight off Borax, and neither beats the
+     * other -- so the menu offers them and this is where the choice lands.
+     */
+    oreAllowed: [],
+    /**
      * Which material is being inspected. Not part of the question -- it is
      * where you are looking -- but it rides along in the URL for the same
      * reason the explorer's selection does: so a link points at the thing you
@@ -163,6 +173,8 @@ export function readPlan(params) {
   }
   if (params.get('ss') === '0') plan.avoidSideEffects = false;
   if (params.get('b') === '0') plan.balance = false;
+  const ore = params.get('or');
+  if (ore) plan.oreAllowed = list(ore);
   plan.selected = params.get('pm') || null;
   return plan;
 }
@@ -192,6 +204,7 @@ export function writePlan(plan, params) {
   if (!usualSources) params.set('sr', plan.sources.join(SEP) || NO_KINDS);
   if (!plan.avoidSideEffects) params.set('ss', '0');
   if (!plan.balance) params.set('b', '0');
+  if (plan.oreAllowed.length) params.set('or', plan.oreAllowed.join(SEP));
   put('pm', plan.selected);
 }
 

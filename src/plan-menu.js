@@ -139,15 +139,30 @@ export function digest(entries, tools, { keepLeftovers = false } = {}) {
   const barren = [];
   for (const e of entries) {
     const row = e.plan ? measure(e.plan, tools) : null;
-    if (row) scored.push({ ...row, options: e.options, plan: e.plan });
+    if (row) scored.push({ ...row, options: e.options, ore: e.ore, plan: e.plan });
     else barren.push(e.options);
   }
 
   const byOutcome = new Map();
   for (const row of scored) {
-    const key = signature(row);
+    // The ore is part of which row this is, not of how good it is: two plans
+    // that score alike but buy different ores are two answers, not one.
+    const key = `${signature(row)}|${row.ore ?? ''}`;
     if (!byOutcome.has(key)) byOutcome.set(key, { ...row, via: [] });
     byOutcome.get(key).via.push(row.options);
+  }
+  /**
+   * The ore the solver would have chosen anyway is not a second answer.
+   *
+   * Every ore is asked about, including the one the plan already buys, so the
+   * winner comes back twice -- once as the row the reader is on and once as
+   * "buy Borax", scoring identically. Offering both invites a choice between a
+   * thing and itself. The named row goes and the plain one stays, because the
+   * plain one is where the reader already is.
+   */
+  for (const [key, row] of [...byOutcome]) {
+    if (!row.ore) continue;
+    if (byOutcome.has(`${signature(row)}|`)) byOutcome.delete(key);
   }
   const distinct = [...byOutcome.values()];
   // The shortest option set first, so a row is offered by the least the player
