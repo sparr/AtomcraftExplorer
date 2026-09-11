@@ -93,12 +93,18 @@ including the batch ceilings and the charge invariants.
 
 ## What is not done
 
-**Two families are held back**, and the reason is written beside `HELD_BACK` in
-`plan-fresh.js`. Both pass every test for being one substance. Merged, a
-family's row stops saying how many of each state there are, which leaves the
-simplex a wider face to pick its corner from -- and a wider face has more
-corners with halves on them. The run counts come back as fractions and the plan
-multiplies up by their common denominator.
+**Two families are held back by default**, and the reason is written beside
+`HELD_BACK` in `plan-fresh.js`. Both pass every test for being one substance.
+Merged, a family's row stops saying how many of each state there are, which
+leaves the simplex a wider face to pick its corner from -- and a wider face has
+more corners with halves on them. The run counts come back as fractions and the
+plan multiplies up by their common denominator.
+
+They are held back by the planner and offered by the scoreboard: `mergeableStates`
+lists them, the sweep asks the question once more per family, and the menu puts
+the two answers side by side. `spec.mergeStates` carries the choice and rides in
+the URL as `ms`. Nobody has to decide this once and for all, which is the right
+shape for a trade that has a winner on each side.
 
 - **Water and Steam.** Merged: the Lepidolite order comes out in batches of
   four rather than two, the Aluminum one in eights rather than fours, and
@@ -113,8 +119,65 @@ multiplies up by their common denominator.
 Neither is obviously the wrong trade and both break a stated invariant -- the
 batch ceilings in `test-fresh.mjs`, and "at least one charge is holding the
 plan up", which stops being true of the aluminium plan because the shorter
-route has no closed wheel to seed. Saying yes to one is deleting a name from
-`HELD_BACK`; the numbers above are what that costs and buys.
+route has no closed wheel to seed. So the planner keeps its invariants and the
+reader gets the choice.
+
+The Lepidolite pair is worth reading in full, because it is what the scoreboard
+work below was built to show. Step for step the two plans are identical but for
+two lines: merged, the plan runs `cond:Steam` 1.5 times per unit and 0.75 more
+`rx:Electrolysis of Water`. What that buys is the charge. The unmerged plan
+vents its steam and needs two Hydrogen Gas laid in before it will turn -- a
+charge marked `holdsUp`, which the plant never pays back, because nothing
+outside the wheel it seeds will ever fill it. The merged plan condenses that
+steam, closes its own hydrogen loop, and needs nothing but the chlorine. Ore,
+purchases, reactors and total waste per unit are identical, and have to be:
+same inputs and same products means the same matter left over.
+
+```
+per unit of each product        unmerged   merged
+reactors                              14       14
+ore fed                            1.500    1.500
+bought                       0.5 Carbon    0.5 Carbon
+left over                6.000u/17.500a   6.000u/17.500a
+to lay in            Chlorine + 2 Hydrogen   Chlorine
+steps run                             18    18.75
+batch                                  2        4
+```
+
+## What the scoreboard learned from it
+
+Three things, all of which that pair exposed.
+
+**`steps` counts running, not building.** It was `plan.steps.length`, hinted as
+"reactors plus the phase changes, which are free", which counted neither: a
+vessel turned forty times was one step, and a condenser that costs nothing to
+own was one as well. That decided exactly this comparison -- the merged plan
+scored a step worse for owning a condenser, so `digest` found it dominated and
+dropped the plan that needs no charge. Sparr: one reactor run four times is
+four steps. So it counts runs, per unit, with the phase changes left out, and
+`reactors` goes on counting vessels. The two now answer different questions,
+and on this pair they disagree: the merged plan does more running, 18.75 runs a
+unit against 18, because closing the hydrogen loop means electrolysing three
+quarters more water.
+
+**A charge is a column.** Matter that has to be in the pipes before the first
+batch is a different kind of cost from a thing bought each batch, and nothing
+was measuring it. Absolute rather than per unit, which was measured and not
+assumed: the Lepidolite plan asks for one Chlorine Gas and two Hydrogen Gas
+whether it is making two of each product or six.
+
+**So is the batch.** Everything else is divided by it so the rows mean the same
+thing; the number itself is a real difference between two answers and no column
+could say it. Without it the merged row simply beats the unmerged one and the
+smaller batch is never offered -- which is to say the axis would surface
+nothing.
+
+With those three, the pair comes out as a fork rather than a winner: one row
+best on the charge, the other best on the steps and the batch, neither beating
+the other. A merge
+that changes nothing -- Hydrofluoric Acid, on this question -- scores
+identically to the plain row and is dropped rather than offered as a choice
+between a thing and itself.
 
 **The batch is the open question underneath both.** Nothing the reader is
 promised turns on which corner of the optimal face the simplex lands on -- the

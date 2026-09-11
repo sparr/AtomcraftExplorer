@@ -120,6 +120,18 @@ export function emptyPlan() {
      */
     oreAllowed: [],
     /**
+     * States of one substance this question will treat as interchangeable
+     * beyond the usual set.
+     *
+     * The planner collapses a substance's states into one material wherever
+     * the crossing between them goes both ways one for one, except for a
+     * couple of families where doing so is a trade rather than an improvement
+     * -- see `HELD_BACK` in `plan-fresh.js`. Naming one here takes that trade.
+     * Empty is the usual case; a row of the menu having been pressed is what
+     * puts one here.
+     */
+    mergeStates: [],
+    /**
      * Which material is being inspected. Not part of the question -- it is
      * where you are looking -- but it rides along in the URL for the same
      * reason the explorer's selection does: so a link points at the thing you
@@ -175,6 +187,8 @@ export function readPlan(params) {
   if (params.get('b') === '0') plan.balance = false;
   const ore = params.get('or');
   if (ore) plan.oreAllowed = list(ore);
+  const merge = params.get('ms');
+  if (merge) plan.mergeStates = list(merge);
   plan.selected = params.get('pm') || null;
   return plan;
 }
@@ -205,6 +219,7 @@ export function writePlan(plan, params) {
   if (!plan.avoidSideEffects) params.set('ss', '0');
   if (!plan.balance) params.set('b', '0');
   if (plan.oreAllowed.length) params.set('or', plan.oreAllowed.join(SEP));
+  if (plan.mergeStates.length) params.set('ms', plan.mergeStates.join(SEP));
   put('pm', plan.selected);
 }
 

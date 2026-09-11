@@ -19,7 +19,7 @@ import { routesFor } from './routes.js';
 import { drawPlan } from './plan-picture.js';
 import { rat, rmul, rsub, rdiv, rstr, rcmp, R0 } from './rational.js';
 import { solveFresh, blankFresh, questionShape, oreReach, oreCandidates,
-         withElements, normalizeFresh,
+         withElements, normalizeFresh, mergeableStates,
          SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
 import { rnum } from './rational.js';
@@ -1460,18 +1460,39 @@ function sweepQueue(ask) {
     ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
   } catch { ores = []; }
   for (const ore of ores) queue.push({ options: [...ask.sources], ore });
+  /**
+   * And one more per family of states the planner will not merge on its own.
+   *
+   * The planner treats a substance's states as one material wherever the
+   * crossing goes both ways one for one, which is nearly always an
+   * improvement and is sometimes a trade. Where it is a trade the family is
+   * held back and the question is asked both ways here instead, because the
+   * two answers differ in a way no single rule can settle: asked for the four
+   * out of Lepidolite, merging Water and Steam has the plan condense its steam
+   * and reuse it, so nothing needs laying in -- and offers it in batches of
+   * four rather than two. Neither beats the other, which is what the menu is
+   * for.
+   *
+   * Asked against the sources the plan is already using, for the same reason
+   * the ore questions are: the answer to "may these be one substance" does not
+   * usually turn on which categories are switched on.
+   */
+  for (const { rep } of mergeableStates(ctx.graph)) {
+    queue.push({ options: [...ask.sources], merge: rep });
+  }
   return queue;
 }
 
 function startSweep(ask) {
   const token = ++sweepToken;
-  sweep = { key: questionKey(ask), ask, entries: [], queue: sweepQueue(ask),
+  const queue = sweepQueue(ask);
+  sweep = { key: questionKey(ask), ask, entries: [], queue, total: queue.length,
             token, shapes: new Map() };
   const turn = () => {
     if (!sweep || sweep.token !== token) return;      // a newer question won
     const step = sweep.queue.shift();
     if (!step) { sweep.queue = null; renderMenu(); return; }
-    const { options, ore } = step;
+    const { options, ore, merge } = step;
     /**
      * Two source sets can be the same question wearing different clothes.
      *
@@ -1483,7 +1504,14 @@ function startSweep(ask) {
      * the same answer more slowly.
      */
     let answer = null;
-    const asked = { ...ask, sources: options, ...(ore ? { oreAllowed: [ore] } : {}) };
+    /**
+     * Said outright rather than inherited, so pressing a row gives the plan
+     * that was scored. A row offering a merge asks for exactly that one; every
+     * other row asks the way the planner would on its own, which is what makes
+     * the choice reversible from the menu that offered it.
+     */
+    const asked = { ...ask, sources: options, mergeStates: merge ? [merge] : [],
+                    ...(ore ? { oreAllowed: [ore] } : {}) };
     // The shape says two source sets are the same question. It knows nothing
     // about which ore may be bought, so an ore question is never served from it.
     const shape = ore ? null : questionShape(ctx.graph, asked);
@@ -1495,7 +1523,7 @@ function startSweep(ask) {
       } catch { answer = null; }                      // a combination that cannot: a row of its own
       if (shape !== null) sweep.shapes.set(shape, answer);
     }
-    sweep.entries.push({ options, ore, plan: answer });
+    sweep.entries.push({ options, ore, merge, plan: answer });
     renderMenu();
     setTimeout(turn, 0);
   };
@@ -1508,7 +1536,11 @@ function menuRow(row, table) {
   const tr = el('tr', 'menu-row');
   const isOre = !!row.ore;
   const oreNow = plan.oreAllowed.length === 1 && plan.oreAllowed[0] === row.ore;
-  if (sameSources(row.via[0], plan.sources) && (isOre ? oreNow : !plan.oreAllowed.length)) {
+  const mergeNow = row.merge
+    ? plan.mergeStates.length === 1 && plan.mergeStates[0] === row.merge
+    : !plan.mergeStates.length;
+  if (sameSources(row.via[0], plan.sources) && mergeNow &&
+      (isOre ? oreNow : !plan.oreAllowed.length)) {
     tr.classList.add('is-current');
   }
   for (const score of SCORES) {
@@ -1523,13 +1555,30 @@ function menuRow(row, table) {
    * using, so naming those again would be noise; what distinguishes them is
    * the thing on the shopping list.
    */
+  /**
+   * A merged row is named by the substance, not by the machinery.
+   *
+   * "Water and Steam as one" is a thing a reader can decide about; the family
+   * representative on its own is not, and neither is anything with the word
+   * collapse in it.
+   */
+  const mergeLabel = (rep) => {
+    const fam = mergeableStates(ctx.graph).find((f) => f.rep === rep);
+    const names = (fam ? fam.members : [rep])
+      .map((n) => ctx.db.byName.get(n)?.display ?? n)
+      .sort((a, b) => (a === rep ? -1 : b === rep ? 1 : a.localeCompare(b)));
+    return `${listed(names)} as one`;
+  };
   const label = row.ore
     ? `buy ${ctx.db.byName.get(row.ore)?.display ?? row.ore}`
-    : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+    : row.merge
+      ? mergeLabel(row.merge)
+      : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
   const pick = button('link', label, `Switch the plan to ${label}`,
-                      () => setPlan(row.ore
-                        ? { ...plan, sources: [...row.via[0]], oreAllowed: [row.ore] }
-                        : { ...plan, sources: [...row.via[0]], oreAllowed: [] }));
+                      () => setPlan({ ...plan,
+                                      sources: [...row.via[0]],
+                                      oreAllowed: row.ore ? [row.ore] : [],
+                                      mergeStates: row.merge ? [row.merge] : [] }));
   via.append(pick);
   if (row.via.length > 1) {
     via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
@@ -1577,16 +1626,17 @@ function renderMenu() {
 
   if (!mine) {
     body.textContent = '';
-    status.textContent = 'Thirty-one ways to answer this, scored side by side. It takes a moment.';
+    status.textContent = 'Every way to answer this, scored side by side. It takes a moment.';
     return;
   }
 
   const { menu, distinct, barren } =
     digest(sweep.entries, menuTools(), { keepLeftovers: plan.keepLeftovers });
   const done = sweep.entries.length;
+  const total = sweep.total ?? 31;
   status.textContent = running
-    ? `${done} of 31 tried…`
-    : `${distinct} different answer${distinct === 1 ? '' : 's'} from 31 ways of asking` +
+    ? `${done} of ${total} tried…`
+    : `${distinct} different answer${distinct === 1 ? '' : 's'} from ${total} ways of asking` +
       (barren.length ? `; ${barren.length} found no route at all` : '');
 
   body.textContent = '';
@@ -1636,6 +1686,7 @@ export function render() {
     // Empty is the usual case and means the solver picks; a row of the menu
     // having been pressed is what puts one here.
     ...(plan.oreAllowed.length ? { oreAllowed: plan.oreAllowed } : {}),
+    ...(plan.mergeStates.length ? { mergeStates: plan.mergeStates } : {}),
   };
   shownTargets = targetsFor(question);
 

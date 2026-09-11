@@ -7529,6 +7529,11 @@ function normalizeFresh(spec) {
     sources: new Set(spec.sources || DEFAULT_SOURCES),
     /** How many ores to try, each one a whole solve. See `ORES_TRIED`. */
     oreTries: Math.max(1, Math.round(spec.oreTries ?? ORES_TRIED)),
+    /**
+     * Held-back families this question is willing to treat as one substance.
+     * Empty unless the scoreboard is asking; see `mergeableStates`.
+     */
+    mergeStates: new Set(spec.mergeStates || []),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /** Things the reader will not buy, though the plan may still make them. */
@@ -7787,6 +7792,23 @@ function rivalsOf(graph, id) {
 const familyCache = new WeakMap();
 
 /**
+ * The families the scoreboard may offer to merge, and what is in them.
+ *
+ * `HELD_BACK` is not a list of mistakes: every name on it passes the test for
+ * being one substance, and merging it is a trade rather than a fix. So the
+ * page asks the question both ways and lets the reader see the two answers
+ * side by side, which is what the menu is for.
+ */
+function mergeableStates(graph) {
+  const { family } = phaseFamilies(graph, null);
+  const whole = phaseFamilies(graph, HELD_BACK);
+  return [...HELD_BACK]
+    .filter((rep) => !family.has(rep) && whole.family.has(rep))
+    .map((rep) => ({ rep, members: whole.family.get(rep) }))
+    .sort((a, b) => a.rep.localeCompare(b.rep));
+}
+
+/**
  * The same substance in another state, and which name stands for the set.
  *
  * A phase step that comes back is a state change; one that does not is a
@@ -7835,8 +7857,18 @@ const familyCache = new WeakMap();
  */
 const HELD_BACK = new Set(['Water', 'Hydrofluoric Acid']);
 
-function phaseFamilies(graph) {
-  let found = familyCache.get(graph);
+function phaseFamilies(graph, merge = null) {
+  /**
+   * `merge` names held-back families this question wants collapsed anyway.
+   * Keyed into the cache rather than ignored, because the scoreboard asks the
+   * same question both ways in one sitting and the two must not share an
+   * answer.
+   */
+  const wanted = merge ? [...merge].filter((n) => HELD_BACK.has(n)).sort() : [];
+  const key = wanted.join('|');
+  let store = familyCache.get(graph);
+  if (!store) familyCache.set(graph, store = new Map());
+  let found = store.get(key);
   if (found) return found;
   const edge = new Set();
   /**
@@ -7904,6 +7936,7 @@ function phaseFamilies(graph) {
     family.set(rep, group.filter((n) => graph.stateOf(n) !== 'Static'));
   }
   for (const rep of HELD_BACK) {
+    if (wanted.includes(rep)) continue;
     for (const m of family.get(rep) || []) repOf.delete(m);
     family.delete(rep);
   }
@@ -7938,7 +7971,7 @@ function phaseFamilies(graph) {
     return null;
   };
   found = { repOf, family, stands, route };
-  familyCache.set(graph, found);
+  store.set(key, found);
   return found;
 }
 
@@ -7958,7 +7991,7 @@ function model(graph, spec, procs, materials, collapse = true) {
    * the phase readable at the end, where `assemble` compares what each step
    * asks for against what the plan is handing it and puts the melt back.
    */
-  const whole = phaseFamilies(graph);
+  const whole = phaseFamilies(graph, spec.mergeStates);
   const stands = collapse ? whole.stands : ((n) => n);
   const family = collapse ? whole.family : new Map();
   /**
@@ -9024,6 +9057,7 @@ function questionShape(graph, rawSpec) {
   const built = model(graph, spec, sub.processes, sub.materials);
   if (!built) return null;
   return [
+    [...spec.mergeStates].sort().join('~'),
     sub.processes.map((p) => p.id).sort().join('|'),
     [...built.supply.keys()].sort().join('|'),
     [...sub.materials]
@@ -9851,7 +9885,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    * settled by the solve.
    */
   {
-    const { family, stands, route } = phaseFamilies(graph);
+    const { family, stands, route } = phaseFamilies(graph, spec.mergeStates);
     const prices = fetchPrices(graph, spec.kinds);
     const netOf = (name) =>
       rsub(made.get(name) || R0, radd(used.get(name) || R0, asked.get(name) || R0));
@@ -10789,7 +10823,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   return plan;
 }
 
-return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, phaseFamilies, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreReach, oreCandidates, questionShape, solveFresh };
+return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, mergeableStates, phaseFamilies, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreReach, oreCandidates, questionShape, solveFresh };
 })();
 
 const __mod_plan_state = (() => {
@@ -10915,6 +10949,18 @@ function emptyPlan() {
      */
     oreAllowed: [],
     /**
+     * States of one substance this question will treat as interchangeable
+     * beyond the usual set.
+     *
+     * The planner collapses a substance's states into one material wherever
+     * the crossing between them goes both ways one for one, except for a
+     * couple of families where doing so is a trade rather than an improvement
+     * -- see `HELD_BACK` in `plan-fresh.js`. Naming one here takes that trade.
+     * Empty is the usual case; a row of the menu having been pressed is what
+     * puts one here.
+     */
+    mergeStates: [],
+    /**
      * Which material is being inspected. Not part of the question -- it is
      * where you are looking -- but it rides along in the URL for the same
      * reason the explorer's selection does: so a link points at the thing you
@@ -10970,6 +11016,8 @@ function readPlan(params) {
   if (params.get('b') === '0') plan.balance = false;
   const ore = params.get('or');
   if (ore) plan.oreAllowed = list(ore);
+  const merge = params.get('ms');
+  if (merge) plan.mergeStates = list(merge);
   plan.selected = params.get('pm') || null;
   return plan;
 }
@@ -11000,6 +11048,7 @@ function writePlan(plan, params) {
   if (!plan.avoidSideEffects) params.set('ss', '0');
   if (!plan.balance) params.set('b', '0');
   if (plan.oreAllowed.length) params.set('or', plan.oreAllowed.join(SEP));
+  if (plan.mergeStates.length) params.set('ms', plan.mergeStates.join(SEP));
   put('pm', plan.selected);
 }
 
@@ -12849,9 +12898,65 @@ const SCORES = [
   { id: 'shop', short: 'list', label: 'shopping list', dir: 1,
     hint: 'How many different materials to source' },
   { id: 'reactors', short: 'react', label: 'reactors', dir: 1,
-    hint: 'Machines to build; a step run twice still costs one' },
+    hint: 'Machines to build; a step run twice still costs one, and a phase ' +
+          'change costs none -- it happens in the open air or inside the ' +
+          'reactor that wanted the hot form' },
+  /**
+   * How much running it takes, which is not how much building it takes.
+   *
+   * Sparr: one reactor run four times is four steps. So this counts runs where
+   * `reactors` counts vessels, and the two answer different questions -- one
+   * reactor turned forty times and four reactors turned ten times each are the
+   * same forty steps and not the same factory.
+   *
+   * It used to be `plan.steps.length`, hinted as "reactors plus the phase
+   * changes, which are free", which counted neither: a step run forty times
+   * was one, and a condenser that costs nothing to own was one as well. That
+   * decided the comparison this whole column exists for -- of two Lepidolite
+   * plans alike in ore, purchases, reactors and leavings, the one that
+   * condenses its steam rather than venting it scored a step worse for owning
+   * the condenser, and the menu threw away the plan that needed no charge. A
+   * phase change is still not counted, being free in the same sense it is free
+   * of a reactor. The running is.
+   *
+   * Per unit, like everything else that scales: a plan quoted at four times
+   * the size turns its steps four times as often, and that is the batch
+   * talking rather than the plan.
+   */
   { id: 'steps', short: 'steps', label: 'steps', dir: 1,
-    hint: 'Reactors plus the phase changes, which are free' },
+    hint: 'How many times something has to be run; one reactor run four ' +
+          'times is four steps, and a phase change is none' },
+  /**
+   * What has to be found before the plant will turn at all.
+   *
+   * Not the shopping list. A charge is matter that has to be in the pipes
+   * before the first batch, and `priming` is the part of it the plant never
+   * pays back -- nothing outside the wheel it seeds will ever fill it, so no
+   * amount of running helps. That is a different kind of cost from a thing you
+   * buy each batch, and nothing here was measuring it: two plans identical in
+   * ore, purchases, reactors and leavings, one of which needs two Hydrogen Gas
+   * laid in and one of which does not, scored the same.
+   *
+   * Absolute, not per unit. Measured, rather than assumed: the Lepidolite plan
+   * asks for one Chlorine Gas and two Hydrogen Gas whether it is making two of
+   * each product or six. A charge is laid in once however long the plant runs,
+   * so dividing it through would say a bigger order needs less of it.
+   */
+  { id: 'charge', short: 'charge', label: 'to lay in', dir: 1,
+    hint: 'Matter that must be in the pipes before the first batch, and that ' +
+          'the plant never pays back' },
+  /**
+   * How many it makes when you asked for one.
+   *
+   * A run is a whole thing, so the plan multiplies up by the common
+   * denominator of whatever the steps landed on, and the reader who wanted one
+   * Aluminum is told to make eight. Everything else here is divided by that
+   * number precisely so the rows mean the same thing; this is the number
+   * itself, which is a real difference between two answers and was the one
+   * thing no column could say.
+   */
+  { id: 'batch', short: 'batch', label: 'batch size', dir: 1,
+    hint: 'How many it makes at once; asking for one can make four' },
   /**
    * Leftovers: lowest priority, and which way is a preference.
    *
@@ -12901,12 +13006,23 @@ function measure(plan, { matter, toNumber }) {
   }
   let left = 0;
   for (const b of plan.byproducts) left += toNumber(b.amount) * matter(b.name);
+  let charge = 0;
+  for (const c of plan.priming || []) charge += toNumber(c.amount) * matter(c.name);
+  let runs = 0;
+  for (const step of plan.steps) {
+    if ((step.process ? step.process.kind : step.kind) === 'phase') continue;
+    // A step that does not say how often it runs has run once.
+    runs += step.runs === undefined ? 1 : toNumber(step.runs);
+  }
   return {
     atoms: atoms / batch,
     units: units / batch,
     shop: plan.frontier.length,
     reactors: reactorsIn(plan.steps),
-    steps: plan.steps.length,
+    steps: runs / batch,
+    // Laid in once however long the plant runs, so it is not divided through.
+    charge,
+    batch,
     left: left / batch,
   };
 }
@@ -12950,15 +13066,16 @@ function digest(entries, tools, { keepLeftovers = false } = {}) {
   const barren = [];
   for (const e of entries) {
     const row = e.plan ? measure(e.plan, tools) : null;
-    if (row) scored.push({ ...row, options: e.options, ore: e.ore, plan: e.plan });
+    if (row) scored.push({ ...row, options: e.options, ore: e.ore, merge: e.merge, plan: e.plan });
     else barren.push(e.options);
   }
 
   const byOutcome = new Map();
   for (const row of scored) {
     // The ore is part of which row this is, not of how good it is: two plans
-    // that score alike but buy different ores are two answers, not one.
-    const key = `${signature(row)}|${row.ore ?? ''}`;
+    // that score alike but buy different ores are two answers, not one. So is
+    // which states the question was willing to treat as one substance.
+    const key = `${signature(row)}|${row.ore ?? ''}|${row.merge ?? ''}`;
     if (!byOutcome.has(key)) byOutcome.set(key, { ...row, via: [] });
     byOutcome.get(key).via.push(row.options);
   }
@@ -12971,9 +13088,17 @@ function digest(entries, tools, { keepLeftovers = false } = {}) {
    * thing and itself. The named row goes and the plain one stays, because the
    * plain one is where the reader already is.
    */
+  /**
+   * And a merge that changes nothing is not a second answer either.
+   *
+   * Asked whether Hydrofluoric Acid and its gas may be one substance, the
+   * Lepidolite plan comes back identical -- same ore, same purchases, same
+   * charge, same batch. Offering it would be offering a choice between a thing
+   * and itself.
+   */
   for (const [key, row] of [...byOutcome]) {
-    if (!row.ore) continue;
-    if (byOutcome.has(`${signature(row)}|`)) byOutcome.delete(key);
+    if (!row.ore && !row.merge) continue;
+    if (byOutcome.has(`${signature(row)}||`)) byOutcome.delete(key);
   }
   const distinct = [...byOutcome.values()];
   // The shortest option set first, so a row is offered by the least the player
@@ -13016,7 +13141,7 @@ const {balanceTargets} = __mod_balance;
 const {routesFor} = __mod_routes;
 const {drawPlan} = __mod_plan_picture;
 const {rat, rmul, rsub, rdiv, rstr, rcmp, R0} = __mod_rational;
-const {solveFresh, blankFresh, questionShape, oreReach, oreCandidates, withElements, normalizeFresh, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
+const {solveFresh, blankFresh, questionShape, oreReach, oreCandidates, withElements, normalizeFresh, mergeableStates, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
 const {SCORES, optionSets, digest} = __mod_plan_menu;
 const {rnum} = __mod_rational;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
@@ -14452,18 +14577,39 @@ function sweepQueue(ask) {
     ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
   } catch { ores = []; }
   for (const ore of ores) queue.push({ options: [...ask.sources], ore });
+  /**
+   * And one more per family of states the planner will not merge on its own.
+   *
+   * The planner treats a substance's states as one material wherever the
+   * crossing goes both ways one for one, which is nearly always an
+   * improvement and is sometimes a trade. Where it is a trade the family is
+   * held back and the question is asked both ways here instead, because the
+   * two answers differ in a way no single rule can settle: asked for the four
+   * out of Lepidolite, merging Water and Steam has the plan condense its steam
+   * and reuse it, so nothing needs laying in -- and offers it in batches of
+   * four rather than two. Neither beats the other, which is what the menu is
+   * for.
+   *
+   * Asked against the sources the plan is already using, for the same reason
+   * the ore questions are: the answer to "may these be one substance" does not
+   * usually turn on which categories are switched on.
+   */
+  for (const { rep } of mergeableStates(ctx.graph)) {
+    queue.push({ options: [...ask.sources], merge: rep });
+  }
   return queue;
 }
 
 function startSweep(ask) {
   const token = ++sweepToken;
-  sweep = { key: questionKey(ask), ask, entries: [], queue: sweepQueue(ask),
+  const queue = sweepQueue(ask);
+  sweep = { key: questionKey(ask), ask, entries: [], queue, total: queue.length,
             token, shapes: new Map() };
   const turn = () => {
     if (!sweep || sweep.token !== token) return;      // a newer question won
     const step = sweep.queue.shift();
     if (!step) { sweep.queue = null; renderMenu(); return; }
-    const { options, ore } = step;
+    const { options, ore, merge } = step;
     /**
      * Two source sets can be the same question wearing different clothes.
      *
@@ -14475,7 +14621,14 @@ function startSweep(ask) {
      * the same answer more slowly.
      */
     let answer = null;
-    const asked = { ...ask, sources: options, ...(ore ? { oreAllowed: [ore] } : {}) };
+    /**
+     * Said outright rather than inherited, so pressing a row gives the plan
+     * that was scored. A row offering a merge asks for exactly that one; every
+     * other row asks the way the planner would on its own, which is what makes
+     * the choice reversible from the menu that offered it.
+     */
+    const asked = { ...ask, sources: options, mergeStates: merge ? [merge] : [],
+                    ...(ore ? { oreAllowed: [ore] } : {}) };
     // The shape says two source sets are the same question. It knows nothing
     // about which ore may be bought, so an ore question is never served from it.
     const shape = ore ? null : questionShape(ctx.graph, asked);
@@ -14487,7 +14640,7 @@ function startSweep(ask) {
       } catch { answer = null; }                      // a combination that cannot: a row of its own
       if (shape !== null) sweep.shapes.set(shape, answer);
     }
-    sweep.entries.push({ options, ore, plan: answer });
+    sweep.entries.push({ options, ore, merge, plan: answer });
     renderMenu();
     setTimeout(turn, 0);
   };
@@ -14500,7 +14653,11 @@ function menuRow(row, table) {
   const tr = el('tr', 'menu-row');
   const isOre = !!row.ore;
   const oreNow = plan.oreAllowed.length === 1 && plan.oreAllowed[0] === row.ore;
-  if (sameSources(row.via[0], plan.sources) && (isOre ? oreNow : !plan.oreAllowed.length)) {
+  const mergeNow = row.merge
+    ? plan.mergeStates.length === 1 && plan.mergeStates[0] === row.merge
+    : !plan.mergeStates.length;
+  if (sameSources(row.via[0], plan.sources) && mergeNow &&
+      (isOre ? oreNow : !plan.oreAllowed.length)) {
     tr.classList.add('is-current');
   }
   for (const score of SCORES) {
@@ -14515,13 +14672,30 @@ function menuRow(row, table) {
    * using, so naming those again would be noise; what distinguishes them is
    * the thing on the shopping list.
    */
+  /**
+   * A merged row is named by the substance, not by the machinery.
+   *
+   * "Water and Steam as one" is a thing a reader can decide about; the family
+   * representative on its own is not, and neither is anything with the word
+   * collapse in it.
+   */
+  const mergeLabel = (rep) => {
+    const fam = mergeableStates(ctx.graph).find((f) => f.rep === rep);
+    const names = (fam ? fam.members : [rep])
+      .map((n) => ctx.db.byName.get(n)?.display ?? n)
+      .sort((a, b) => (a === rep ? -1 : b === rep ? 1 : a.localeCompare(b)));
+    return `${listed(names)} as one`;
+  };
   const label = row.ore
     ? `buy ${ctx.db.byName.get(row.ore)?.display ?? row.ore}`
-    : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+    : row.merge
+      ? mergeLabel(row.merge)
+      : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
   const pick = button('link', label, `Switch the plan to ${label}`,
-                      () => setPlan(row.ore
-                        ? { ...plan, sources: [...row.via[0]], oreAllowed: [row.ore] }
-                        : { ...plan, sources: [...row.via[0]], oreAllowed: [] }));
+                      () => setPlan({ ...plan,
+                                      sources: [...row.via[0]],
+                                      oreAllowed: row.ore ? [row.ore] : [],
+                                      mergeStates: row.merge ? [row.merge] : [] }));
   via.append(pick);
   if (row.via.length > 1) {
     via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
@@ -14569,16 +14743,17 @@ function renderMenu() {
 
   if (!mine) {
     body.textContent = '';
-    status.textContent = 'Thirty-one ways to answer this, scored side by side. It takes a moment.';
+    status.textContent = 'Every way to answer this, scored side by side. It takes a moment.';
     return;
   }
 
   const { menu, distinct, barren } =
     digest(sweep.entries, menuTools(), { keepLeftovers: plan.keepLeftovers });
   const done = sweep.entries.length;
+  const total = sweep.total ?? 31;
   status.textContent = running
-    ? `${done} of 31 tried…`
-    : `${distinct} different answer${distinct === 1 ? '' : 's'} from 31 ways of asking` +
+    ? `${done} of ${total} tried…`
+    : `${distinct} different answer${distinct === 1 ? '' : 's'} from ${total} ways of asking` +
       (barren.length ? `; ${barren.length} found no route at all` : '');
 
   body.textContent = '';
@@ -14628,6 +14803,7 @@ function render() {
     // Empty is the usual case and means the solver picks; a row of the menu
     // having been pressed is what puts one here.
     ...(plan.oreAllowed.length ? { oreAllowed: plan.oreAllowed } : {}),
+    ...(plan.mergeStates.length ? { mergeStates: plan.mergeStates } : {}),
   };
   shownTargets = targetsFor(question);
 

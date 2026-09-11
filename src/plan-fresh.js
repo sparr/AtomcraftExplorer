@@ -1161,6 +1161,11 @@ export function normalizeFresh(spec) {
     sources: new Set(spec.sources || DEFAULT_SOURCES),
     /** How many ores to try, each one a whole solve. See `ORES_TRIED`. */
     oreTries: Math.max(1, Math.round(spec.oreTries ?? ORES_TRIED)),
+    /**
+     * Held-back families this question is willing to treat as one substance.
+     * Empty unless the scoreboard is asking; see `mergeableStates`.
+     */
+    mergeStates: new Set(spec.mergeStates || []),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /** Things the reader will not buy, though the plan may still make them. */
@@ -1419,6 +1424,23 @@ export function rivalsOf(graph, id) {
 const familyCache = new WeakMap();
 
 /**
+ * The families the scoreboard may offer to merge, and what is in them.
+ *
+ * `HELD_BACK` is not a list of mistakes: every name on it passes the test for
+ * being one substance, and merging it is a trade rather than a fix. So the
+ * page asks the question both ways and lets the reader see the two answers
+ * side by side, which is what the menu is for.
+ */
+export function mergeableStates(graph) {
+  const { family } = phaseFamilies(graph, null);
+  const whole = phaseFamilies(graph, HELD_BACK);
+  return [...HELD_BACK]
+    .filter((rep) => !family.has(rep) && whole.family.has(rep))
+    .map((rep) => ({ rep, members: whole.family.get(rep) }))
+    .sort((a, b) => a.rep.localeCompare(b.rep));
+}
+
+/**
  * The same substance in another state, and which name stands for the set.
  *
  * A phase step that comes back is a state change; one that does not is a
@@ -1467,8 +1489,18 @@ const familyCache = new WeakMap();
  */
 const HELD_BACK = new Set(['Water', 'Hydrofluoric Acid']);
 
-export function phaseFamilies(graph) {
-  let found = familyCache.get(graph);
+export function phaseFamilies(graph, merge = null) {
+  /**
+   * `merge` names held-back families this question wants collapsed anyway.
+   * Keyed into the cache rather than ignored, because the scoreboard asks the
+   * same question both ways in one sitting and the two must not share an
+   * answer.
+   */
+  const wanted = merge ? [...merge].filter((n) => HELD_BACK.has(n)).sort() : [];
+  const key = wanted.join('|');
+  let store = familyCache.get(graph);
+  if (!store) familyCache.set(graph, store = new Map());
+  let found = store.get(key);
   if (found) return found;
   const edge = new Set();
   /**
@@ -1536,6 +1568,7 @@ export function phaseFamilies(graph) {
     family.set(rep, group.filter((n) => graph.stateOf(n) !== 'Static'));
   }
   for (const rep of HELD_BACK) {
+    if (wanted.includes(rep)) continue;
     for (const m of family.get(rep) || []) repOf.delete(m);
     family.delete(rep);
   }
@@ -1570,7 +1603,7 @@ export function phaseFamilies(graph) {
     return null;
   };
   found = { repOf, family, stands, route };
-  familyCache.set(graph, found);
+  store.set(key, found);
   return found;
 }
 
@@ -1590,7 +1623,7 @@ export function model(graph, spec, procs, materials, collapse = true) {
    * the phase readable at the end, where `assemble` compares what each step
    * asks for against what the plan is handing it and puts the melt back.
    */
-  const whole = phaseFamilies(graph);
+  const whole = phaseFamilies(graph, spec.mergeStates);
   const stands = collapse ? whole.stands : ((n) => n);
   const family = collapse ? whole.family : new Map();
   /**
@@ -2656,6 +2689,7 @@ export function questionShape(graph, rawSpec) {
   const built = model(graph, spec, sub.processes, sub.materials);
   if (!built) return null;
   return [
+    [...spec.mergeStates].sort().join('~'),
     sub.processes.map((p) => p.id).sort().join('|'),
     [...built.supply.keys()].sort().join('|'),
     [...sub.materials]
@@ -3483,7 +3517,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    * settled by the solve.
    */
   {
-    const { family, stands, route } = phaseFamilies(graph);
+    const { family, stands, route } = phaseFamilies(graph, spec.mergeStates);
     const prices = fetchPrices(graph, spec.kinds);
     const netOf = (name) =>
       rsub(made.get(name) || R0, radd(used.get(name) || R0, asked.get(name) || R0));

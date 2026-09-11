@@ -38,9 +38,65 @@ export const SCORES = [
   { id: 'shop', short: 'list', label: 'shopping list', dir: 1,
     hint: 'How many different materials to source' },
   { id: 'reactors', short: 'react', label: 'reactors', dir: 1,
-    hint: 'Machines to build; a step run twice still costs one' },
+    hint: 'Machines to build; a step run twice still costs one, and a phase ' +
+          'change costs none -- it happens in the open air or inside the ' +
+          'reactor that wanted the hot form' },
+  /**
+   * How much running it takes, which is not how much building it takes.
+   *
+   * Sparr: one reactor run four times is four steps. So this counts runs where
+   * `reactors` counts vessels, and the two answer different questions -- one
+   * reactor turned forty times and four reactors turned ten times each are the
+   * same forty steps and not the same factory.
+   *
+   * It used to be `plan.steps.length`, hinted as "reactors plus the phase
+   * changes, which are free", which counted neither: a step run forty times
+   * was one, and a condenser that costs nothing to own was one as well. That
+   * decided the comparison this whole column exists for -- of two Lepidolite
+   * plans alike in ore, purchases, reactors and leavings, the one that
+   * condenses its steam rather than venting it scored a step worse for owning
+   * the condenser, and the menu threw away the plan that needed no charge. A
+   * phase change is still not counted, being free in the same sense it is free
+   * of a reactor. The running is.
+   *
+   * Per unit, like everything else that scales: a plan quoted at four times
+   * the size turns its steps four times as often, and that is the batch
+   * talking rather than the plan.
+   */
   { id: 'steps', short: 'steps', label: 'steps', dir: 1,
-    hint: 'Reactors plus the phase changes, which are free' },
+    hint: 'How many times something has to be run; one reactor run four ' +
+          'times is four steps, and a phase change is none' },
+  /**
+   * What has to be found before the plant will turn at all.
+   *
+   * Not the shopping list. A charge is matter that has to be in the pipes
+   * before the first batch, and `priming` is the part of it the plant never
+   * pays back -- nothing outside the wheel it seeds will ever fill it, so no
+   * amount of running helps. That is a different kind of cost from a thing you
+   * buy each batch, and nothing here was measuring it: two plans identical in
+   * ore, purchases, reactors and leavings, one of which needs two Hydrogen Gas
+   * laid in and one of which does not, scored the same.
+   *
+   * Absolute, not per unit. Measured, rather than assumed: the Lepidolite plan
+   * asks for one Chlorine Gas and two Hydrogen Gas whether it is making two of
+   * each product or six. A charge is laid in once however long the plant runs,
+   * so dividing it through would say a bigger order needs less of it.
+   */
+  { id: 'charge', short: 'charge', label: 'to lay in', dir: 1,
+    hint: 'Matter that must be in the pipes before the first batch, and that ' +
+          'the plant never pays back' },
+  /**
+   * How many it makes when you asked for one.
+   *
+   * A run is a whole thing, so the plan multiplies up by the common
+   * denominator of whatever the steps landed on, and the reader who wanted one
+   * Aluminum is told to make eight. Everything else here is divided by that
+   * number precisely so the rows mean the same thing; this is the number
+   * itself, which is a real difference between two answers and was the one
+   * thing no column could say.
+   */
+  { id: 'batch', short: 'batch', label: 'batch size', dir: 1,
+    hint: 'How many it makes at once; asking for one can make four' },
   /**
    * Leftovers: lowest priority, and which way is a preference.
    *
@@ -90,12 +146,23 @@ export function measure(plan, { matter, toNumber }) {
   }
   let left = 0;
   for (const b of plan.byproducts) left += toNumber(b.amount) * matter(b.name);
+  let charge = 0;
+  for (const c of plan.priming || []) charge += toNumber(c.amount) * matter(c.name);
+  let runs = 0;
+  for (const step of plan.steps) {
+    if ((step.process ? step.process.kind : step.kind) === 'phase') continue;
+    // A step that does not say how often it runs has run once.
+    runs += step.runs === undefined ? 1 : toNumber(step.runs);
+  }
   return {
     atoms: atoms / batch,
     units: units / batch,
     shop: plan.frontier.length,
     reactors: reactorsIn(plan.steps),
-    steps: plan.steps.length,
+    steps: runs / batch,
+    // Laid in once however long the plant runs, so it is not divided through.
+    charge,
+    batch,
     left: left / batch,
   };
 }
@@ -139,15 +206,16 @@ export function digest(entries, tools, { keepLeftovers = false } = {}) {
   const barren = [];
   for (const e of entries) {
     const row = e.plan ? measure(e.plan, tools) : null;
-    if (row) scored.push({ ...row, options: e.options, ore: e.ore, plan: e.plan });
+    if (row) scored.push({ ...row, options: e.options, ore: e.ore, merge: e.merge, plan: e.plan });
     else barren.push(e.options);
   }
 
   const byOutcome = new Map();
   for (const row of scored) {
     // The ore is part of which row this is, not of how good it is: two plans
-    // that score alike but buy different ores are two answers, not one.
-    const key = `${signature(row)}|${row.ore ?? ''}`;
+    // that score alike but buy different ores are two answers, not one. So is
+    // which states the question was willing to treat as one substance.
+    const key = `${signature(row)}|${row.ore ?? ''}|${row.merge ?? ''}`;
     if (!byOutcome.has(key)) byOutcome.set(key, { ...row, via: [] });
     byOutcome.get(key).via.push(row.options);
   }
@@ -160,9 +228,17 @@ export function digest(entries, tools, { keepLeftovers = false } = {}) {
    * thing and itself. The named row goes and the plain one stays, because the
    * plain one is where the reader already is.
    */
+  /**
+   * And a merge that changes nothing is not a second answer either.
+   *
+   * Asked whether Hydrofluoric Acid and its gas may be one substance, the
+   * Lepidolite plan comes back identical -- same ore, same purchases, same
+   * charge, same batch. Offering it would be offering a choice between a thing
+   * and itself.
+   */
   for (const [key, row] of [...byOutcome]) {
-    if (!row.ore) continue;
-    if (byOutcome.has(`${signature(row)}|`)) byOutcome.delete(key);
+    if (!row.ore && !row.merge) continue;
+    if (byOutcome.has(`${signature(row)}||`)) byOutcome.delete(key);
   }
   const distinct = [...byOutcome.values()];
   // The shortest option set first, so a row is offered by the least the player
