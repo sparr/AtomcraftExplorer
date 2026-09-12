@@ -286,20 +286,29 @@ Every one of those was 4 or 8 in some column before. Every batch ceiling in
 ceiling of four. Which also empties the batch half of the case for holding
 Water and Hydrofluoric Acid back: merged or apart, the batch is the same.
 
-**And it is a trade, not a win.** On the aluminium case it is the same route at
-half the size -- twelve reactors either way, one Limestone Gravel instead of
-two, three Lepidolite instead of six -- and the Carbon charge stops repaying
-itself. At a batch of four the plan makes six carbon against five spent and
-fills its own pipe; at two it makes three against three, so the loop closes
-exactly and nothing outside it will ever seed it. Audited: every charge
-circulates at both sizes, nothing is draining a stockpile. Both are honest
-descriptions of their own plan. It breaks the two checks that say the Carbon
-charge on that question fills itself.
+**It is on.** It was gated off at first, on the grounds that the aluminium
+plan's Carbon charge stopped repaying itself: "six carbon made against five
+spent" at the larger batch against three against three at the smaller. That was
+misread. Five is the *charge*; the plan makes six and spends six. Carbon closes
+exactly at both sizes -- three and three at the smaller, six and six at the
+larger -- so neither fills its own pipe, and a charge that seeds the loop is
+the expected answer at either. Sparr, on the smaller: three in and three out
+needing a charge of one to three carbon is a perfectly fine outcome.
 
-Half the batch against one more thing to lay in and never get back. That is the
-same fork the `charge` and `batch` columns were added to the scoreboard to
-show, which is at least consistent -- and it is not one the measurement can
-settle.
+Two checks in `test-fresh.mjs` named Carbon as a charge that does not hold the
+plan up. They are now written by the property rather than by the material, the
+way the check above them already was -- at least one charge holds the plan up,
+at least one does not, the asked-for ones are exactly the first kind and the
+rest are in `warmup` with their lag reported. The old wording also said the
+carbon's chain runs back to fetched Dolomite, and this plan buys Limestone
+Gravel.
 
 Cost: about a tenth of the wall clock, and eight of the hundred and ninety-four
 plans move. None loses an answer.
+
+Which also removes the last argument for `HELD_BACK`. The batch was the whole
+of the case against Hydrofluoric Acid, and half the case against Water; the
+other half of Water's -- that Lithium Hydroxide bought five units where it
+bought two -- was the chamber-and-bar bug, fixed separately. Both names could
+come out. Not done here: the families are offered on the scoreboard either way,
+and turning a default off is a smaller thing to ask for than to take.

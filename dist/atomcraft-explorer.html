@@ -7974,19 +7974,19 @@ const HELD_BACK = new Set(['Water', 'Hydrofluoric Acid']);
  * merged as well, where before it was fours and eights. Every batch ceiling in
  * `test-fresh.mjs` is met and that one beats its ceiling of four.
  *
- * What it costs, on the one case measured closely: the same route at half the
- * size, and a Carbon charge that stops repaying itself. At a batch of four the
- * plan makes six carbon against five spent and fills its own pipe; at two it
- * makes three against three, so the loop closes exactly and nothing outside it
- * will ever seed it. Both are honest descriptions of their own plan -- every
- * charge circulates either way, audited -- and which the reader would rather
- * have is not a thing the measurement decides. It breaks two checks that say
- * the Carbon charge fills itself on that question.
+ * What it costs: about a tenth of the wall clock, and eight plans of the
+ * hundred and ninety-four move. None loses an answer.
  *
- * It also costs about a tenth of the wall clock, and moves eight plans of the
- * hundred and ninety-four, none of them losing an answer.
+ * It was gated off at first on the grounds that the aluminium plan's Carbon
+ * charge stopped repaying itself -- "six made against five spent" at the
+ * larger batch against three against three at the smaller. The six against
+ * five was misread: the charge is five and the spend is six, and the plan
+ * makes six. Carbon closes exactly at both sizes, so neither fills its own
+ * pipe and a charge that seeds the loop is the expected answer at either.
+ * Sparr: three in and three out needing a charge of one to three carbon is a
+ * perfectly fine outcome. So it is on.
  */
-const TELL_STATES_APART = false;
+const TELL_STATES_APART = true;
 
 function phaseFamilies(graph, merge = null) {
   /**

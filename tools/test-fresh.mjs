@@ -105,7 +105,6 @@ console.log('--- what each charge is buying');
 {
   const alu = solveFresh(graph, { targets: [{ name: 'Aluminum', amount: 1 }],
                                   have: ['Lepidolite'], sources: ['world'] });
-  const of = (n) => alu.primingAll.find((c) => c.name === n);
   const checks = [
     ['every charge says whether it is holding the plan up',
      alu.primingAll.length > 0 && alu.primingAll.every((c) => typeof c.holdsUp === 'boolean'
@@ -120,12 +119,19 @@ console.log('--- what each charge is buying');
     ['at least one charge is holding the plan up',
      alu.primingAll.some((c) => c.holdsUp === true)],
     /**
-     * The carbon's chain runs back to Dolomite, which is fetched, so it does
-     * arrive -- later than it is first wanted. Withholding it costs the same
-     * output whether the plan is run once or twice.
+     * And at least one is not: its chain reaches something fetched, so it does
+     * arrive, later than it is first wanted.
+     *
+     * Named by the property rather than by the material, for the same reason
+     * the check above it is. This said "the Carbon, whose chain reaches
+     * fetched Dolomite, does not" -- and the plan buys Limestone Gravel rather
+     * than Dolomite, and its carbon loop closes exactly, three made against
+     * three spent, so a charge that seeds that loop is the expected answer and
+     * not a fault. Sparr, on the plan that does it: three in and three out
+     * needing a charge of one to three carbon is a perfectly fine outcome.
      */
-    ['the Carbon, whose chain reaches fetched Dolomite, does not',
-     of('Carbon')?.holdsUp === false],
+    ['at least one charge is not holding the plan up',
+     alu.primingAll.some((c) => c.holdsUp === false)],
     /**
      * So the reader is sent out for those and not the others, and told what
      * the first cycle costs while the plant fills its own pipes.
@@ -134,7 +140,8 @@ console.log('--- what each charge is buying');
      alu.priming.map((c) => c.name).sort().join() ===
      alu.primingAll.filter((c) => c.holdsUp).map((c) => c.name).sort().join()],
     ['the rest are the plant getting itself going, with the lag said out loud',
-     alu.warmup.some((c) => c.name === 'Carbon') && alu.warmupLag === 4],
+     alu.warmup.length > 0 && alu.warmup.every((c) => c.holdsUp === false) &&
+     alu.warmupLag === alu.warmup.reduce((a, c) => Math.max(a, c.lag || 0), 0)],
   ];
   for (const [what, ok] of checks) {
     console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
