@@ -1,0 +1,231 @@
+/**
+ * The states of one substance, sharing a row.
+ *
+ * `test-fresh.mjs` is an instrument: it scores whole plans against what the
+ * reader wants and prints how it did. This is the suite underneath it, and it
+ * exists because none of the collapse machinery had one -- `phaseFamilies`,
+ * `worth`, the dropped crossings, the re-solve on the finer rows, the
+ * conditional bars and the pair gate were all verified by the canonical cases
+ * happening to walk through them, which would not have noticed any of them
+ * being deleted.
+ *
+ * Properties rather than snapshots, with two exceptions noted where they are.
+ * Cheap on purpose: the graph and model assertions are tens of milliseconds
+ * and only two plans are actually solved, the two cheapest that exercise a
+ * family -- Liquid Hydrogen packs four to a unit, Molten Aluminum is one for
+ * one. Oxygen Gas and Liquid Oxygen would be another forty-five seconds to say
+ * the same thing.
+ */
+import { readFileSync } from 'node:fs';
+import { loadData } from '../src/data.js';
+import { buildProcessGraph } from '../src/plan-graph.js';
+import { phaseFamilies, mergeableStates, model, subgraph, withElements,
+         normalizeFresh, solveFresh, unprovenBugs } from '../src/plan-fresh.js';
+import { rnum, rzero } from '../src/rational.js';
+
+globalThis.fetch = async () => ({
+  ok: true,
+  json: async () => JSON.parse(readFileSync(new URL('../data/atomcraft.json', import.meta.url))),
+});
+
+let fail = 0;
+const check = (ok, what) => {
+  if (!ok) fail++;
+  console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}`);
+};
+
+const graph = buildProcessGraph(await loadData());
+const { family, stands, worth, repOf } = phaseFamilies(graph);
+const inputsOf = (p) => [...p.consumes, ...p.requires];
+/** Every phase step that is one material in and one out, with its ratio. */
+const crossings = graph.processes.filter((p) => p.kind === 'phase' &&
+  inputsOf(p).length === 1 && p.produces.length === 1 &&
+  inputsOf(p)[0].count && p.produces[0].count);
+
+console.log('--- who stands for whom ---');
+check(family.size > 100, `${family.size} families over ${repOf.size} materials`);
+check([...family.keys()].every((rep) => stands(rep) === rep),
+      'a representative stands for itself');
+check([...family].every(([rep, members]) => members.every((m) => stands(m) === rep)),
+      'and for every member of its family');
+check([...family.keys()].every((rep) => graph.stateOf(rep) !== 'Static'),
+      'no representative is a placed pixel, which a plan cannot carry');
+const dressed = (n) => /^(Molten|Frozen|Dry|Liquid|Solid) /.test(n);
+check([...family].every(([rep, members]) =>
+        !dressed(rep) || members.every((m) => dressed(m))),
+      'and none wears a Molten or Liquid prefix while a plain sibling exists');
+
+/**
+ * The one that matters: a family is only sound if travelling round it neither
+ * gains nor loses anything. Every crossing between two members has to agree
+ * with what the two are worth, or some way round the family mints -- and
+ * collapsing would bake the gain into the row where nothing could see it.
+ */
+console.log('\n--- every crossing inside a family closes ---');
+{
+  const inside = crossings.filter((p) => {
+    const rep = stands(inputsOf(p)[0].name);
+    return family.has(rep) && stands(p.produces[0].name) === rep;
+  });
+  check(inside.length > 200, `${inside.length} crossings to check`);
+  const wrong = inside.filter((p) => {
+    const from = inputsOf(p)[0], to = p.produces[0];
+    return rnum(worth(from.name)) * from.count !== rnum(worth(to.name)) * to.count;
+  });
+  check(!wrong.length,
+        `what goes in is worth what comes out${wrong.length ? `: ${wrong[0].id}` : ''}`);
+}
+
+console.log('\n--- a ratio is not a reason to keep them apart ---');
+check(stands('Liquid Oxygen') === stands('Oxygen Gas'),
+      'four Oxygen Gas and one Liquid Oxygen are one substance');
+check(rnum(worth('Liquid Oxygen')) === 4 * rnum(worth('Oxygen Gas')),
+      'and a Liquid Oxygen is worth four of them');
+check(rnum(worth('Heavy Oil Vapor')) * 2 === rnum(worth('Heavy Oil')),
+      'a Heavy Oil Vapor is half a Heavy Oil');
+/**
+ * Sparr: `evap:Sand` gives Molten Silica and molten silica condenses to Glass,
+ * not to sand, so the melt is one way. A one-way crossing is a real step and a
+ * real column, and following it would have a plan freezing molten silica into
+ * sand.
+ */
+check(stands('Sand') !== stands('Molten Silica'),
+      'sand melts one way, so it is nobody\'s family');
+/**
+ * Pins a decision rather than a law: nothing is held back. If a family is ever
+ * held back again, `HELD_BACK` is where, and this is the check that will say
+ * so -- see the note beside it for what the batch used to cost.
+ */
+check(stands('Steam') === stands('Water'), 'and nothing is held back: Steam stands for Water');
+check(mergeableStates(graph).length === 0,
+      'so the scoreboard has no state to offer both ways');
+
+console.log('\n--- what the collapse takes out of the model ---');
+{
+  const spec = withElements(graph, normalizeFresh({ targets: [{ name: 'Glass', amount: 1 }] }));
+  const sub = subgraph(graph, spec);
+  const loose = model(graph, spec, sub.processes, sub.materials, true);
+  const whole = model(graph, spec, sub.processes, sub.materials, false);
+  check(loose && whole, 'the same question models both ways');
+  check(loose.rows.length < whole.rows.length,
+        `rows ${whole.rows.length} -> ${loose.rows.length}`);
+  check(loose.vars < whole.vars, `columns ${whole.vars} -> ${loose.vars}`);
+  check(loose.procs.length < whole.procs.length,
+        `steps ${whole.procs.length} -> ${loose.procs.length}`);
+  /**
+   * A crossing inside a family contributes nothing to any row once the rows
+   * are one, so it is a null direction and goes. This is the whole point of
+   * the exercise and the thing a refactor would silently undo.
+   */
+  const dropped = whole.procs.filter((p) => !loose.procs.some((q) => q.id === p.id));
+  check(dropped.length > 0 && dropped.every((p) => p.kind === 'phase'),
+        `and every one of the ${dropped.length} dropped is a phase change`);
+  check(dropped.every((p) => {
+          const ins = inputsOf(p);
+          return ins.length === 1 && p.produces.length === 1 &&
+                 stands(ins[0].name) === stands(p.produces[0].name);
+        }),
+        'each of them inside one family');
+  /** But a one-way melt is not a no-op, and keeps its column. */
+  const sandInSet = whole.procs.some((p) => p.id === 'evap:Sand');
+  check(!sandInSet || loose.procs.some((p) => p.id === 'evap:Sand'),
+        'while `evap:Sand`, which does not come back, keeps its column');
+  /** And no row is named after a member that does not stand for its family. */
+  check(loose.rows.every((row) => String(row.name).startsWith('chamber:') ||
+                                  String(row.name).startsWith('weld:') ||
+                                  stands(row.name) === row.name),
+        'no row is keyed on a material that stands for nothing');
+}
+
+console.log('\n--- and puts back at the end ---');
+/**
+ * The row is keyed on the substance, so satisfying it does not by itself
+ * produce the state that was asked for. What must never happen is a plan that
+ * balances its family and hands over nothing of the name on the order.
+ *
+ * Which does not mean a crossing every time: `rx:Alumina Reduction` makes
+ * Molten Aluminum outright, so that plan needs none and should not have one.
+ * Liquid Hydrogen is the case that does -- nothing makes it but the condense
+ * -- and it is named to keep one concrete example of the crossing coming back.
+ */
+for (const name of ['Liquid Hydrogen', 'Molten Aluminum']) {
+  let plan = null;
+  try { plan = solveFresh(graph, { targets: [{ name, amount: 1 }] }); } catch { plan = null; }
+  if (!plan || !plan.steps.length) { check(false, `${name} plans at all`); continue; }
+  const asked = plan.spec.targets[0].amount;
+  check(rnum(plan.madeOf(name)) >= asked,
+        `${name}: makes the ${asked} it says it makes`);
+  const makers = plan.steps.filter((s) => s.process.produces.some((o) => o.name === name));
+  check(makers.length > 0, 'and something in it produces that state by name');
+  if (name === 'Liquid Hydrogen') {
+    check(makers.every((s) => s.process.kind === 'phase') &&
+          plan.steps.some((s) => s.process.id === 'cond:Hydrogen Gas'),
+          'and where only a crossing can make it, the crossing is put back');
+  }
+  /** A step cannot be run four sevenths of a time, crossings included. */
+  check(plan.steps.every((s) => !rzero(s.runs) && s.runs.d === 1n),
+        'every run count is whole, the crossings among them');
+  /**
+   * Nothing comes of nothing. The wheel test used to skip the material a plan
+   * hands over when no step consumed it, which let a plan buy nothing at all
+   * and still produce.
+   */
+  check(plan.frontier.length + plan.feed.length > 0,
+        'and something came in at the door for it');
+}
+
+console.log('\n--- nothing comes of nothing ---');
+/**
+ * The wheel test asked only about materials the plan both makes and spends, so
+ * the one thing it never asked about was the thing a wheel hands over. Asked
+ * for Oxygen Gas the plan circulated potassium, sulfur and carbon, all of them
+ * netting to nothing and all of them duly cleared, and handed out three Oxygen
+ * Gas a batch having bought and fed nothing whatsoever.
+ *
+ * This is the only check here that costs real time -- about seventeen seconds,
+ * where every other plan in this file is two or three -- and it is the only
+ * witness there is. Reverting the fix is caught by nothing else in the suite:
+ * with the hole back the same question answers in four seconds and buys
+ * nothing, and every other check in this file still passes.
+ */
+{
+  let plan = null;
+  try { plan = solveFresh(graph, { targets: [{ name: 'Oxygen Gas', amount: 1 }] }); } catch { plan = null; }
+  check(plan && plan.steps.length > 0, 'Oxygen Gas has a plan');
+  check(plan && plan.frontier.length + plan.feed.length > 0,
+        'and it buys or is fed something, rather than making oxygen out of a charge');
+}
+
+console.log('\n--- barred where it would be used, and only there ---');
+{
+  /**
+   * `rx:Hydrochloric Acid Dissolves Steel` gains a chlorine and a hydrogen:
+   * one Hydrochloric Acid in, one Iron(II) Chloride out. It is the direct
+   * maker of Iron(II) Chloride, so a walk for that target would certainly keep
+   * it -- and does not, because the target is made of what it mints. Iron is
+   * one reaction away and made of neither, and keeps it.
+   */
+  const ID = 'rx:Hydrochloric Acid Dissolves Steel';
+  const walk = (name) => {
+    const spec = withElements(graph, normalizeFresh({ targets: [{ name, amount: 1 }] }));
+    return subgraph(graph, spec).processes.some((p) => p.id === ID);
+  };
+  check(graph.byId.has(ID), 'the recipe is still in the graph');
+  check(!walk('Iron(II) Chloride'),
+        'and out of the walk for its own product, which is made of the chlorine it gains');
+  check(walk('Iron'), 'and in the walk for Iron, which is not');
+}
+
+console.log('\n--- the pair gate proves them either way round ---');
+/**
+ * `mintsElement` looked for the handoff only as what the first recipe makes
+ * that the second eats, so three of the sixteen pairs -- named the other way
+ * about -- were declared unprovable at the first line and their exclusions sat
+ * disarmed. One of them is how a plan came to make three Oxygen Gas a batch
+ * out of nothing.
+ */
+check(unprovenBugs(graph).length === 0,
+      `every known minting pair is proven${unprovenBugs(graph).length ? `: ${unprovenBugs(graph).map((u) => u.drop).join(', ')}` : ''}`);
+
+console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
+process.exit(fail ? 1 : 0);
