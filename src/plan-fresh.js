@@ -2981,11 +2981,7 @@ const WEIGH_DEFAULT = ['atoms', 'units', 'reactors'];
 export const WEIGH_BY = SCORES.filter((s) => !s.tiebreak).map((s) => s.id);
 
 function weighPlan(graph, plan, weigh) {
-  const row = measure(plan, { matter: (n) => graph.db.byName.get(n)?.matter ?? 1,
-                              toNumber: rnum });
-  if (!row) return null;
-  const asked = (weigh || []).filter((id) => id in row);
-  if (!asked.length) return WEIGH_DEFAULT.map((id) => row[id]);
+  const asked = (weigh || []).filter((id) => SCORES.some((s) => s.id === id));
   /**
    * Only when an order was asked for does the rest of the board break ties.
    *
@@ -2997,7 +2993,16 @@ function weighPlan(graph, plan, weigh) {
    * follow, in the order the menu lists them.
    */
   const rest = WEIGH_BY.filter((id) => !asked.includes(id));
-  return [...asked, ...rest].map((id) => row[id]);
+  const order = asked.length ? [...asked, ...rest] : WEIGH_DEFAULT;
+  const row = measure(plan, { matter: (n) => graph.db.byName.get(n)?.matter ?? 1,
+                              toNumber: rnum,
+                              // Weighing is not a reason to price the charges:
+                              // finding them costs more than every solve in
+                              // the question put together, and the order only
+                              // consults them when asked to. See `layIn`.
+                              charges: order.includes('charge') });
+  if (!row) return null;
+  return order.map((id) => row[id]);
 }
 
 const cheaperThan = (a, b) => {
@@ -4270,7 +4275,23 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   const priming = [];
   const primingAll = [];
   const warmup = [];
-  {
+  let laidIn = false;
+  /**
+   * The pass above, run once, the first time anybody asks what to lay in.
+   *
+   * It is deferred because it is the most expensive thing `assemble` does and
+   * most of what it computes is thrown away. Refusing each charge in turn
+   * means firing the whole factory again per charge, so the cost climbs with
+   * the plan: measured on Lithium Oxide, twenty-seven steps took 1.2s, thirty-
+   * nine took 6.7s, and forty-eight took 34.9s -- against 1.25s for every
+   * solve in the same question put together. An ore attempt is a candidate,
+   * and ten of eleven candidates are dropped on atoms, items and reactors,
+   * none of which consult a charge. So the plans that lose now never pay for
+   * an answer nobody reads, and the one that wins pays once.
+   */
+  const layIn = () => {
+    if (laidIn) return;
+    laidIn = true;
     const prices = fetchPrices(graph, spec.kinds);
     /**
      * One go at starting the factory, refusing to be started on `refuse`.
@@ -4887,19 +4908,19 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     primingAll.push(...priming);
     for (const c of later) priming.splice(priming.indexOf(c), 1);
     warmup.push(...later);
-  }
+  };
 
   const plan = {
     spec: { ...spec, targets: spec.targets.map((t) => ({ ...t, amount: t.amount * Number(mul) })) },
     fresh: true,
     steps, frontier, feed, byproducts,
-    priming,
+    get priming() { layIn(); return priming; },
     // Every charge the pass found, including the ones it no longer asks for.
-    primingAll,
+    get primingAll() { layIn(); return primingAll; },
     // Charges the plant repays itself: not asked for, but the first cycle
     // makes `warmupLag` less than the plan says while they fill.
-    warmup,
-    warmupLag: warmup.reduce((a, c) => Math.max(a, c.lag || 0), 0),
+    get warmup() { layIn(); return warmup; },
+    get warmupLag() { layIn(); return warmup.reduce((a, c) => Math.max(a, c.lag || 0), 0); },
     brokenLoops: [],
     graph,
     fetchTotal: rnum(rmul(fetchTotal, scale)),

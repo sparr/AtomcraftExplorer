@@ -133,7 +133,7 @@ export function optionSets(categories) {
  * so one answer is quoted for four tantalum and the next for six. Dividing
  * through is the only way two rows mean the same thing.
  */
-export function measure(plan, { matter, toNumber }) {
+export function measure(plan, { matter, toNumber, charges = true }) {
   if (!plan || !plan.steps || !plan.steps.length) return null;
   const batch = (plan.spec && plan.spec.targets && plan.spec.targets[0] &&
                  plan.spec.targets[0].amount) || 1;
@@ -146,8 +146,12 @@ export function measure(plan, { matter, toNumber }) {
   }
   let left = 0;
   for (const b of plan.byproducts) left += toNumber(b.amount) * matter(b.name);
+  /**
+   * Reading `priming` is what runs the charge pass, so a caller that will not
+   * look at this column says `charges: false` and is not billed for it.
+   */
   let charge = 0;
-  for (const c of plan.priming || []) charge += toNumber(c.amount) * matter(c.name);
+  if (charges) for (const c of plan.priming || []) charge += toNumber(c.amount) * matter(c.name);
   let runs = 0;
   for (const step of plan.steps) {
     if ((step.process ? step.process.kind : step.kind) === 'phase') continue;

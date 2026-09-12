@@ -101,6 +101,44 @@ let met = 0, missed = 0, broke = 0;
  * is the same at both sizes was filling the pipe, and one that doubles with
  * the plant is holding it up.
  */
+/**
+ * And the plan does not find them until somebody reads them.
+ *
+ * Refusing each charge in turn means firing the whole factory again per
+ * charge, which makes the pass cost more than the solve and grow faster than
+ * it: on Lithium Oxide, twenty-seven steps took 1.2s, thirty-nine took 6.7s
+ * and forty-eight took 34.9s, against 1.25s for every solve in that question
+ * put together. Eleven ores were tried and ten of the answers thrown away on
+ * atoms, items and reactors, none of which ask about a charge -- so the
+ * question spent sixty-three seconds and read one charge list. Deferred, the
+ * same question takes four, and the plan below is the same plan.
+ */
+console.log('--- the charge pass waits to be asked');
+{
+  const held = solveFresh(graph, { targets: [{ name: 'Aluminum', amount: 1 }],
+                                   have: ['Lepidolite'], sources: ['world'] });
+  const own = Object.getOwnPropertyDescriptor(held, 'priming');
+  const first = held.priming;
+  const checks = [
+    ['a fresh plan holds its charges behind a getter, not a finished list',
+     !!own && typeof own.get === 'function'],
+    /**
+     * Asked twice it must not run twice -- the pass appends to arrays it
+     * captured, so a second run would hand back every charge doubled.
+     */
+    ['and asking again gets the same list, not the pass run a second time',
+     held.priming === first && held.priming.length === first.length],
+    ['the other three ways in agree with it',
+     held.primingAll === held.primingAll && held.warmup === held.warmup &&
+     held.warmupLag === held.warmupLag],
+  ];
+  for (const [what, ok] of checks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+  console.log('');
+}
+
 console.log('--- what each charge is buying');
 {
   const alu = solveFresh(graph, { targets: [{ name: 'Aluminum', amount: 1 }],

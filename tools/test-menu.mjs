@@ -137,6 +137,33 @@ console.log('\n--- the charge is a cost of its own ---');
 }
 
 /**
+ * Asking for the charge is what costs, so a caller may decline to ask.
+ *
+ * Reading `priming` on a real plan runs the pass that finds the charges, and
+ * that pass fires the whole factory once per charge it tries to refuse -- on
+ * Lithium Oxide it outweighed every solve in the question fifty to one. The
+ * ore loop weighs candidates on atoms, items and reactors and drops ten of
+ * eleven, so it says `charges: false` and never touches the getter. The trap
+ * below is a plan that screams when its charges are read.
+ */
+console.log('\n--- and asking for it is optional ---');
+{
+  const trap = (() => {
+    const p = plan([{ name: 'Water', amount: 1 }], [], ['rx'], 2);
+    Object.defineProperty(p, 'priming', { get() { throw new Error('the charge pass ran'); } });
+    return p;
+  })();
+  let ran = false;
+  try { measure(trap, { ...tools, charges: false }); } catch { ran = true; }
+  check(!ran, 'told not to, `measure` does not reach for the charges');
+  check(measure(trap, { ...tools, charges: false }).charge === 0,
+        'and reports no charge rather than guessing one');
+  ran = false;
+  try { measure(trap, tools); } catch { ran = true; }
+  check(ran, 'but left to itself it still asks, so every other caller is unchanged');
+}
+
+/**
  * The trade the charge column exists for.
  *
  * Sparr's Lepidolite case: merging Water and Steam has the plan condense its
