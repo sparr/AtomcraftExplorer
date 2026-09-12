@@ -1563,6 +1563,39 @@ export function mergeableStates(graph) {
  */
 const HELD_BACK = new Set(['Water', 'Hydrofluoric Acid']);
 
+/**
+ * Whether to put the question again on the finer rows once it is settled.
+ *
+ * It works, and it is a trade rather than a win, so it waits for a yes the way
+ * the families above do.
+ *
+ * What it does: takes the steps the collapsed answer chose, puts each state
+ * back on its own row with the crossings between them, pins every supply
+ * exactly where it stands, and asks for the fewest runs. The collapsed answer
+ * with its crossings filled in is a point of that, so it cannot fail to solve
+ * for any reason of its own, and the shopping list cannot move a unit.
+ *
+ * What it buys: the batch. Collapsing leaves a wider face to pick a corner
+ * from and the whole-numbered corners live on the finer rows, so the penalty
+ * disappears entirely -- Aluminum out of Lepidolite comes in twos with the
+ * families collapsed or apart, and in twos with Water and Hydrofluoric Acid
+ * merged as well, where before it was fours and eights. Every batch ceiling in
+ * `test-fresh.mjs` is met and that one beats its ceiling of four.
+ *
+ * What it costs, on the one case measured closely: the same route at half the
+ * size, and a Carbon charge that stops repaying itself. At a batch of four the
+ * plan makes six carbon against five spent and fills its own pipe; at two it
+ * makes three against three, so the loop closes exactly and nothing outside it
+ * will ever seed it. Both are honest descriptions of their own plan -- every
+ * charge circulates either way, audited -- and which the reader would rather
+ * have is not a thing the measurement decides. It breaks two checks that say
+ * the Carbon charge fills itself on that question.
+ *
+ * It also costs about a tenth of the wall clock, and moves eight plans of the
+ * hundred and ninety-four, none of them losing an answer.
+ */
+const TELL_STATES_APART = false;
+
 export function phaseFamilies(graph, merge = null) {
   /**
    * `merge` names held-back families this question wants collapsed anyway.
@@ -3697,6 +3730,72 @@ function planOnce(graph, rawSpec) {
     }
   }
 
+  /**
+   * Last, the same answer with the states told apart again.
+   *
+   * Collapsing a family leaves the simplex a wider face to pick its corner
+   * from, and a wider face has more corners with halves on them -- which does
+   * not change what the plan is, every supply being pinned and every step
+   * settled, but does change the size it is offered at. The finer rows are
+   * where the whole-numbered corners live, so once the answer is decided the
+   * question is put again over just the steps it chose, with each state
+   * counted on its own row and the crossings between them back on the table.
+   *
+   * Cheap, because it is twenty or thirty columns rather than nine hundred,
+   * and safe, because the collapsed answer with its crossings filled in is a
+   * point of it -- so it can only fail to solve if something else has gone
+   * wrong, and then the collapsed answer stands. Every supply is held exactly
+   * where it stands, so the shopping list cannot move a unit; the objective is
+   * the fewest runs, which among corners of the same face is the one least
+   * able to be written in fractions.
+   */
+  let told = null;
+  if (TELL_STATES_APART) {
+    const { family, stands } = phaseFamilies(graph, spec.mergeStates);
+    const kept = procs.filter((p) => !banned.has(p.id) && !rzero(best.x[index.get(p.id)]));
+    const reps = new Set();
+    for (const p of kept) {
+      for (const m of [...p.produces, ...inputsOf(p)]) {
+        if (family.has(stands(m.name))) reps.add(stands(m.name));
+      }
+    }
+    if (reps.size) {
+      const crossings = graph.processes.filter((q) => {
+        if (q.kind !== 'phase') return false;
+        const ins = inputsOf(q);
+        if (ins.length !== 1 || q.produces.length !== 1) return false;
+        const rep = stands(ins[0].name);
+        return reps.has(rep) && stands(q.produces[0].name) === rep;
+      });
+      const fineProcs = [...new Set([...kept, ...crossings])];
+      const mats = new Set();
+      for (const p of fineProcs) for (const m of [...p.produces, ...inputsOf(p)]) mats.add(m.name);
+      for (const t of spec.targets) mats.add(t.name);
+      const fine = model(graph, spec, fineProcs, mats, false);
+      if (fine) {
+        const pins = [];
+        for (const [name, i] of fine.supply) {
+          const at = supply.get(name);
+          pins.push({ coeffs: new Map([[i, rat(1)]]), op: '=',
+                      rhs: at === undefined ? R0 : best.x[at] });
+        }
+        const cost = new Map();
+        for (const p of fine.procs) cost.set(fine.index.get(p.id), rat(1));
+        const got = solveLP({ vars: fine.vars, rows: [...fine.rows, ...pins], cost,
+                              lo: new Map(), steep: true });
+        if (got.ok) told = { fine, x: got.x };
+      }
+      if (notes) {
+        notes.push(told
+          ? `told apart: ${fineProcs.length} columns over ${reps.size} famil${reps.size === 1 ? 'y' : 'ies'}`
+          : `told apart: no answer over ${reps.size} collapsed famil${reps.size === 1 ? 'y' : 'ies'}, keeping the collapsed one`);
+      }
+    }
+  }
+  if (told) {
+    return assemble(graph, spec, told.fine.procs, told.fine.index, told.fine.supply,
+                    told.x, base.total, sub, notes);
+  }
   return assemble(graph, spec, procs, index, supply, best.x, base.total, sub, notes);
 }
 

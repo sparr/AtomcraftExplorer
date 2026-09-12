@@ -179,7 +179,10 @@ that changes nothing -- Hydrofluoric Acid, on this question -- scores
 identically to the plain row and is dropped rather than offered as a choice
 between a thing and itself.
 
-**The batch is the open question underneath both.** Nothing the reader is
+**The batch is answered, and the answer is a trade.** See below; what follows
+is the state before it was tried.
+
+**The batch was the open question underneath both.** Nothing the reader is
 promised turns on which corner of the optimal face the simplex lands on -- the
 shopping list is pinned, so is what goes in at the door, and the steps are
 settled -- but the size of the batch does. Two things were tried and neither
@@ -252,3 +255,51 @@ that trade wrong before, in as many words, when the welding work had Glass go
 
 So the bar is fixed and the ordering underneath it is not. Whether twenty-three
 reactors are worth four atoms is not a thing the measurement can settle.
+
+
+## Telling the states apart again, once the answer is settled
+
+The idea left at the end of the last section, built and measured. `TELL_STATES_APART`
+in `plan-fresh.js` turns it on; it is off.
+
+Once the collapsed answer is settled, the question is put again over just the
+steps it chose, with each state back on its own row and the crossings between
+them on the table, every supply pinned exactly where it stands, asking for the
+fewest runs. Twenty or thirty columns rather than nine hundred. The collapsed
+answer with its crossings filled in is a point of it, so it cannot fail to
+solve for any reason of its own, and with the supplies pinned the shopping list
+cannot move a unit.
+
+**It works.** The whole-numbered corners do live on the finer rows, and the
+batch penalty from collapsing disappears:
+
+```
+                     as shipped   +Water   +HF   +both
+aluminum (world)          2          2       2      2
+the four                  2          2       2      2
+potassium                 2          2       2      2
+columbite                 4          4       4      4
+```
+
+Every one of those was 4 or 8 in some column before. Every batch ceiling in
+`test-fresh.mjs` is met, and Aluminum out of Lepidolite comes in twos against a
+ceiling of four. Which also empties the batch half of the case for holding
+Water and Hydrofluoric Acid back: merged or apart, the batch is the same.
+
+**And it is a trade, not a win.** On the aluminium case it is the same route at
+half the size -- twelve reactors either way, one Limestone Gravel instead of
+two, three Lepidolite instead of six -- and the Carbon charge stops repaying
+itself. At a batch of four the plan makes six carbon against five spent and
+fills its own pipe; at two it makes three against three, so the loop closes
+exactly and nothing outside it will ever seed it. Audited: every charge
+circulates at both sizes, nothing is draining a stockpile. Both are honest
+descriptions of their own plan. It breaks the two checks that say the Carbon
+charge on that question fills itself.
+
+Half the batch against one more thing to lay in and never get back. That is the
+same fork the `charge` and `batch` columns were added to the scoreboard to
+show, which is at least consistent -- and it is not one the measurement can
+settle.
+
+Cost: about a tenth of the wall clock, and eight of the hundred and ninety-four
+plans move. None loses an answer.
