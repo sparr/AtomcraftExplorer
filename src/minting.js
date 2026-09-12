@@ -24,14 +24,41 @@ export function atomsIn(graph, name, element) {
   if (!ast) return null;
   let total = 0;
   let ok = true;
-  const walk = (items, times) => {
+  /**
+   * The same arithmetic `tally` in `formula.js` does, and it has to be: this
+   * walked the tree itself and quietly dropped two node kinds it had no case
+   * for.
+   *
+   * A `coeff` is the number in front of a segment -- `HNO3 + 3HCl` for aqua
+   * regia, `CaSO4·2H2O` for gypsum, `2 H2` for Hydrogen Gas x2 -- and skipping
+   * it counted one hydrogen where there are four, three where there are three
+   * chlorine, and two hydrogen in a container that holds four. Which is what
+   * had `rx:Expansion of Hydrogen Gas x2` reading as making two hydrogen out
+   * of nothing: one packet in at two, two gas out at two each. It holds four,
+   * and `atoms` on the material has said so all along.
+   *
+   * A `pct` is a percentage, and 17% Co 83% Fe is not a count of anything --
+   * so it is not counted, it is declined. Dropping it silently made a unit of
+   * Molten Cobalt Steel read as one cobalt and one iron, and six of them out
+   * of one cobalt and five iron as five cobalt and an iron created.
+   */
+  const walk = (items, mult) => {
+    let pending = mult;
     for (const node of items) {
       if (!ok) return;
-      if (node.k === 'el') { if (node.sym === element) total += node.n * times; }
-      else if (node.k === 'group') {
-        if (node.branches.length !== 1) { ok = false; return; }
-        walk(node.branches[0], times * node.n);
-      } else if (node.k === 'unknown') { ok = false; return; }
+      switch (node.k) {
+        case 'coeff': pending = mult * node.n; break;
+        case 'el': if (node.sym === element) total += node.n * pending; break;
+        case 'group':
+          if (node.branches.length !== 1) { ok = false; return; }
+          walk(node.branches[0], node.n * pending);
+          break;
+        // A segment break ends whatever coefficient was in front of it.
+        case 'sep': pending = mult; break;
+        case 'pct': ok = false; return;
+        case 'unknown': ok = false; return;
+        default: break;
+      }
     }
   };
   walk(ast, 1);

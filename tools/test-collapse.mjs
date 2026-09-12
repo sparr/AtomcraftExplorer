@@ -23,6 +23,7 @@ import { phaseFamilies, mergeableStates, model, subgraph, withElements,
          normalizeFresh, solveFresh, unprovenBugs, WEIGH_BY } from '../src/plan-fresh.js';
 import { SCORES } from '../src/plan-menu.js';
 import { rnum, rzero } from '../src/rational.js';
+import { atomsIn } from '../src/minting.js';
 
 globalThis.fetch = async () => ({
   ok: true,
@@ -215,6 +216,47 @@ console.log('\n--- barred where it would be used, and only there ---');
   check(!walk('Iron(II) Chloride'),
         'and out of the walk for its own product, which is made of the chlorine it gains');
   check(walk('Iron'), 'and in the walk for Iron, which is not');
+}
+
+console.log('\n--- counting the atoms in a formula ---');
+/**
+ * `atomsIn` walked the formula tree itself and had no case for two of the node
+ * kinds in it, so it quietly dropped them. A `coeff` is the number in front of
+ * a segment -- `HNO3 + 3HCl`, `CaSO4·2H2O`, `2 H2` -- and skipping it counted
+ * one hydrogen in aqua regia where there are four, and two in a container that
+ * holds four. That last is what had `rx:Expansion of Hydrogen Gas x2` reading
+ * as making hydrogen out of nothing.
+ *
+ * The material's own `atoms` had it right the whole time, which is what makes
+ * this checkable: wherever `atomsIn` will answer at all, it has to agree.
+ */
+{
+  let compared = 0;
+  let declined = 0;
+  const off = [];
+  for (const m of graph.db.materials) {
+    if (!m.formula?.ast || !m.atoms) continue;
+    for (const [el, want] of m.atoms) {
+      const got = atomsIn(graph, m.name, el);
+      if (got === null) { declined++; continue; }
+      compared++;
+      if (got !== want) off.push(`${m.name} ${el}: ${got} not ${want}`);
+    }
+  }
+  check(compared > 2000, `${compared} element counts to compare, ${declined} declined`);
+  check(!off.length, `every one agrees with the material's own atoms${off.length ? `: ${off[0]}` : ''}`);
+  check(atomsIn(graph, 'Hydrogen Gas x2', 'H') === 4,
+        'a container of two hydrogen gas holds four hydrogen');
+  check(atomsIn(graph, 'Aqua Regia', 'Cl') === 3 && atomsIn(graph, 'Gypsum', 'O') === 6,
+        'and a coefficient counts for the segment it stands in front of');
+  /**
+   * A percentage is not a count of anything, so it is declined rather than
+   * dropped. Dropped, a unit of Molten Cobalt Steel read as one cobalt and one
+   * iron, and six of them out of one cobalt and five iron read as five cobalt
+   * created.
+   */
+  check(atomsIn(graph, 'Molten Cobalt Steel', 'Fe') === null,
+        'while 17% cobalt 83% iron is declined, not counted as one of each');
 }
 
 console.log('\n--- the pair gate proves them either way round ---');

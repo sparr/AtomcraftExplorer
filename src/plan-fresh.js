@@ -598,6 +598,24 @@ const MINTS_INTO_WANT = [
    * back. It is the same reason the buy-and-vent pass leaves oxygen alone.
    */
   { drop: 'rx:Sulfuric Acid + Granite Gravel', mints: ['S'] },
+  /**
+   * `1 Aluminum Oxyhydroxide -> 1 Alumina + 1 Steam`. Alumina carries two
+   * aluminium and the input carries one, so an aluminium appears, with a
+   * hydrogen and two oxygen behind it. The chemistry is
+   * `2 AlO(OH) -> Al2O3 + H2O`, and the recipe says one. Two plans: Aluminum,
+   * and Aluminum Vapor.
+   *
+   * Listed for the aluminium alone, on the same reasoning as the gravel above:
+   * hydrogen and oxygen are in almost everything anybody asks for, and gating
+   * on them bars the recipe from nearly every question.
+   */
+  { drop: 'rx:Aluminum Oxyhydroxide Decomposition', mints: ['Al'] },
+  /**
+   * `1 Fluoroniobic Acid + 5 Lye -> 1 Niobium Oxide + 5 Sodium Fluoride`.
+   * Niobium Oxide is `Nb2O5` and one acid carries one niobium, so it wants two
+   * of the acid.
+   */
+  { drop: 'rx:Fluoroniobic Acid + Lye', mints: ['Nb'] },
 ];
 
 /** The barred-where-it-would-be-used list, as the candidate walk asks it. */

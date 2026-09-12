@@ -6598,14 +6598,41 @@ function atomsIn(graph, name, element) {
   if (!ast) return null;
   let total = 0;
   let ok = true;
-  const walk = (items, times) => {
+  /**
+   * The same arithmetic `tally` in `formula.js` does, and it has to be: this
+   * walked the tree itself and quietly dropped two node kinds it had no case
+   * for.
+   *
+   * A `coeff` is the number in front of a segment -- `HNO3 + 3HCl` for aqua
+   * regia, `CaSO4·2H2O` for gypsum, `2 H2` for Hydrogen Gas x2 -- and skipping
+   * it counted one hydrogen where there are four, three where there are three
+   * chlorine, and two hydrogen in a container that holds four. Which is what
+   * had `rx:Expansion of Hydrogen Gas x2` reading as making two hydrogen out
+   * of nothing: one packet in at two, two gas out at two each. It holds four,
+   * and `atoms` on the material has said so all along.
+   *
+   * A `pct` is a percentage, and 17% Co 83% Fe is not a count of anything --
+   * so it is not counted, it is declined. Dropping it silently made a unit of
+   * Molten Cobalt Steel read as one cobalt and one iron, and six of them out
+   * of one cobalt and five iron as five cobalt and an iron created.
+   */
+  const walk = (items, mult) => {
+    let pending = mult;
     for (const node of items) {
       if (!ok) return;
-      if (node.k === 'el') { if (node.sym === element) total += node.n * times; }
-      else if (node.k === 'group') {
-        if (node.branches.length !== 1) { ok = false; return; }
-        walk(node.branches[0], times * node.n);
-      } else if (node.k === 'unknown') { ok = false; return; }
+      switch (node.k) {
+        case 'coeff': pending = mult * node.n; break;
+        case 'el': if (node.sym === element) total += node.n * pending; break;
+        case 'group':
+          if (node.branches.length !== 1) { ok = false; return; }
+          walk(node.branches[0], node.n * pending);
+          break;
+        // A segment break ends whatever coefficient was in front of it.
+        case 'sep': pending = mult; break;
+        case 'pct': ok = false; return;
+        case 'unknown': ok = false; return;
+        default: break;
+      }
     }
   };
   walk(ast, 1);
@@ -7273,6 +7300,24 @@ const MINTS_INTO_WANT = [
    * back. It is the same reason the buy-and-vent pass leaves oxygen alone.
    */
   { drop: 'rx:Sulfuric Acid + Granite Gravel', mints: ['S'] },
+  /**
+   * `1 Aluminum Oxyhydroxide -> 1 Alumina + 1 Steam`. Alumina carries two
+   * aluminium and the input carries one, so an aluminium appears, with a
+   * hydrogen and two oxygen behind it. The chemistry is
+   * `2 AlO(OH) -> Al2O3 + H2O`, and the recipe says one. Two plans: Aluminum,
+   * and Aluminum Vapor.
+   *
+   * Listed for the aluminium alone, on the same reasoning as the gravel above:
+   * hydrogen and oxygen are in almost everything anybody asks for, and gating
+   * on them bars the recipe from nearly every question.
+   */
+  { drop: 'rx:Aluminum Oxyhydroxide Decomposition', mints: ['Al'] },
+  /**
+   * `1 Fluoroniobic Acid + 5 Lye -> 1 Niobium Oxide + 5 Sodium Fluoride`.
+   * Niobium Oxide is `Nb2O5` and one acid carries one niobium, so it wants two
+   * of the acid.
+   */
+  { drop: 'rx:Fluoroniobic Acid + Lye', mints: ['Nb'] },
 ];
 
 /** The barred-where-it-would-be-used list, as the candidate walk asks it. */

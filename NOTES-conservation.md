@@ -378,30 +378,27 @@ rx:Hydrochloric Acid Dissolves Steel     Cl+1 H+1   -- curated
 rx:Sulfuric Acid + Granite Gravel        S+1 O+1    -- curated for the sulfur
 ```
 
-**An alloy's formula read as a molecule.** Not a recipe fault at all:
+**An alloy's formula read as a molecule.** Not a recipe fault:
 
 ```
-rx:Bronze Alloy         3 Molten Copper + 1 Molten Tin -> 4 Molten Bronze     Cu+9 Sn+3
-rx:Cobalt Steel Alloy   1 Molten Cobalt + 5 Molten Steel -> 6 Molten Cobalt Steel   Fe+1 Co+5
+rx:Bronze Alloy   3 Molten Copper + 1 Molten Tin -> 4 Molten Bronze   Cu+9 Sn+3
 ```
 
-The recipe conserves units exactly -- four in, four out -- and the formula for
-an alloy states its *ratio*, three copper to one tin, which the counter reads
-as a per-unit molecule. So a unit of bronze reads as three copper plus a tin
-and four of them as twelve. Every alloy in the game will read this way, and
-none of them is minting anything.
+The recipe conserves units exactly -- four in, four out -- and Molten Bronze's
+formula is `Cu3Sn`, which states the alloy's *ratio* and reads as a per-unit
+molecule. So a unit of bronze counts as three copper and a tin, and four of
+them as twelve. Nothing is minted; the formula is answering a different
+question from the one being asked of it.
 
-**A packing formula that omits its packing.**
+`rx:Cobalt Steel Alloy` was filed here too and did not belong. Molten Cobalt
+Steel's formula is `17% Co 83% Fe`, and the counter had no case for a
+percentage, so it dropped them and read a unit as one cobalt and one iron --
+six of them out of one cobalt and five iron then reading as five cobalt
+created. That was the counter's fault, not the recipe's, and it is fixed
+below.
 
-```
-rx:Expansion of Hydrogen Gas x2   1 Hydrogen Gas x2 -> 2 Hydrogen Gas   H+2
-```
-
-Three plans. `Hydrogen Gas x2` is a container of two, and its formula counts
-the same hydrogen as one Hydrogen Gas. Exactly the shape the scaled families
-handle for Liquid Oxygen -- but the crossing here is a reaction rather than a
-phase step, so `phaseFamilies` never sees it and the row is never shared. The
-fix is either the formula or extending the family test past `kind === 'phase'`.
+**A packing the counter was not reading.** `rx:Expansion of Hydrogen Gas x2`,
+three plans, H+2 -- and that was the counter again, not the data. See below.
 
 **Air, which is not modelled.** Oxygen, and one of them says so in its own
 name:
@@ -420,3 +417,84 @@ So of the twenty-four, three recipes in two plans plus two singletons are
 actually wrong, and everything else is the formulas being read for something
 they are not. Which is the same conclusion the earlier measurement reached from
 the other direction, now with the recipes named.
+
+
+## The counter was dropping two kinds of node
+
+Sparr, on the last of those: can we handle 2H2 reactions like a phase change
+family, or even as part of the H2 family?
+
+**No, and it turns out not to be needed.** There is exactly one packed
+container in the game, `Hydrogen Gas x2`, and exactly one process touching it:
+`rx:Expansion of Hydrogen Gas x2`, one packet into two gas. Nothing compresses
+hydrogen back. A family needs the trip to come back -- that is the whole of the
+test, and the reason `evap:Sand` is nobody's family -- so joining these two
+would let the model turn two Hydrogen Gas into one packet, which nothing in the
+game can do. It would be the Sand trap with a different name.
+
+And the packing was never missing. `Hydrogen Gas x2` carries `atoms` of four
+hydrogen and `matter` of four, both right. What was wrong was `atomsIn`, which
+walked the formula tree itself and had no case for two of the node kinds in it:
+
+```
+coeff   the number in front of a segment -- HNO3 + 3HCl, CaSO4·2H2O, 2 H2
+        Dropped. Aqua Regia read as one hydrogen where there are four, Gypsum
+        as five oxygen where there are six, and a container of two hydrogen gas
+        as holding two.
+pct     a percentage -- 17% Co 83% Fe
+        Dropped, so a unit of Molten Cobalt Steel read as one of each.
+```
+
+`src/formula.js` has had the right arithmetic all along in `tally`, which
+handles both; `atomsIn` was a second, poorer copy of it. Now it handles a
+coefficient the way `tally` does, resets it at a segment break, and *declines*
+a percentage rather than dropping it -- a percentage is not a count of
+anything, and "cannot say" is the honest answer.
+
+Checkable, and checked: over 2148 element counts across every formula that
+parses, `atomsIn` now agrees with the material's own `atoms` every single time,
+and declines 71. That invariant is in `test-collapse.mjs`.
+
+## Where that leaves it
+
+Adding the two short-coefficient recipes to `MINTS_INTO_WANT`, and the counter
+fixed:
+
+```
+                          before   after
+clean, counted               28      30
+create an element            24      20
+transmute                    25      25
+cannot say                   19      20
+```
+
+Gone from the list of elements created: **Al** and **Nb** (the two new curated
+entries), **Fe** and **Co** (the percentage now declined), and hydrogen drops
+from six plans to four (the coefficient now counted). What is left is oxygen in
+seventeen plans, hydrogen in four, and one each of Cu, Sn, Cl and S.
+
+Aluminum and Aluminum Vapor are outright better for it: they stop running
+`rx:Aluminum Oxyhydroxide Decomposition`, buy Alumina directly instead of the
+oxyhydroxide, leave no Steam behind, and take one step fewer.
+
+**The cost is one plan.** `Niobium Oxide` has no plan at all now, because the
+only route to it ran through `rx:Fluoroniobic Acid + Lye` -- which is barred
+for exactly the targets made of what it creates, and Niobium Oxide is made of
+niobium. Asking for it used to get an answer that created half its niobium; it
+now gets nothing, which is the same call the round loop makes when every road
+runs through a wheel. Dropping the `Nb` entry gives the plan back.
+
+The niobium and tantalum cases Sparr flagged are undamaged: both Columbite
+questions come back with the same seventeen-step plan, four Tantalum and four
+Niobium one for one out of two ore, every check met.
+
+## Still open
+
+`Liquid Oxygen` carries `atoms` of two oxygen and `matter` of eight. `matter`
+is derived by following the phase ratios from the lightest formula in the group
+and is right; the formula is `O2` and does not record that a unit holds four
+gas. Nine more materials disagree the same way -- the Lead family at one
+against two, the Tin family at one against three -- and for those two I do not
+know which number is meant. Nothing reads `atoms` for conservation any more, so
+this is not currently biting; `atomsIn` reads the formula, and the formula is
+what disagrees.
