@@ -358,29 +358,24 @@ function assignMatter(materials, byName) {
    * liquid eight atoms.
    */
   const links = new Map(materials.map((m) => [m.name, []]));
-  const stated = new Set();
-  for (const m of materials) {
-    for (const field of ['Evaporation', 'Condensation']) {
-      const to = m.raw[field]?.TargetMaterialName;
-      if (to) stated.add(`${m.name}|${to}`);
-    }
-  }
   /**
-   * Or where the two are plainly the same substance anyway.
+   * A weight carries between two materials when they are the same substance.
    *
-   * Requiring the trip both ways is too strict on its own, because the data
-   * often states only one side of a genuine phase change. `Rhyolite evap ->
-   * Rhyolitic Lava` has no condensation written back, and the lava is
-   * `KAlSi3O8` -- a rock and its own melt, thirteen atoms either way, and
-   * refusing it left the rhyolite weighing nothing and pricing as the cheapest
-   * thing in the game.
+   * Which is a question about the elements, not about how the transition was
+   * written. Galena is `PbS` and Molten Lead is `Pb`: the sulfur leaves, so
+   * they are not one substance and the weight must not carry -- that is why
+   * Lead weighed two atoms. Granite is `CaAl2Si2O8` and Molten Anorthite is
+   * the same, so it may. And where one side has no formula there is nothing to
+   * contradict, which is the case that matters: `Rhyolite evap -> Rhyolitic
+   * Lava` and the lava is `KAlSi3O8`, a rock and its own melt, so the rock
+   * weighs thirteen rather than nothing.
    *
-   * What tells that apart from a smelt is the elements. Galena is `PbS` and
-   * Molten Lead is `Pb`: the sulfur leaves, so they are not one substance and
-   * the weight must not carry. Granite is `CaAl2Si2O8` and Molten Anorthite is
-   * the same, so it may. Where one side has no formula there is nothing to
-   * contradict, which is the case that matters -- the formula-less rock
-   * inherits from the melt that does have one.
+   * Asking instead whether the trip is stated both ways was tried and is not
+   * the same question. It is too strict where the data writes only one side of
+   * a real phase change, which is often, and too lax where it writes both
+   * sides of something that is not one: aqueous Hydrofluoric Acid is `H3FO`
+   * and its gas is `HF`, stated each way, and the water goes -- so the gas
+   * inherited the acid's five atoms when hydrogen fluoride is two.
    */
   const elementsOf = (name) => {
     const m = byName.get(name);
@@ -393,8 +388,7 @@ function assignMatter(materials, byName) {
   };
   const link = (a, b, ratio) => {
     if (!links.has(a) || !links.has(b)) return;
-    const bothWays = stated.has(`${a}|${b}`) && stated.has(`${b}|${a}`);
-    if (!bothWays && !sameStuff(a, b)) return;
+    if (!sameStuff(a, b)) return;
     links.get(a).push([b, ratio]);
     links.get(b).push([a, 1 / ratio]);
   };

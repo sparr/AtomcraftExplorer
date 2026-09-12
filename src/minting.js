@@ -74,14 +74,14 @@ export function atomsIn(graph, name, element) {
    * eight atoms. So the formula gives the proportions and `matter` gives the
    * size.
    *
-   * Only where the two divide evenly. `Hydrofluoric Acid Gas` sums to two and
-   * weighs five, a ratio of two and a half, because its group is anchored on
-   * the aqueous form whose formula counts water the gas does not carry -- and
-   * scaling by that would invent half an atom of fluorine. A ratio that is not
-   * a whole number of formula-units means the formula is describing something
-   * other than the unit, and then the formula's own count stands.
+   * Only where the two divide evenly. `Ammonium Ion` sums to five and weighs
+   * four, a ratio of four fifths, and scaling by that would give fractions of
+   * an atom. A ratio that is not a whole number of formula-units means the
+   * formula is describing something other than the unit, and then the
+   * formula's own count stands.
    *
-   * One material is scaled by this today and one is declined by it.
+   * Two materials have a ratio other than one at all: Liquid Oxygen, which is
+   * scaled, and Ammonium Ion, which is declined.
    */
   const mine = graph.db.byName.get(name);
   const whole = mine?.atoms

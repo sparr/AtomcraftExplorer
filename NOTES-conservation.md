@@ -576,9 +576,20 @@ have taken the wrong answer. That pass was written, measured and removed.
 **The phase relation can.** `Rhyolite evap -> Rhyolitic Lava`, and the lava is
 `KAlSi3O8` -- thirteen atoms. A rock and its own melt, and the only thing
 missing is a condensation written back, which the data often omits. So the
-strict both-ways rule above is relaxed by exactly the test `composition.js`
-already uses for carrying a formula across a phase change: the two have to be
-the same substance. Galena is `PbS` and Molten Lead is `Pb`, the sulfur leaves,
+both-ways rule is replaced outright by the test `composition.js` already uses
+for carrying a formula across a phase change: the two have to be the same
+substance.
+
+Replaced rather than relaxed, because asking whether the trip is stated both
+ways is not the same question and is wrong in both directions. Too strict
+where the data writes only one side of a real phase change, which is often.
+And too lax where it writes both sides of something that is not one: aqueous
+Hydrofluoric Acid is `H3FO` and its gas is `HF`, stated each way, and the water
+goes -- so the gas inherited the acid's five atoms where hydrogen fluoride is
+two. With the element test alone it weighs two, and two materials in the whole
+game now weigh anything other than their own formula's sum: Liquid Oxygen,
+which holds four gas units, and Ammonium Ion at four fifths, which is the one
+case the tally declines to scale. Galena is `PbS` and Molten Lead is `Pb`, the sulfur leaves,
 so the weight must not carry; Granite is `CaAl2Si2O8` and Molten Anorthite is
 the same, so it may; and where one side has no formula there is nothing to
 contradict, which is the case that matters.

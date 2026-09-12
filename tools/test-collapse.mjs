@@ -267,15 +267,29 @@ console.log('\n--- counting the atoms in a formula ---');
   /**
    * A unit of Liquid Oxygen holds four Oxygen Gas, so eight oxygen, though its
    * formula says `O2` -- the formula describes the substance and `matter` the
-   * unit. Hydrofluoric Acid Gas weighs two and a half formula-units, which is
-   * no whole number of anything, so its own count stands rather than being
-   * scaled into half an atom of fluorine.
+   * unit. Ammonium Ion weighs four fifths of its formula, which is no whole
+   * number of anything, so its own count stands rather than being scaled into
+   * fractions of an atom.
    */
   check(atomsIn(graph, 'Liquid Oxygen', 'O') === 8,
         'a unit of Liquid Oxygen tallies eight oxygen, not two');
   check(atomsIn(graph, 'Oxygen Gas', 'O') === 2, 'and a unit of the gas still two');
-  check(atomsIn(graph, 'Hydrofluoric Acid Gas', 'F') === 1,
+  check(atomsIn(graph, 'Ammonium Ion', 'N') === 1,
         'while a ratio that is not whole leaves the formula to speak for itself');
+  /**
+   * And those two are the only materials whose weight is not their own
+   * formula's sum, which is worth pinning: the scaling only means anything
+   * while the data disagrees with itself somewhere.
+   */
+  {
+    const off = graph.db.materials.filter((m) => {
+      if (!m.atoms || m.matter === null || m.matter === undefined) return false;
+      const sum = [...m.atoms.values()].reduce((a, b) => a + b, 0);
+      return sum && m.matter !== sum;
+    }).map((m) => m.name).sort();
+    check(off.join() === 'Ammonium Ion,Liquid Oxygen',
+          `and only those two weigh anything but their formula: ${off.join(', ')}`);
+  }
 }
 
 console.log('\n--- the pair gate proves them either way round ---');
