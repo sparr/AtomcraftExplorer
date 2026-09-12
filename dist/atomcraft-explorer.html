@@ -1249,6 +1249,13 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
       not something a rule can name, so the cheapest few are each tried in
       full. Every one is another whole solve, so this is a budget
     </label>
+    <label class="plan-opt" id="plan-weigh-opt">
+      <select id="plan-weigh"></select>
+      What to weigh first when the plan is choosing which ore to buy &mdash;
+      with nothing in hand it tries the cheapest few in full and keeps the best
+      answer, and which of them is "best" is this. Atoms first by default,
+      which will pay a great many reactors to save one
+    </label>
     <label class="plan-opt" id="plan-leftovers-opt">
       <input type="checkbox" id="plan-leftovers">
       Keep the leavings &mdash; where two plans are otherwise identical, prefer
@@ -15172,6 +15179,7 @@ function renderOptions() {
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
 
   $('#plan-ores').value = String(plan.oreTries);
+  $('#plan-weigh').value = plan.weigh[0] || '';
   $('#plan-leftovers').checked = plan.keepLeftovers;
   $('#plan-avoid').checked = plan.avoidSideEffects;
 }
@@ -15392,7 +15400,16 @@ function menuRow(row, table) {
   const weighNow = row.weigh
     ? plan.weigh.length === 1 && plan.weigh[0] === row.weigh
     : !plan.weigh.length;
-  if (sameSources(row.via[0], plan.sources) && mergeNow && weighNow &&
+  /**
+   * Highlighted when this row is the plan on the table, by any way in.
+   *
+   * It compared the reader's sources against `row.via[0]`, which is the
+   * *shortest* set that reaches the row rather than the one they are on -- so a
+   * row offered as "made (+7)" never matched anybody holding the usual four,
+   * and the board went unhighlighted on nearly every question.
+   */
+  const hereNow = row.via.some((v) => sameSources(v, plan.sources));
+  if (hereNow && mergeNow && weighNow &&
       (isOre ? oreNow : !plan.oreAllowed.length)) {
     tr.classList.add('is-current');
   }
@@ -15682,6 +15699,34 @@ function initPlan(context) {
     if (Number.isFinite(n) && n > 0) edit(setOption, 'oreTries', Math.min(n, ORE_TRIES_MAX));
     else e.target.value = String(plan.oreTries);
   });
+  /**
+   * Which cost decides between two finished plans, said outright.
+   *
+   * The scoreboard offers this a row at a time -- press "reactors first" and
+   * it sets itself -- which only helps a reader who has run the comparison and
+   * noticed. It belongs beside the other budgets as well, since it is one.
+   *
+   * Empty means the order it has always used: atoms, then items, then
+   * reactors. Anything else puts that cost first and lets the rest of the
+   * board break the ties behind it.
+   */
+  {
+    const pick = $('#plan-weigh');
+    const opt = (value, label) => {
+      const o = document.createElement('option');
+      o.value = value;
+      o.textContent = label;
+      pick.append(o);
+    };
+    opt('', 'atoms, then items, then reactors');
+    for (const id of WEIGH_BY) {
+      opt(id, `${SCORES.find((s) => s.id === id)?.label ?? id} first`);
+    }
+    pick.addEventListener('change', (e) => {
+      const id = e.target.value;
+      edit(setOption, 'weigh', id ? [id] : []);
+    });
+  }
   $('#toggle-plan-picture').addEventListener('click', togglePicture);
   // Rows or columns, since a plan is a long thin thing and a page scrolls down.
   // Reactions with the materials written on the arrows, or a node for each.

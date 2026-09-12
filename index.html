@@ -78,6 +78,13 @@
       not something a rule can name, so the cheapest few are each tried in
       full. Every one is another whole solve, so this is a budget
     </label>
+    <label class="plan-opt" id="plan-weigh-opt">
+      <select id="plan-weigh"></select>
+      What to weigh first when the plan is choosing which ore to buy &mdash;
+      with nothing in hand it tries the cheapest few in full and keeps the best
+      answer, and which of them is "best" is this. Atoms first by default,
+      which will pay a great many reactors to save one
+    </label>
     <label class="plan-opt" id="plan-leftovers-opt">
       <input type="checkbox" id="plan-leftovers">
       Keep the leavings &mdash; where two plans are otherwise identical, prefer
