@@ -555,6 +555,59 @@ and gets tried ahead of an ore whose weight is known.
 That is the `oreTries` cap rather than the weighing: at twelve ores Silica
 answers in six reactors buying two Sodium Silicate, which is better than the
 twenty-six reactors and fourteen units it used to take, and the page already
-offers "Try 12" on exactly this message. But an ore nobody can weigh should
-probably not be sorted as the lightest, and `oreCandidates` is where that would
-be said. Not done here.
+offers "Try 12" on exactly this message.
+
+## Weighing a rock by what it melts into
+
+Sparr: use other reactions and products to estimate Rhyolite's weight, and do
+the same for anything else in a similar situation -- we should already have
+code for this.
+
+**The reactions cannot do it.** `tools/derive-formulas.mjs` works exactly that
+way for formulas, and a weight asks less of the same evidence -- a formula
+needs every element to balance, a weight only the total -- so it was worth
+trying. It settles nothing. Of the 511 materials with no weight, **400 appear
+in no reaction at all**, Rhyolite among them. Of the 48 reactions that come
+down to one unweighed participant, only three materials get a second reaction
+to agree with, and the votes are not trustworthy: Manganese Hydroxide draws two
+votes for eight against one for five, and `Mn(OH)2` is five. Plurality would
+have taken the wrong answer. That pass was written, measured and removed.
+
+**The phase relation can.** `Rhyolite evap -> Rhyolitic Lava`, and the lava is
+`KAlSi3O8` -- thirteen atoms. A rock and its own melt, and the only thing
+missing is a condensation written back, which the data often omits. So the
+strict both-ways rule above is relaxed by exactly the test `composition.js`
+already uses for carrying a formula across a phase change: the two have to be
+the same substance. Galena is `PbS` and Molten Lead is `Pb`, the sulfur leaves,
+so the weight must not carry; Granite is `CaAl2Si2O8` and Molten Anorthite is
+the same, so it may; and where one side has no formula there is nothing to
+contradict, which is the case that matters.
+
+Both halves hold at once:
+
+```
+Rhyolite        null -> 13     from its own melt
+Lead            2 -> 1         no longer anchored on galena
+Tin             3 -> 1         no longer anchored on cassiterite
+Quick Lime      5 -> 2         Granite Gravel 5 -> 13, Hematite 1 -> 5,
+Cuprite  1 -> 3, Sphalerite 1 -> 2, Ammonium Ion 4 -> 5
+Liquid Oxygen   8              unchanged
+unweighed       511            unchanged -- nothing lost its weight
+```
+
+`npm test` green. Over the corpus, 188 identical, five moved, one lost. Of the
+five: Iron buys one unit where it bought two, Sulfur Vapor stops creating
+oxygen and pays twelve units for it, Calcium takes eight steps where it took
+two, and two are cosmetic.
+
+**Silica is the one lost, and the reason has changed.** It is no longer that an
+unweighable rock prices as the cheapest thing going -- Rhyolite weighs thirteen
+now and sorts accordingly. It is that Granite Gravel, the ore that works, was
+in the six tried only because it weighed five, and thirteen is what
+`CaAl2Si2O8` actually comes to. Correctly weighed it sorts below Dirt and falls
+outside the cap.
+
+So the weighing is right and the cap is where the question now lives: six ores
+of twenty, with the ore that works honestly among the heaviest. Raising the
+default from six is a product decision, not a measurement; the "Try 12" path
+finds it and finds it better than before.
