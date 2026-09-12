@@ -102,6 +102,68 @@ check(stands('Steam') === stands('Water'), 'and nothing is held back: Steam stan
 check(mergeableStates(graph).length === 0,
       'so the scoreboard has no state to offer both ways');
 
+/**
+ * The aqueous identities: which ones there are, and that a plan still works.
+ *
+ * `hydrationFamilies` is not a phase family and must not be mistaken for one.
+ * The test worth having is that the identity it writes down is the one the game
+ * supports in both directions, and that spending the row does not cost the
+ * reader the step: the plan still has to say "dissolve this", because that is
+ * work somebody does in a vessel.
+ */
+console.log('\n--- the aqueous identities ---');
+{
+  const { pairs } = hydrationFamilies(graph);
+  check(pairs.size === 32, `32 salts close their round trip, and ${pairs.size} were found`);
+  check([...pairs.values()].every((h) => h.split && h.join),
+        'each has a way out and a way back');
+  /**
+   * The identity is only as good as the agreement between the two crossings,
+   * which is the whole reason 32 and not 69. Re-derived here from the steps
+   * rather than trusted: what the way out gives back, the way in must take.
+   */
+  const per = (id, name, side) => {
+    const q = graph.byId.get(id);
+    const list = side === 'in' ? inputsOf(q) : q.produces;
+    return list.find((x) => x.name === name)?.count ?? 0;
+  };
+  const WET = new Set(['Water', 'Steam', 'Ice']);
+  const waterOn = (id, side) => {
+    const q = graph.byId.get(id);
+    const list = side === 'in' ? inputsOf(q) : q.produces;
+    return list.filter((x) => WET.has(x.name)).reduce((a, x) => a + x.count, 0);
+  };
+  check([...pairs].every(([aq, h]) => {
+          const outUnits = per(h.split, aq, 'in');
+          const inUnits = per(h.join, aq, 'out');
+          if (!outUnits || !inUnits) return false;
+          // `filter:` is the block, whose rule is one tile in, one of each out.
+          const outWater = h.split.startsWith('filter:') ? 1 : waterOn(h.split, 'out');
+          return outWater * inUnits === waterOn(h.join, 'in') * outUnits;
+        }),
+        'and the two agree on the water, per unit of salt, in every one');
+  check(!pairs.has('Limewater'),
+        'Limewater is left out: one Water back out, two needed in, so a cycle leaks');
+  check(!pairs.has('Aqueous Zinc Sulfate'),
+        'and so is Aqueous Zinc Sulfate, which the filter will not take apart at all');
+  /**
+   * The row is spent, the step is not. A plan that wants a dissolved salt still
+   * has to be told to dissolve it, and `assemble` is what puts that back.
+   */
+  const p = solveFresh(graph, { targets: [{ name: 'Aqueous Lithium Sulfate', amount: 1 }] });
+  check(!!p && p.steps.length > 0, 'a plan for a dissolved salt is still answerable');
+  /**
+   * Rarely needed, which is the point: of 64 questions asked about a salt or
+   * its dry half, 62 come out with no crossing to put back at all -- the row
+   * was spent and nothing missed it. This is one of the two that does.
+   */
+  const notes = [];
+  const q = solveFresh(graph, { targets: [{ name: 'Aqueous Magnesium Sulfate', amount: 1 }], notes });
+  check(!!q, 'and so is one that has to cross a salt on the way');
+  check(notes.some((n) => n.startsWith('hydration: put back')),
+        'and the crossing it needs is put back by name, not left for the reader to guess');
+}
+
 console.log('\n--- what the collapse takes out of the model ---');
 {
   const spec = withElements(graph, normalizeFresh({ targets: [{ name: 'Glass', amount: 1 }] }));
