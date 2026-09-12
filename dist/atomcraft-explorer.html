@@ -8603,10 +8603,27 @@ function freeLunch(graph, spec, plan) {
    */
   const spun = new Set();
   for (const p of procs) for (const o of p.produces) spun.add(o.name);
-  for (const name of spun) {
+  /**
+   * And the thing the wheel hands out, not only the thing it turns on.
+   *
+   * This asked only about materials the plan both makes and spends, on the
+   * grounds that a wheel has to be turning on something. It does -- and what
+   * it turns on and what it emits are not the same material. Asked for Oxygen
+   * Gas the plan circulates potassium, sulfur and carbon, every one of which
+   * nets to nothing and is duly asked about and duly cleared, and hands out
+   * three Oxygen Gas a batch, which nothing consumes and which was therefore
+   * never asked about at all. It bought nothing. It fed nothing.
+   *
+   * With every supply cut, making any material is making it out of nothing, so
+   * there was never a reason to leave one out. The circulating ones are still
+   * asked first, so where a wheel shows on both the blame falls where it used
+   * to -- on a material in the middle of the loop rather than on the answer.
+   */
+  const chewed = (name) => procs.some((p) => inputsOf(p).some((i) => i.name === name));
+  const asked = [...spun].filter(chewed).concat([...spun].filter((n) => !chewed(n)));
+  for (const name of asked) {
     const coeffs = net.get(name);
     if (!coeffs) continue;
-    if (!procs.some((p) => inputsOf(p).some((i) => i.name === name))) continue;
     const cost = new Map();
     for (const [i, v] of coeffs) if (v !== 0) cost.set(i, -v);
     const answer = solveLPFloat({ vars: procs.length, rows, cost });

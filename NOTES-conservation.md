@@ -108,3 +108,94 @@ only crossings that are one for one in both directions. A unit of the liquid
 holds four units of the gas, so the two cannot share a row without the
 arithmetic being wrong. `stands()` puts each in a family of its own, and the two
 questions are genuinely different.
+
+
+## What can be banned, and what cannot
+
+Asked to ban these without breaking other plans. One class can be banned
+outright and is; the other cannot be banned by any element rule, and the
+measurements are below.
+
+### Banned: producing anything at all with nothing coming in
+
+`freeLunch` now asks its question about every material the plan makes, not only
+the ones it also spends. With every supply cut, making any material is making
+it out of nothing, so there was never a reason to leave one out -- and the one
+left out was the one the wheel hands over. The circulating materials are still
+asked about first, so where a wheel shows on both, the blame falls where it did
+before: on a material in the middle of the loop rather than on the answer.
+
+Measured over the 194-plan corpus: **193 identical, one moved, none lost, none
+gained**, and the number of plans that buy and feed nothing yet hand something
+back went from one to **none**. The one that moved is Oxygen Gas, which now
+buys two Osmium Arsenosulfide and runs in four reactors rather than nine. It
+costs about a fifth more wall clock across the corpus, being one small linear
+programme per material rather than per circulating material.
+
+### Not bannable: an element appearing that nothing bought
+
+Three ways of asking, all of them too noisy to refuse a plan on:
+
+```
+per process, by presence   796 of 4264 processes -- 430 beam, 238 decay,
+                           where changing an element is the whole point
+per plan, by presence      48 of the 96 answerable plans -- half of them
+per process, by count      177 processes, 64 of them gaining something
+                           other than H or O
+```
+
+The 48 split cleanly, which is what makes them readable rather than alarming:
+
+```
+25   the plan contains a beam or decay step -- transmutation, so element
+     conservation means nothing
+16   H and/or O only -- air is not modelled, and an aqueous salt's formula
+     does not carry its water
+ 7   everything else
+```
+
+And counting does not rescue it. `rx:Aqueous Bromine + Aqueous Ammonium Iodide`
+reads as gaining a bromine only because Aqueous Bromine parses as Br rather
+than Br2; the halide swap it describes is balanced. Counting cannot tell a
+formula that is wrong from a recipe that is wrong, so the older decision --
+that atoms are the wrong tool -- holds.
+
+### The seven, and the one recipe under them
+
+Six of the seven mint chlorine, and tracing the chlorine through the Hydrogen
+Bromide plan step by step lands on one recipe:
+
+```
+rx:Hydrochloric Acid Dissolves Steel
+   1 Hydrochloric Acid + 1 Steel  ->  1 Iron(II) Chloride + 1 Hydrogen Gas
+```
+
+Hydrochloric Acid carries one chlorine, Iron(II) Chloride carries two. One in,
+two out, and a hydrogen minted with it -- the chemistry is `Fe + 2 HCl`, and the
+recipe says one. Twelve runs of it in that plan, twelve chlorine a batch out of
+nothing. Every material in it parses and none of them is an aqueous form, so
+none of the usual excuses apply.
+
+That is a recipe error, and the place for it is the curated list, which already
+knows how to gate an exclusion and how to lift it if the game is ever fixed.
+What `find-wheels.mjs` looks for is a *pair* whose loop gains an element; this
+needs no partner. A scan for single processes that gain atoms where every
+formula parses **and no material in them is an aqueous or mixture form** would
+be a short list somebody could read, and the filter in bold is the judgement
+call -- which materials the formulas can be trusted about. Not built here.
+
+## Still open: the 4:1 families
+
+Sparr: the 4:1 ratio can share a row if the coefficients are scaled by four
+going in and quartered coming back out. Quite right, and the reason given
+earlier for leaving Oxygen Gas and Liquid Oxygen apart -- that the arithmetic
+forbids it -- was wrong. A family needs the round trip to compose to identity,
+not to be one for one; the row can be denominated in one member's units with a
+scale per member, and `stands()` would return a factor alongside a name. The
+crossings stay droppable, `assemble` divides back at hydration, and the
+packing chains come in with it.
+
+What it would want watching: `perAtom` weighs a row's leftovers by `matter`,
+which already accounts for packing, so the two would have to agree; and the
+supply columns are per member, so a scaled row means a scaled supply
+coefficient too. Not attempted.

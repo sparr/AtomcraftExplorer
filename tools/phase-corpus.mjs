@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
 import { solveFresh } from '../src/plan-fresh.js';
+import { composition } from '../src/composition.js';
 import { rnum } from '../src/rational.js';
 import { CASES } from './cases.mjs';
 
@@ -23,6 +24,36 @@ globalThis.fetch = async () => ({
 
 const db = await loadData();
 const graph = buildProcessGraph(db);
+/**
+ * Which elements a plan hands back that nothing put into it.
+ *
+ * Purchases and feed count as putting something in; a charge does not, being
+ * laid in once however long the plant runs, so a plan that emits an element it
+ * only ever charged is emitting it out of nothing.
+ *
+ * Presence, not count. The game's formulas are too approximate to count with
+ * -- an aqueous salt does not carry its water, so a third of the reactions
+ * read as making hydrogen -- and this only asks whether an element turned up
+ * at all. Null where some material has no composition, because then nothing
+ * can be said either way.
+ */
+const table = composition(graph);
+const elementsOf = (name) => table.get(name)?.elements || null;
+const mintedBy = (p) => {
+  const IN = new Set();
+  for (const f of [...p.frontier, ...p.feed]) {
+    const e = elementsOf(f.name);
+    if (!e) return null;
+    for (const x of e) IN.add(x);
+  }
+  const OUT = new Set();
+  for (const o of [...p.spec.targets, ...p.byproducts]) {
+    const e = elementsOf(o.name);
+    if (!e) return null;
+    for (const x of e) OUT.add(x);
+  }
+  return [...OUT].filter((e) => !IN.has(e)).sort();
+};
 
 const out = process.argv[2] || 'corpus.json';
 const every = Number(process.env.CORPUS_EVERY || 4);
@@ -52,6 +83,7 @@ const digest = (p) => {
     feed: (p.feed || []).map((f) => `${f.name}x${rnum(f.amount)}`).sort(),
     spare: p.byproducts.map((b) => `${b.name}x${rnum(b.amount)}`).sort(),
     charge: (p.priming || []).map((c) => `${c.name}x${rnum(c.amount)}`).sort(),
+    mints: mintedBy(p),
   };
 };
 
@@ -76,4 +108,10 @@ for (const { id, spec } of specs) {
   }
 }
 const answered = Object.values(rows).filter((r) => r.ok).length;
+const minting = Object.values(rows).filter((r) => r.ok && r.mints && r.mints.length);
+const unsure = Object.values(rows).filter((r) => r.ok && r.mints === null).length;
 console.log(`${specs.length} plans, ${answered} answered, written to ${out}`);
+console.log(`${minting.length} hand back an element nothing put in; ${unsure} could not be told`);
+const tally = new Map();
+for (const r of minting) tally.set(r.mints.join(''), (tally.get(r.mints.join('')) || 0) + 1);
+for (const [k, n] of [...tally].sort((a, b) => b[1] - a[1])) console.log(`   ${k.padEnd(8)} ${n}`);
