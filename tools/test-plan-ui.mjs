@@ -971,23 +971,34 @@ console.log('\n--- no plan, and what to do about it ---');
  * search stops, says where it stopped, and lets the reader decide whether to
  * pay for more.
  */
-console.log('\n--- trying more ores than the cap allows ---');
+console.log('\n--- the ore cap, and saying when it was in the way ---');
 {
   app.setMode('plan');
   app.setPlan(addTarget(emptyPlan(), 'Lithium Oxide'));
   const steps = () => text('#plan-steps');
-  check(/Nothing allowed can make/.test(steps()), 'six ores in, there is no plan');
-  check(/Only the 6 cheapest of 14 ores/.test(steps()),
-        `and the page says the cap is why: ${steps().slice(0, 100)}`);
+  /**
+   * This asked that six ores found nothing and that the page said so, on
+   * Lithium Oxide. Nothing in the corpus fails at six any more: a material no
+   * reaction can use is no longer a candidate, and two states of one substance
+   * no longer take a slot each, which freed enough of the six that every
+   * capped question answering at thirty-two now answers at six as well.
+   *
+   * So what is left to check is the harder case, and the one Sparr asked for:
+   * an answer that came back with the cap still in the way. It looks like any
+   * other answer, and until there was an indicator there was nothing to
+   * suggest that spending more might do better.
+   */
+  check(!/Nothing allowed can make/.test(steps()), 'six ores in, there is a plan');
+  check(/cheapest ores of \d+/.test(steps()),
+        `and it says the cap was in the way: ${steps().slice(0, 90)}`);
 
   const more = nodes($('#plan-steps'), 'small').find((b) => /^Try \d+$/.test(b.textContent));
-  check(!!more && more.textContent === 'Try 12',
-        `with a button offering twice as many: ${more?.textContent}`);
+  const offered = more ? Number(more.textContent.replace('Try ', '')) : 0;
+  check(offered > 6, `with a button offering more than the six tried: ${more?.textContent}`);
   more.click();
-  check(app.getPlan().oreTries === 12, 'pressing it doubles the setting');
-  check(!/Nothing allowed can make/.test(steps()) &&
-        /Lithium Carbonate/.test(text('#plan-side')),
-        `and the plan is found: ${text('#plan-side').slice(0, 60)}`);
+  check(app.getPlan().oreTries === offered, 'pressing it spends what it offered');
+  check(!/cheapest ores of \d+/.test(steps()),
+        'and then there is no cap left to complain about');
 
   // The same setting, said outright.
   app.setPlan(addTarget(emptyPlan(), 'Lithium Oxide'));
@@ -995,7 +1006,7 @@ console.log('\n--- trying more ores than the cap allows ---');
   $('#plan-ores').value = '14';
   $('#plan-ores').dispatch('change');
   check(app.getPlan().oreTries === 14, 'and typing a number sets it');
-  check(!/Nothing allowed can make/.test(steps()), 'which finds the plan too');
+  check(!/Nothing allowed can make/.test(steps()), 'which still finds a plan');
 
   // A number nobody means is not taken as read.
   app.setPlan({ ...addTarget(emptyPlan(), 'Lithium Oxide'), oreTries: 6 });

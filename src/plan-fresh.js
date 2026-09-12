@@ -22,6 +22,7 @@ import { listed } from './prose.js';
 import { composition, elementsOf } from './composition.js';
 import { heatingNeed, coolingNeed } from './units.js';
 import { solveLP } from './simplex.js';
+import { measure, SCORES } from './plan-menu.js';
 import { solveLPFloat } from './simplex-float.js';
 import { MINTING_PAIRS } from './wheels.js';
 import { atomsIn, mintsElement } from './minting.js';
@@ -556,6 +557,77 @@ const inputsOf = (p) => [...p.consumes, ...p.requires];
  * whichever is named first -- so the exclusion still lifts itself if the game
  * is ever fixed.
  */
+/**
+ * Recipes that gain an element, barred only from the questions they could
+ * answer with it.
+ *
+ * Sparr: ban it for plans that are trying to output that element, and not
+ * otherwise. A recipe that hands back a chlorine it was not given is only
+ * load-bearing where the chlorine is wanted -- asked for Hydrogen Bromide it
+ * is how the bromide gets its hydrogen, and asked for Tantalum it is a step
+ * nobody takes. Barring it outright costs every route through it on every
+ * question; barring it where the want is made of what it mints costs nothing
+ * anywhere else.
+ *
+ * Hand-curated, because the scan that would fill it in cannot yet tell a wrong
+ * recipe from a wrong formula: 177 processes gain atoms and most of them gain
+ * them because an aqueous form parses without its water, or because Aqueous
+ * Bromine parses as one bromine rather than two. What belongs here is the
+ * other kind, where every formula in the recipe parses and none of them is a
+ * mixture, so there is nothing left to blame but the recipe.
+ *
+ * `rx:Hydrochloric Acid Dissolves Steel` is the first: one Hydrochloric Acid
+ * and one Steel give one Iron(II) Chloride and one Hydrogen Gas, which is a
+ * chlorine and a hydrogen more than went in. The chemistry is `Fe + 2 HCl`,
+ * and the recipe says one. Twelve runs of it in the Hydrogen Bromide plan.
+ */
+const MINTS_INTO_WANT = [
+  { drop: 'rx:Hydrochloric Acid Dissolves Steel', mints: ['Cl', 'H'] },
+  /**
+   * `1 Granite Gravel + 3 Sulfuric Acid + 3 Water -> 1 Aluminum Sulfate +
+   * 1 Calcium Sulfate + 2 Orthosilicic Acid`. Three sulfate go in and four
+   * come out, and an oxygen with them. The anorthite in the gravel wants four
+   * sulfuric acid and no water at all, at which point it balances exactly --
+   * so this is the same fault as the steel dissolve, a coefficient short.
+   *
+   * Listed for its sulfur and not for its oxygen, though it gains both.
+   * Oxygen is in almost everything anybody asks for, so gating on it bars the
+   * recipe from nearly every question -- and this one gains a single oxygen in
+   * twenty-four, with the rest of the silica's oxygen coming from the gravel
+   * that was paid for. Tried: Silica loses its only plan and gets nothing
+   * back. It is the same reason the buy-and-vent pass leaves oxygen alone.
+   */
+  { drop: 'rx:Sulfuric Acid + Granite Gravel', mints: ['S'] },
+  /**
+   * `1 Aluminum Oxyhydroxide -> 1 Alumina + 1 Steam`. Alumina carries two
+   * aluminium and the input carries one, so an aluminium appears, with a
+   * hydrogen and two oxygen behind it. The chemistry is
+   * `2 AlO(OH) -> Al2O3 + H2O`, and the recipe says one. Two plans: Aluminum,
+   * and Aluminum Vapor.
+   *
+   * Listed for the aluminium alone, on the same reasoning as the gravel above:
+   * hydrogen and oxygen are in almost everything anybody asks for, and gating
+   * on them bars the recipe from nearly every question.
+   */
+  { drop: 'rx:Aluminum Oxyhydroxide Decomposition', mints: ['Al'] },
+  /**
+   * `1 Fluoroniobic Acid + 5 Lye -> 1 Niobium Oxide + 5 Sodium Fluoride`.
+   * Niobium Oxide is `Nb2O5` and one acid carries one niobium, so it wants two
+   * of the acid.
+   */
+  { drop: 'rx:Fluoroniobic Acid + Lye', mints: ['Nb'] },
+];
+
+/** The barred-where-it-would-be-used list, as the candidate walk asks it. */
+function mintsWhatIsWanted(spec) {
+  if (!spec.wanted || !spec.wanted.length) return new Set();
+  const out = new Set();
+  for (const { drop, mints } of MINTS_INTO_WANT) {
+    if (spec.wanted.some((want) => mints.some((el) => want.has(el)))) out.add(drop);
+  }
+  return out;
+}
+
 const KNOWN_BUGS = [
   { drop: 'rx:Molten Steel + Oxygen Gas', with: 'rx:Steel Alloy', mints: 'C' },
   /**
@@ -689,6 +761,9 @@ const subgraphKey = (spec) => JSON.stringify([
   [...spec.have].sort(),
   spec.targets.map((t) => t.name).sort(),
   [...spec.excludeProcesses].sort(),
+  // Barred-where-wanted depends on what is being made, which the target names
+  // above already say -- but through their elements, so it is spelled out.
+  [...mintsWhatIsWanted(spec)].sort(),
   [...spec.excludeMaterials].sort(),
   spec.oreTries,
   /**
@@ -812,8 +887,10 @@ function walkSubgraph(graph, spec) {
   const digsIn = (p) => p.kind !== 'mine' && p.kind !== 'handling' &&
     inputsOf(p).some((i) => landscape(graph, i.name));
 
+  const mintsWanted = mintsWhatIsWanted(spec);
   const usable = (p) => kinds.has(p.kind) &&
     !buggy.has(p.id) &&
+    !mintsWanted.has(p.id) &&
     !spec.excludeProcesses.has(p.id) &&
     !staticFeed(p) &&
     !digsIn(p) &&
@@ -1089,6 +1166,22 @@ function walkSubgraph(graph, spec) {
    */
   for (const g of rivalGroups(graph)) {
     if (!g.ids.some((id) => chosen.has(id))) continue;
+    /**
+     * Including a member the exclusions dropped, which is not an oversight.
+     *
+     * `usable` refuses a barred step and this hands it straight back, because
+     * a chamber is all or none of it and a rival of it was worth having. That
+     * looks like the bar being ignored and is the physics being obeyed: the
+     * tile runs whichever of its reactions is valid on the tick, so half a
+     * competition cannot be had at any price.
+     *
+     * It does mean a bar on a chambered step cannot bite, which the free-lunch
+     * pass has to know about -- see `blame` in `freeLunch`, which takes out a
+     * member of the wheel it can actually take out. Refusing the whole chamber
+     * instead was tried and is far worse: barring one wheel member then costs
+     * every route through that chamber, and Copper Oxide went from two steps
+     * to twenty-eight.
+     */
     for (const id of g.ids) {
       const q = graph.byId.get(id);
       if (!q || chosen.has(id)) continue;
@@ -1161,6 +1254,17 @@ export function normalizeFresh(spec) {
     sources: new Set(spec.sources || DEFAULT_SOURCES),
     /** How many ores to try, each one a whole solve. See `ORES_TRIED`. */
     oreTries: Math.max(1, Math.round(spec.oreTries ?? ORES_TRIED)),
+    /**
+     * Held-back families this question is willing to treat as one substance.
+     * Empty unless the scoreboard is asking; see `mergeableStates`.
+     */
+    mergeStates: new Set(spec.mergeStates || []),
+    /**
+     * Which of the scoreboard's costs to weigh first when choosing between two
+     * finished plans, in order. Empty means atoms, then items, then reactors,
+     * which is what it always did. See `weighPlan`.
+     */
+    weigh: [...(spec.weigh || [])].filter((id) => WEIGH_BY.includes(id)),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /** Things the reader will not buy, though the plan may still make them. */
@@ -1419,6 +1523,23 @@ export function rivalsOf(graph, id) {
 const familyCache = new WeakMap();
 
 /**
+ * The families the scoreboard may offer to merge, and what is in them.
+ *
+ * `HELD_BACK` is not a list of mistakes: every name on it passes the test for
+ * being one substance, and merging it is a trade rather than a fix. So the
+ * page asks the question both ways and lets the reader see the two answers
+ * side by side, which is what the menu is for.
+ */
+export function mergeableStates(graph) {
+  const { family } = phaseFamilies(graph, null);
+  const whole = phaseFamilies(graph, HELD_BACK);
+  return [...HELD_BACK]
+    .filter((rep) => !family.has(rep) && whole.family.has(rep))
+    .map((rep) => ({ rep, members: whole.family.get(rep) }))
+    .sort((a, b) => a.rep.localeCompare(b.rep));
+}
+
+/**
  * The same substance in another state, and which name stands for the set.
  *
  * A phase step that comes back is a state change; one that does not is a
@@ -1436,17 +1557,103 @@ const familyCache = new WeakMap();
  * cannot travel. And prefer a member that is not a Molten, Frozen or Dry form,
  * which keeps Carbon Dioxide from being represented by Dry Ice.
  */
-export function phaseFamilies(graph) {
-  let found = familyCache.get(graph);
+/**
+ * Families the planner will not collapse on its own. Empty.
+ *
+ * It held Water and Hydrofluoric Acid, and the case for both was the batch:
+ * merged, the Lepidolite order came out in fours rather than twos and the
+ * Aluminum one in eights rather than fours. `TELL_STATES_APART` answers that
+ * -- the whole-numbered corners live on the finer rows, and putting the
+ * settled question again over them brings every one of those back to two, with
+ * the families collapsed or apart. Water had a second charge against it, that
+ * Lithium Hydroxide bought five units where it bought two, and that was the
+ * chamber-and-bar bug rather than the collapse.
+ *
+ * Kept as the place for the next one rather than deleted, and it is what
+ * `mergeableStates` reads, so the scoreboard's third axis offers nothing while
+ * this is empty. Put a representative's name in and the question is asked both
+ * ways again.
+ */
+const HELD_BACK = new Set();
+
+/**
+ * Whether to put the question again on the finer rows once it is settled.
+ *
+ * It works, and it is a trade rather than a win, so it waits for a yes the way
+ * the families above do.
+ *
+ * What it does: takes the steps the collapsed answer chose, puts each state
+ * back on its own row with the crossings between them, pins every supply
+ * exactly where it stands, and asks for the fewest runs. The collapsed answer
+ * with its crossings filled in is a point of that, so it cannot fail to solve
+ * for any reason of its own, and the shopping list cannot move a unit.
+ *
+ * What it buys: the batch. Collapsing leaves a wider face to pick a corner
+ * from and the whole-numbered corners live on the finer rows, so the penalty
+ * disappears entirely -- Aluminum out of Lepidolite comes in twos with the
+ * families collapsed or apart, and in twos with Water and Hydrofluoric Acid
+ * merged as well, where before it was fours and eights. Every batch ceiling in
+ * `test-fresh.mjs` is met and that one beats its ceiling of four.
+ *
+ * What it costs: about a tenth of the wall clock, and eight plans of the
+ * hundred and ninety-four move. None loses an answer.
+ *
+ * It was gated off at first on the grounds that the aluminium plan's Carbon
+ * charge stopped repaying itself -- "six made against five spent" at the
+ * larger batch against three against three at the smaller. The six against
+ * five was misread: the charge is five and the spend is six, and the plan
+ * makes six. Carbon closes exactly at both sizes, so neither fills its own
+ * pipe and a charge that seeds the loop is the expected answer at either.
+ * Sparr: three in and three out needing a charge of one to three carbon is a
+ * perfectly fine outcome. So it is on.
+ */
+const TELL_STATES_APART = true;
+
+export function phaseFamilies(graph, merge = null) {
+  /**
+   * `merge` names held-back families this question wants collapsed anyway.
+   * Keyed into the cache rather than ignored, because the scoreboard asks the
+   * same question both ways in one sitting and the two must not share an
+   * answer.
+   */
+  const wanted = merge ? [...merge].filter((n) => HELD_BACK.has(n)).sort() : [];
+  const key = wanted.join('|');
+  let store = familyCache.get(graph);
+  if (!store) familyCache.set(graph, store = new Map());
+  let found = store.get(key);
   if (found) return found;
-  const edge = new Set();
+  /**
+   * A crossing, and what it is worth.
+   *
+   * `in` of one material become `out` of the other, so one unit of the first
+   * is worth `out/in` of the second. One for one is the common case and it is
+   * not the only one: four Oxygen Gas condense into one Liquid Oxygen, which
+   * is the same substance packed four to a unit rather than a different
+   * substance.
+   */
+  const edge = new Map();
+  /**
+   * The step that makes each crossing, so a family can be travelled and not
+   * merely recognised. Chains count -- `chain:heat:Aluminum#2` is one step
+   * where the two hops are two -- and the first process offering a crossing
+   * wins, which is the direct one wherever there is one, the graph listing
+   * every `evap:`/`cond:` before any chain.
+   */
+  const hop = new Map();
+  const next = new Map();
   for (const p of graph.processes) {
     if (p.kind !== 'phase') continue;
     const ins = inputsOf(p);
     const outs = p.produces;
     if (ins.length !== 1 || outs.length !== 1) continue;
-    if (ins[0].count !== 1 || outs[0].count !== 1) continue;
-    edge.add(`${ins[0].name}|${outs[0].name}`);
+    if (!ins[0].count || !outs[0].count) continue;
+    const key = `${ins[0].name}|${outs[0].name}`;
+    if (edge.has(key)) continue;
+    edge.set(key, { from: ins[0].name, to: outs[0].name,
+                    taken: ins[0].count, given: outs[0].count });
+    hop.set(key, p.id);
+    if (!next.has(ins[0].name)) next.set(ins[0].name, []);
+    next.get(ins[0].name).push(outs[0].name);
   }
   const parent = new Map();
   const find = (x) => {
@@ -1454,11 +1661,23 @@ export function phaseFamilies(graph) {
     return x;
   };
   for (const m of graph.db.materials) parent.set(m.name, m.name);
-  for (const key of edge) {
-    const [a, b] = key.split('|');
-    if (!edge.has(`${b}|${a}`)) continue;
-    const x = find(a);
-    const y = find(b);
+  /**
+   * Joined when the crossing comes back, and comes back to where it started.
+   *
+   * The return trip is the whole of the test, and it has to close: the two
+   * ratios must be reciprocal. Four gas into one liquid and one liquid into
+   * four gas closes, and is a packing ratio. One vapour into two oil and one
+   * oil into two vapour does not, and is how a round trip mints matter -- so
+   * that pair stays two materials and both columns stay in the model.
+   */
+  const joined = [];
+  for (const [key, e] of edge) {
+    const back = edge.get(`${e.to}|${e.from}`);
+    if (!back) continue;
+    if (e.given * back.given !== e.taken * back.taken) continue;
+    joined.push(e);
+    const x = find(e.from);
+    const y = find(e.to);
     if (x !== y) parent.set(x, y);
   }
   const members = new Map();
@@ -1490,12 +1709,339 @@ export function phaseFamilies(graph) {
     }
     family.set(rep, group.filter((n) => graph.stateOf(n) !== 'Static'));
   }
-  found = { repOf, family, stands: (n) => repOf.get(n) ?? n };
-  familyCache.set(graph, found);
+  for (const rep of HELD_BACK) {
+    if (wanted.includes(rep)) continue;
+    for (const m of family.get(rep) || []) repOf.delete(m);
+    family.delete(rep);
+  }
+  /**
+   * What a unit of each member is worth, in units of the one that stands for
+   * the family.
+   *
+   * One for one is the common case and it is not the only one: a Liquid Oxygen
+   * is four Oxygen Gas, so its coefficients go into the row multiplied by four
+   * and come back out divided by four at hydration. Walked out from the
+   * representative over the crossings that closed, which is what makes the
+   * number well defined -- and checked afterwards against every crossing in
+   * the family, because a family whose scales disagree with one of its own
+   * crossings is one where some route round it gains, and that is a family
+   * this has no business collapsing.
+   */
+  const scale = new Map();
+  {
+    const within = new Map();
+    for (const e of joined) {
+      if (!repOf.has(e.from) || repOf.get(e.from) !== repOf.get(e.to)) continue;
+      if (!within.has(e.from)) within.set(e.from, []);
+      if (!within.has(e.to)) within.set(e.to, []);
+      within.get(e.from).push(e);
+      within.get(e.to).push(e);
+    }
+    for (const [rep, members] of family) {
+      scale.set(rep, rat(1));
+      const queue = [rep];
+      for (let i = 0; i < queue.length; i++) {
+        const at = queue[i];
+        for (const e of within.get(at) || []) {
+          // `taken` of `from` are `given` of `to`, so one `from` is worth
+          // `given / taken` of `to` -- and the other way round inverts it.
+          const [near, far, times] = e.from === at
+            ? [e.from, e.to, rat(e.taken, BigInt(e.given))]
+            : [e.to, e.from, rat(e.given, BigInt(e.taken))];
+          if (scale.has(far)) continue;
+          scale.set(far, rmul(scale.get(near), times));
+          queue.push(far);
+        }
+      }
+      // Every crossing has to agree with the scales, or the family is unsound.
+      let sound = members.every((m) => scale.has(m));
+      for (const m of members) {
+        for (const e of within.get(m) || []) {
+          if (!scale.has(e.from) || !scale.has(e.to)) { sound = false; continue; }
+          if (rcmp(rmul(scale.get(e.from), rat(e.taken)),
+                   rmul(scale.get(e.to), rat(e.given))) !== 0) sound = false;
+        }
+      }
+      if (sound) continue;
+      for (const m of members) { repOf.delete(m); scale.delete(m); }
+      family.delete(rep);
+    }
+  }
+  const stands = (n) => repOf.get(n) ?? n;
+  /** What one unit of it is worth on its family's row. One, where it has none. */
+  const worth = (n) => scale.get(n) ?? rat(1);
+  /**
+   * How to get from one member of a family to another, as steps.
+   *
+   * The journey neither gains nor loses anything -- that is what being a
+   * family means -- though the count may change along the way where a member
+   * packs several units into one. It stays inside the family on purpose:
+   * `evap:Sand` is a crossing that does not come back, so following it would
+   * have the plan freezing molten silica into sand.
+   */
+  const route = (from, to) => {
+    if (from === to) return [];
+    if (stands(from) !== stands(to)) return null;
+    const back = new Map([[from, null]]);
+    const queue = [from];
+    for (let i = 0; i < queue.length; i++) {
+      const at = queue[i];
+      for (const on of next.get(at) || []) {
+        if (back.has(on) || stands(on) !== stands(from)) continue;
+        back.set(on, at);
+        if (on !== to) { queue.push(on); continue; }
+        const path = [];
+        for (let cur = to; back.get(cur) !== null; cur = back.get(cur)) {
+          path.unshift(hop.get(`${back.get(cur)}|${cur}`));
+        }
+        return path;
+      }
+    }
+    return null;
+  };
+  found = { repOf, family, stands, route, worth };
+  store.set(key, found);
   return found;
 }
 
-export function model(graph, spec, procs, materials) {
+const hydrationCache = new WeakMap();
+
+/**
+ * An aqueous salt is its dry half and its water, and which ones may be said so.
+ *
+ * The same trade as `phaseFamilies` and not the same relation. Melting moves
+ * quantity between two names and changes nothing else, so the two share a row.
+ * Dissolving is not that: a Water goes in and comes back out, so `Aqueous
+ * Lithium Chloride` and `Lithium Chloride` are not one substance and a family
+ * that merged them would mint matter. What is true is an identity --
+ *
+ *     1 Aqueous Lithium Chloride  ==  1 Lithium Chloride + 1 Water
+ *
+ * -- and an identity is enough to spend the aqueous row: every coefficient
+ * that named it is written onto the dry row and the water row instead. The
+ * water is then counted by the model as carefully as anything else, which is
+ * the whole difference from pretending the relation were a phase change.
+ *
+ * What has to hold for the identity to be true is that the round trip closes:
+ * the way out and the way back must agree on how much water and how much dry
+ * half a unit is, or there is no single identity to write. 32 of the game's 76
+ * aqueous materials pass. The one that fails is `Limewater`, which the filter
+ * splits into one `Slaked Lime` and one Water while the only reaction back
+ * takes two -- so a cycle leaks a water, and no one ratio describes both
+ * crossings. See `NOTES-aqueous.md` for the full census.
+ *
+ * Two ways out are counted. A reaction that evaporates the water off, and the
+ * `Water Filter` block, whose rule is in `plan-graph.js`: the composition must
+ * carry the `+H2O` marker and have exactly two entries, and then one tile in
+ * gives one tile of each half out whatever the numbers say.
+ */
+export function hydrationFamilies(graph) {
+  let found = hydrationCache.get(graph);
+  if (found) return found;
+  const WATERS = new Set(['Water', 'Steam', 'Ice']);
+  const PSEUDO = '+H2O';
+  /**
+   * The candidates, read off the composition rather than the name.
+   *
+   * The name would do nearly as well -- no material called `Aqueous ...` is
+   * missing the marker -- but it would miss `Seawater`, `Vinegar`, and
+   * `Hydrobromic Acid`, and the formula would be worse than either: eleven of
+   * these write the dry formula bare, so `Aqueous Lithium Sulfate` says
+   * `LiSO4` and says nothing about its water.
+   */
+  const dryOf = new Map();
+  for (const m of graph.db.materials) {
+    const els = m.raw?.Composition?.Elements || [];
+    if (els.length !== 2 || !els.some((e) => e.Item1 === PSEUDO)) continue;
+    const dry = els.find((e) => e.Item1 !== PSEUDO);
+    if (dry && graph.db.byName.has(dry.Item1)) dryOf.set(m.name, dry.Item1);
+  }
+  /**
+   * Crossings, and only the ones that say nothing else.
+   *
+   * A step that also makes a `Limestone Gravel` is a step in its own right,
+   * not a statement about what an aqueous salt is, and its column stays.
+   */
+  const pairs = new Map();
+  for (const [aq, dry] of dryOf) {
+    const ok = new Set([aq, dry, ...WATERS]);
+    const splits = [];
+    const joins = [];
+    for (const p of graph.processes) {
+      const ins = inputsOf(p);
+      if (![...p.produces, ...ins].every((x) => ok.has(x.name))) continue;
+      const aqIn = ins.find((x) => x.name === aq);
+      const aqOut = p.produces.find((x) => x.name === aq);
+      const dryIn = ins.find((x) => x.name === dry);
+      const dryOut = p.produces.find((x) => x.name === dry);
+      const wIn = ins.filter((x) => WATERS.has(x.name));
+      const wOut = p.produces.filter((x) => WATERS.has(x.name));
+      if (aqIn && dryOut && !aqOut && !dryIn && wOut.length === 1 && !wIn.length) {
+        splits.push({ id: p.id, per: aqIn.count, water: wOut[0].count,
+                      dry: dryOut.count, waterName: wOut[0].name });
+      }
+      if (aqOut && dryIn && !aqIn && !dryOut && wIn.length === 1 && !wOut.length) {
+        joins.push({ id: p.id, per: aqOut.count, water: wIn[0].count,
+                     dry: dryIn.count, waterName: wIn[0].name });
+      }
+    }
+    const block = graph.byId.get(`filter:${aq}`);
+    if (block) splits.push({ id: block.id, per: 1, water: 1, dry: 1, waterName: 'Water' });
+    if (!splits.length || !joins.length) continue;
+    // Closes when the two agree per unit of the salt, on both halves.
+    const agree = (a, b) => a.water * b.per === b.water * a.per &&
+                            a.dry * b.per === b.dry * a.per;
+    let out = null;
+    for (const s of splits) {
+      const j = joins.find((x) => agree(s, x));
+      if (j) { out = { s, j }; break; }
+    }
+    if (!out) continue;
+    pairs.set(aq, { dry,
+                    water: rat(out.s.water, BigInt(out.s.per)),
+                    dryPer: rat(out.s.dry, BigInt(out.s.per)),
+                    waterName: out.s.waterName,
+                    // Every way across, so `assemble` may pick the cheap one.
+                    splits: splits.map((x) => x.id),
+                    joins: joins.map((x) => x.id),
+                    split: out.s.id, join: out.j.id });
+  }
+  found = { pairs };
+  hydrationCache.set(graph, found);
+  return found;
+}
+
+/**
+ * The model, and a second go without the aqueous identities if it comes to it.
+ *
+ * Spending a salt's row deletes the step that crosses to it, and sometimes that
+ * step was the whole plan: ask for `Calcium Nitrate` and the one route is to buy
+ * the aqueous and evaporate it, so with the crossing gone there are no columns
+ * left and no answer. Naming the salt as a target is guarded against inside,
+ * but the mirror case -- the *dry* half asked for, reachable only across the
+ * crossing -- cannot be seen until the columns have been counted.
+ *
+ * So it is asked the cheap way first and the plain way if that came back with
+ * nothing. Two of the 380 corpus plans need the second go, and getting nothing
+ * at all is the only thing that triggers it, so nothing else pays for them.
+ */
+export function model(graph, spec, procs, materials, collapse = true) {
+  const out = modelOnce(graph, spec, procs, materials, collapse, true);
+  if (out || !collapse) return out;
+  return modelOnce(graph, spec, procs, materials, collapse, false);
+}
+
+function modelOnce(graph, spec, procs, materials, collapse, hydrate) {
+  /**
+   * One row per substance, not one per state of it.
+   *
+   * Aluminum, Molten Aluminum and Aluminum Vapor are one material as far as
+   * the arithmetic is concerned: every crossing between them is one for one
+   * and goes both ways, so quantity moves freely between the three and no
+   * amount of melting changes what the plan has. Keying their rows on one
+   * name says that, and takes a quarter of the rows and a third of the
+   * columns out of every model.
+   *
+   * The recipes are left alone. A step still says it consumes Molten Silica,
+   * and only the row that coefficient lands in changes -- which is what keeps
+   * the phase readable at the end, where `assemble` compares what each step
+   * asks for against what the plan is handing it and puts the melt back.
+   */
+  const whole = phaseFamilies(graph, spec.mergeStates);
+  const stands = collapse ? whole.stands : ((n) => n);
+  // What one unit of a material is worth on its family's row: four, for a
+  // Liquid Oxygen counted in Oxygen Gas. One for everything with a row to
+  // itself, which is everything at all when the states are kept apart.
+  const worth = collapse ? whole.worth : (() => rat(1));
+  const family = collapse ? whole.family : new Map();
+  const hyd = collapse && hydrate ? hydrationFamilies(graph) : { pairs: new Map() };
+  /**
+   * Which rows a unit of a material pays into, and how much of it.
+   *
+   * One row and one number for nearly everything, which is what `stands` and
+   * `worth` said between them. An aqueous salt pays into two: its dry half and
+   * its water, by the identity `hydrationFamilies` checked. Both halves then go
+   * through the phase collapse in their turn, so a `Water` lands on whichever
+   * row stands for water and a dry half that melts lands on its family's.
+   *
+   * Everything below asks this rather than `stands` directly, which is what
+   * spends the aqueous row: no coefficient ever names it, so it never gets one.
+   */
+  /**
+   * Keyed on the row and not on the salt, because the frozen one is on it too.
+   *
+   * `Frozen Aqueous Lithium Chloride` melts into `Aqueous Lithium Chloride`
+   * one for one both ways, so the phase collapse has already made them one
+   * row. Asking about the salt by name would spend that row for the liquid and
+   * leave the solid still paying into it, which puts the aqueous row back and
+   * undoes the exercise. So the question is asked of whatever stands for it.
+   */
+  const hydByRep = new Map();
+  /**
+   * Except the one the reader asked for by name, which keeps its row.
+   *
+   * Ask for `Aqueous Potash` and the whole plan is the crossing: the dry half
+   * and the water are both things you can go out and buy, so the candidate set
+   * is one step long and that step is the dissolving. Spend its row and the
+   * model has no columns left and no answer to give -- six questions of the
+   * seventy-one went from a plan to nothing at all. A salt that is merely on
+   * the way to something else is still spent; it is being asked for that keeps
+   * it whole.
+   */
+  const askedFor = new Set(spec.targets.map((t) => stands(t.name)));
+  for (const [aq, h] of hyd.pairs) {
+    if (askedFor.has(stands(aq))) continue;
+    hydByRep.set(stands(aq), { ...h, aq });
+  }
+  const onto = (name) => {
+    const rep = stands(name);
+    const h = hydByRep.get(rep);
+    if (!h) return [[rep, worth(name)]];
+    /**
+     * A unit of this material is `worth` of the row, and the row is the salt
+     * scaled by what the salt itself is worth on it -- one, everywhere this
+     * happens today, and written out rather than assumed.
+     */
+    const each = rdiv(worth(name), worth(h.aq));
+    return [[stands(h.dry), rmul(rmul(worth(h.dry), h.dryPer), each)],
+            [stands(h.waterName), rmul(rmul(worth(h.waterName), h.water), each)]];
+  };
+  /** The rows an aqueous salt was written onto, which now carry two things. */
+  const sharesWithHydration = new Set();
+  for (const h of hyd.pairs.values()) {
+    sharesWithHydration.add(stands(h.dry));
+    sharesWithHydration.add(stands(h.waterName));
+  }
+  const isHydrated = (n) => hyd.pairs.has(n) || sharesWithHydration.has(stands(n)) ||
+                            [...hyd.pairs.keys()].some((a) => stands(a) === stands(n));
+  /**
+   * And the steps whose whole effect was to move between those rows go.
+   *
+   * Melting aluminium contributes nothing to any row once the three are one:
+   * it is a literal no-op, a null direction the simplex is free to walk any
+   * distance along. Those are the exactly-opposite column pairs behind the
+   * degenerate walks and the batch-size lottery -- 724 of them in one model --
+   * and collapsing deletes the class rather than working around it.
+   *
+   * Asked of the coefficients rather than of the family, because that is the
+   * property that matters: a crossing that hands back more than it was given
+   * is not a no-op however same-substance its ends look, and petroleum
+   * cracking is exactly that.
+   */
+  const nulled = (p) => {
+    const net = new Map();
+    const bump = (name, v) => {
+      for (const [key, w] of onto(name)) {
+        net.set(key, radd(net.get(key) || R0, rmul(v, w)));
+      }
+    };
+    for (const o of p.produces) bump(o.name, rat(o.count));
+    for (const c of inputsOf(p)) bump(c.name, rsub(R0, rat(c.count)));
+    for (const v of net.values()) if (!rzero(v)) return false;
+    return true;
+  };
+  procs = procs.filter((p) => !nulled(p));
+  if (!procs.length) return null;
   const index = new Map(procs.map((p, i) => [p.id, i]));
   /**
    * A rule about what may be bought is not a rule about what exists.
@@ -1522,13 +2068,13 @@ export function model(graph, spec, procs, materials) {
    * carry that. The combined factory went from two seconds to not finishing.
    */
   const eaten = new Set();
-  for (const p of procs) for (const i of inputsOf(p)) eaten.add(i.name);
+  for (const p of procs) for (const i of inputsOf(p)) for (const [key] of onto(i.name)) eaten.add(key);
 
   const supply = new Map();
   let next = procs.length;
   for (const name of materials) {
     if (spec.have.has(name)) { supply.set(name, next++); continue; }
-    if (!eaten.has(name)) continue;
+    if (!onto(name).some(([key]) => eaten.has(key))) continue;
     if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
     if (barredAsTarget(graph, name, spec)) continue;
     if (alreadyInHand(graph, name, spec.held)) continue;
@@ -1545,21 +2091,44 @@ export function model(graph, spec, procs, materials) {
   };
   for (const p of procs) {
     const i = index.get(p.id);
-    for (const o of p.produces) put(o.name, i, rat(o.count));
-    for (const c of inputsOf(p)) put(c.name, i, rsub(R0, rat(c.count)));
+    for (const o of p.produces) {
+      for (const [key, w] of onto(o.name)) put(key, i, rmul(rat(o.count), w));
+    }
+    for (const c of inputsOf(p)) {
+      for (const [key, w] of onto(c.name)) put(key, i, rsub(R0, rmul(rat(c.count), w)));
+    }
   }
-  for (const [name, i] of supply) put(name, i, rat(1));
+  /**
+   * A column to buy each member, all paying into the one row.
+   *
+   * Keyed by the member and not by the family, because what is fetchable, what
+   * it costs and what the reader is holding are all facts about the particular
+   * state: nobody mines molten aluminium. So the shopping list still names
+   * something you could actually go and get, and the balance it answers is the
+   * family's.
+   */
+  for (const [name, i] of supply) for (const [key, w] of onto(name)) put(key, i, w);
 
-  const demand = new Map(spec.targets.map((t) => [t.name, rat(t.amount)]));
+  const demand = new Map();
+  for (const t of spec.targets) {
+    for (const [key, w] of onto(t.name)) {
+      demand.set(key, radd(demand.get(key) || R0, rmul(rat(t.amount), w)));
+    }
+  }
   const rows = [];
   const constrained = new Set();
+  const rowed = new Set();
   for (const name of materials) {
-    const coeffs = net.get(name);
+   for (const [key] of onto(name)) {
+    if (rowed.has(key)) continue;
+    const coeffs = net.get(key);
     if (!coeffs || !coeffs.size) continue;
-    constrained.add(name);
+    rowed.add(key);
+    constrained.add(key);
     // The name rides along so a later pass can weigh this row's slack -- which
     // is exactly the leftover of this material -- by what a unit of it is.
-    rows.push({ name, coeffs, op: '>=', rhs: demand.get(name) || R0 });
+    rows.push({ name: key, coeffs, op: '>=', rhs: demand.get(key) || R0 });
+   }
   }
   if (!rows.length) return null;
 
@@ -1579,7 +2148,7 @@ export function model(graph, spec, procs, materials) {
    * downstream believed it.
    */
   for (const t of spec.targets) {
-    if (!constrained.has(t.name) && !spec.have.has(t.name)) return null;
+    if (!onto(t.name).some(([key]) => constrained.has(key)) && !spec.have.has(t.name)) return null;
   }
 
   const prices = fetchPrices(graph, spec.kinds);
@@ -1683,6 +2252,26 @@ export function model(graph, spec, procs, materials) {
       if (spec.have.has(name)) continue;
       if (spec.targets.some((t) => t.name === name)) continue;
       if (spec.kept?.has?.(name)) continue;
+      /**
+       * Nor anything whose row it no longer has to itself.
+       *
+       * The weld says everything made of this is spent by that one step, which
+       * is a true thing about a material with one maker and one eater and a
+       * false thing about a member of a collapsed family: the row it sits in
+       * is the whole substance, and the eater may perfectly well be fed by a
+       * sibling state instead. Welding it would forbid exactly the freedom the
+       * collapse exists to grant.
+       */
+      if (family.has(stands(name))) continue;
+      /**
+       * And the same objection holds for a row two substances now share.
+       *
+       * An aqueous salt has no row at all any more, and the dry half and the
+       * water it was written onto are carrying more than themselves -- so "one
+       * maker, one eater, therefore weld" is false about all three for exactly
+       * the reason it is false about a collapsed family.
+       */
+      if (isHydrated(name)) continue;
       const makers = graph.producers(name).filter(loose);
       const eaters = graph.consumers(name).filter(loose);
       if (makers.length !== 1 || eaters.length !== 1) continue;
@@ -1742,7 +2331,9 @@ export function model(graph, spec, procs, materials) {
     }
   }
 
-  return { index, supply, vars, rows, fetchCost, bought };
+  // The kept columns ride back out: the caller walks them to read a solution
+  // off, and the ones dropped above have no place in it to read.
+  return { index, supply, vars, rows, fetchCost, bought, procs };
 }
 
 /**
@@ -1803,7 +2394,19 @@ export function shortlist(graph, spec, sub, build, why = null) {
 }
 
 function narrowTo(graph, spec, sub, build, why = {}) {
-  const model = build(sub.processes, sub.materials);
+  /**
+   * The walk that picks the routes sees the states as the recipes wrote them.
+   *
+   * Collapsing a family is the right model to *solve*, and it is the wrong one
+   * to shortlist with. This walk breaks its ties on how many times the columns
+   * run, and once the crossings are gone they run for nothing: asked for
+   * Carbon from Carbon Dioxide, the potassium route counts four runs against
+   * the hydrogen route's five and wins the shortlist, and the hydrogen route
+   * -- four reactions against five -- is then not merely beaten but absent.
+   * The collapse cannot be allowed to decide that; what it is for is the
+   * arithmetic afterwards.
+   */
+  const model = build(sub.processes, sub.materials, false);
   if (!model) { why.reason = 'no model to walk'; return null; }
   /**
    * Rows that cannot fail are not worth carrying to a float solve.
@@ -1918,7 +2521,9 @@ function narrowTo(graph, spec, sub, build, why = {}) {
   if (!second.ok) second = solveLPFloat({ vars: model.vars, rows: [...rows, cap], cost: plainDrawn });
 
   const chosen = new Set();
-  for (const p of sub.processes) {
+  // The model's own list, not the candidate set's: a column it dropped for
+  // doing nothing has no index to read a value at.
+  for (const p of model.procs) {
     const i = model.index.get(p.id);
     if (answer.x[i] > 0) chosen.add(p.id);
     if (second.ok && second.x[i] > 0) chosen.add(p.id);
@@ -1997,10 +2602,51 @@ function freeLunch(graph, spec, plan) {
    */
   const spun = new Set();
   for (const p of procs) for (const o of p.produces) spun.add(o.name);
-  for (const name of spun) {
+  /**
+   * And the thing the wheel hands out, not only the thing it turns on.
+   *
+   * This asked only about materials the plan both makes and spends, on the
+   * grounds that a wheel has to be turning on something. It does -- and what
+   * it turns on and what it emits are not the same material. Asked for Oxygen
+   * Gas the plan circulates potassium, sulfur and carbon, every one of which
+   * nets to nothing and is duly asked about and duly cleared, and hands out
+   * three Oxygen Gas a batch, which nothing consumes and which was therefore
+   * never asked about at all. It bought nothing. It fed nothing.
+   *
+   * With every supply cut, making any material is making it out of nothing, so
+   * there was never a reason to leave one out. The circulating ones are still
+   * asked first, so where a wheel shows on both the blame falls where it used
+   * to -- on a material in the middle of the loop rather than on the answer.
+   */
+  const chewed = (name) => procs.some((p) => inputsOf(p).some((i) => i.name === name));
+  const asked = [...spun].filter(chewed).concat([...spun].filter((n) => !chewed(n)));
+  /**
+   * Whether there is a wheel at all, before asking which material it turns on.
+   *
+   * Every row already says that material comes out even or ahead, so if any of
+   * them can come out ahead their sum can, and if their sum cannot then none of
+   * them can. One solve answers that, where finding the culprit takes one per
+   * material -- and almost every plan is honest, so almost every plan pays only
+   * for the one.
+   *
+   * It matters because this runs on every plan and every round. Asking per
+   * material cost a fifth of the wall clock across the corpus, spread evenly:
+   * a seventh on the quick questions and a fifth on the slow ones.
+   */
+  {
+    const cost = new Map();
+    for (const [, coeffs] of net) {
+      for (const [i, v] of coeffs) if (v !== 0) cost.set(i, (cost.get(i) || 0) - v);
+    }
+    const any = solveLPFloat({ vars: procs.length, rows, cost });
+    if (!any.ok) return null;
+    let total = 0;
+    for (const [, coeffs] of net) for (const [i, v] of coeffs) total += v * any.x[i];
+    if (total <= 1e-6) return null;
+  }
+  for (const name of asked) {
     const coeffs = net.get(name);
     if (!coeffs) continue;
-    if (!procs.some((p) => inputsOf(p).some((i) => i.name === name))) continue;
     const cost = new Map();
     for (const [i, v] of coeffs) if (v !== 0) cost.set(i, -v);
     const answer = solveLPFloat({ vars: procs.length, rows, cost });
@@ -2037,14 +2683,43 @@ function freeLunch(graph, spec, plan) {
       for (const c of inputsOf(p)) out -= c.count * perUnit(c.name);
       return out;
     };
-    let biggest = 0;
-    let blame = null;
-    for (const p of procs) {
-      const runs = answer.x[index.get(p.id)];
-      if (minted(p) <= 1e-9 || runs <= biggest) continue;
-      biggest = runs; blame = p.id;
-    }
+    /**
+     * And a member barring can actually stop.
+     *
+     * A step that shares a chamber comes back however firmly it is excluded:
+     * the candidate walk drops it and then puts it back, because a chamber is
+     * all or none of it and the walk will not take half a competition. So
+     * naming one is naming a bar that cannot bite, and the round is spent to
+     * no effect -- asked for Lithium Hydroxide, the pass blamed
+     * `rx:Pyrolusite Decomposition`, got it back through `rx:Pyrolusite
+     * Reduction` next round, and blamed it again until the eight rounds ran
+     * out and a question with a perfectly good eighteen-step answer reported
+     * that it could not be planned at all.
+     *
+     * Barring any member stops the wheel, so there is usually another to take.
+     * Only when every member of it is chambered is there nothing to be done,
+     * and then the round loop says so rather than spending five more solves
+     * finding out.
+     */
+    const chambered = new Set();
+    for (const g of rivalGroups(graph)) for (const id of g.ids) chambered.add(id);
+    const pick = (test) => {
+      let biggest = 0;
+      let blame = null;
+      for (const p of procs) {
+        if (chambered.has(p.id)) continue;
+        const runs = answer.x[index.get(p.id)];
+        if (!test(p) || runs <= biggest) continue;
+        biggest = runs; blame = p.id;
+      }
+      return blame;
+    };
+    // Among the members that gain matter, the busiest; failing that the
+    // busiest of any; failing that a chambered one, which will not bite but is
+    // the honest answer to "which step is the culprit".
+    let blame = pick((p) => minted(p) > 1e-9) || pick(() => true);
     if (!blame) {
+      let biggest = 0;
       for (const p of procs) {
         const runs = answer.x[index.get(p.id)];
         if (runs > biggest) { biggest = runs; blame = p.id; }
@@ -2402,16 +3077,33 @@ export function oreReach(graph, rawSpec) {
 
 export function oreCandidates(graph, spec) {
   const targetPhases = new Set(spec.targets.map((t) => phaseGroup(graph, t.name)));
+  const { stands, family } = phaseFamilies(graph, spec.mergeStates);
+  /**
+   * Something has to be able to do more with it than change its temperature.
+   *
+   * Sparr: a material that appears in no reaction should not be a candidate.
+   * Rhyolite is the case -- nothing in the game consumes it but `evap:Rhyolite`
+   * and nothing consumes the lava that makes, so buying it starts nothing, and
+   * it was taking one of the six slots on every question that wanted silicon.
+   * Flint is the same. Counting a phase change as a use is what let them in.
+   *
+   * And where it is one state of a substance, the substance answers for it:
+   * if any member of the family is eaten, the family is worth buying, and
+   * which member goes on the shopping list is settled below.
+   */
   const eaten = new Set();
   for (const p of graph.processes) {
+    if (p.kind === 'phase') continue;
     if (!spec.kinds.has(p.kind)) continue;
     for (const i of inputsOf(p)) eaten.add(i.name);
   }
+  const useful = (name) => eaten.has(name) ||
+    (family.get(stands(name)) || []).some((m) => eaten.has(m));
   const prices = fetchPrices(graph, spec.kinds);
   const out = [];
   for (const m of graph.db.materials) {
     const name = m.name;
-    if (!eaten.has(name)) continue;
+    if (!useful(name)) continue;
     if (targetPhases.has(phaseGroup(graph, name))) continue;
     if (!holdsATarget(graph, name, spec.wanted)) continue;
     if (alreadyInHand(graph, name, spec.held)) continue;
@@ -2436,22 +3128,82 @@ export function oreCandidates(graph, spec) {
    * one thing to make -- so a single-target question is sorted exactly as it
    * was, and only the questions that were losing by this gain.
    */
-  return out
+  /**
+   * One slot per substance, not one per state of it.
+   *
+   * Glass and Molten Silica are the same thing at two temperatures, so trying
+   * both spends two of the six on one answer. The better-placed member keeps
+   * the slot and choosing it lets the whole family be bought -- see the ore
+   * loop in `solveFresh`, which opens the door to every state of whatever it
+   * picks. Silica had twenty candidates, of which eighteen are good for
+   * anything and fifteen are distinct substances.
+   */
+  const ranked = out
     .sort((a, b) => b[1] - a[1] || a[2] - b[2] || a[0].localeCompare(b[0]))
     .map(([name]) => name);
+  const seen = new Set();
+  return ranked.filter((name) => {
+    const rep = stands(name);
+    if (seen.has(rep)) return false;
+    seen.add(rep);
+    return true;
+  });
 }
 
-/** What a finished plan costs, for choosing between them. Lower is better. */
-function weighPlan(graph, plan) {
-  const per = plan.spec.targets[0]?.amount || 1;
-  let atoms = 0;
-  let units = 0;
-  for (const f of plan.frontier) {
-    const n = rnum(f.amount);
-    units += n;
-    atoms += n * (graph.db.byName.get(f.name)?.matter ?? 1);
-  }
-  return [atoms / per, units / per, reactorsIn(plan.steps)];
+/**
+ * Every state of the substance an ore belongs to, so that permitting one
+ * permits the lot. Which of them ends up on the shopping list is the model's
+ * choice, it having a supply column per state and a price for each.
+ */
+export function oreAsFamily(graph, spec, ore) {
+  const { stands, family } = phaseFamilies(graph, spec.mergeStates);
+  return family.get(stands(ore)) ?? [ore];
+}
+
+/**
+ * What a finished plan costs, for choosing between them. Lower is better.
+ *
+ * Measured by the scoreboard's own `measure`, so the two rankings speak one
+ * language. They did not: this counted atoms, then items, then reactors, in
+ * its own arithmetic, while the menu scored eight things in `plan-menu.js` and
+ * the reader could see every one of them. Anything the reader can be shown a
+ * column of is something they can reasonably ask to be optimised for.
+ *
+ * The order is the whole of the judgement and it was hard-coded. Read strictly
+ * -- atoms first, absolutely -- it will pay twenty-five reactors to save one
+ * atom, and on Copper Oxide it buys *more items* to get fewer atoms, because
+ * atoms decide before items are ever consulted. Sparr: it should be
+ * configurable and exposed to the scoreboard for optimisation. So `spec.weigh`
+ * names the scores in the order they matter, and the sweep asks the question
+ * once per order worth asking it in.
+ */
+const WEIGH_DEFAULT = ['atoms', 'units', 'reactors'];
+/** The orders the scoreboard offers, one question each. */
+export const WEIGH_BY = SCORES.filter((s) => !s.tiebreak).map((s) => s.id);
+
+function weighPlan(graph, plan, weigh) {
+  const asked = (weigh || []).filter((id) => SCORES.some((s) => s.id === id));
+  /**
+   * Only when an order was asked for does the rest of the board break ties.
+   *
+   * Left to itself this weighs exactly what it always weighed, in exactly the
+   * order it weighed it, so no answer moves for having made this
+   * configurable. Say "fewest reactors" and reactors decide, but two plans
+   * level on reactors would otherwise be separated by nothing at all and the
+   * winner would be whichever ore came up first -- so the remaining costs
+   * follow, in the order the menu lists them.
+   */
+  const rest = WEIGH_BY.filter((id) => !asked.includes(id));
+  const order = asked.length ? [...asked, ...rest] : WEIGH_DEFAULT;
+  const row = measure(plan, { matter: (n) => graph.db.byName.get(n)?.matter ?? 1,
+                              toNumber: rnum,
+                              // Weighing is not a reason to price the charges:
+                              // finding them costs more than every solve in
+                              // the question put together, and the order only
+                              // consults them when asked to. See `layIn`.
+                              charges: order.includes('charge') });
+  if (!row) return null;
+  return order.map((id) => row[id]);
 }
 
 const cheaperThan = (a, b) => {
@@ -2491,6 +3243,10 @@ export function questionShape(graph, rawSpec) {
   const built = model(graph, spec, sub.processes, sub.materials);
   if (!built) return null;
   return [
+    // Not part of the walk, but two questions weighed differently can pick
+    // different ores and so are not the same question.
+    (spec.weigh || []).join('~'),
+    [...spec.mergeStates].sort().join('~'),
     sub.processes.map((p) => p.id).sort().join('|'),
     [...built.supply.keys()].sort().join('|'),
     [...sub.materials]
@@ -2523,14 +3279,26 @@ export function solveFresh(graph, rawSpec) {
       let best = null;
       let bestCost = null;
       for (const ore of tried) {
-        const plan = solveFresh(graph, { ...rawSpec, oreAllowed: [ore], notes: undefined });
+        const plan = solveFresh(graph, { ...rawSpec, notes: undefined,
+                                         oreAllowed: oreAsFamily(graph, spec, ore) });
         if (!plan || plan.shortfall) continue;
-        const cost = weighPlan(graph, plan);
-        if (!best || cheaperThan(cost, bestCost)) { best = plan; bestCost = cost; }
+        const cost = weighPlan(graph, plan, rawSpec.weigh);
+        if (cost && (!best || cheaperThan(cost, bestCost))) { best = plan; bestCost = cost; }
       }
       if (best && rawSpec.notes) {
         rawSpec.notes.push(`nothing held carries what was asked for, so one ore was ` +
                            `bought: ${[...best.spec.oreAllowed].join(' or ')}`);
+      }
+      /**
+       * And say when the cap was in the way, whether or not an answer came.
+       *
+       * Sparr: there should be an indicator when a plan was affected by the
+       * cap and increasing it might improve the result. The note above says it
+       * in prose for whoever is reading notes; this is on the plan, where the
+       * page can find it.
+       */
+      if (best && all.length > tried.length) {
+        best.oreCap = { tried: tried.length, of: all.length };
       }
       if (best) return best;
       // Nothing worked with an ore either; fall through and fail the usual way.
@@ -2539,23 +3307,34 @@ export function solveFresh(graph, rawSpec) {
 
   const barred = new Set(rawSpec.excludeProcesses || []);
   /**
-   * The best answer so far, kept because barring a wheel can bar the road.
+   * No earlier answer is kept, because there was never a good one to keep.
    *
    * Each round takes out the biggest wheel of a loop that turns for free and
-   * asks again. Sometimes the re-ask is impossible -- the barred process was
-   * also the only way to a target -- and throwing everything away then meant
-   * the Lepidolite plan reported that it could not be made at all, having
-   * already found a perfectly good answer two rounds earlier and discarded it.
+   * asks again, and sometimes the re-ask is impossible -- the barred process
+   * was also the only way to a target. This used to hand back the last plan it
+   * had seen in that case, on the grounds that throwing everything away made
+   * the Lepidolite plan report it could not be made at all "having already
+   * found a perfectly good answer two rounds earlier".
+   *
+   * It had not. The plan was kept before the wheel test ran on it, and a plan
+   * that passes the wheel test is returned on the spot -- so the only plan
+   * that could ever be sitting in that variable is one this pass had already
+   * caught turning a wheel for free. Every answer it handed back that way was
+   * a lie, and by the codebase's own account of what a free-turning wheel is,
+   * "not a cheap plan, it is a lie" is exactly what it was.
+   *
+   * Sparr: it should not be handing those back. So it does not, and a question
+   * whose every route runs through a wheel comes back with no plan and a note
+   * saying which wheel closed the last road.
    */
-  let best = null;
   for (let round = 0; round < 8; round++) {
     const plan = planOnce(graph, { ...rawSpec, excludeProcesses: [...barred] });
     if (!plan) {
       if (rawSpec.notes && round) {
         rawSpec.notes.push(`...after ${round} round${round === 1 ? '' : 's'} of ` +
-          `barring a free-turning wheel${best ? ', keeping an earlier answer' : ''}`);
+          `barring a free-turning wheel, and nothing is left that does not turn one`);
       }
-      return best;
+      return null;
     }
     /**
      * Handed back, not thrown away. Sparr: do not silently discard a bad plan,
@@ -2565,9 +3344,26 @@ export function solveFresh(graph, rawSpec) {
      * this first.
      */
     plan.shortfall = shortfallOf(plan);
-    if (!plan.shortfall) best = plan;
     const cheat = freeLunch(graph, normalizeFresh(rawSpec), plan);
     if (!cheat) return plan;
+    /**
+     * The same wheel twice is not a round worth spending.
+     *
+     * Barring it is what we did last time and it came back, so barring it
+     * again will do exactly as much. Spinning out the remaining rounds only
+     * puts the question through five more solves to reach the same answer,
+     * and says nothing on the way about why.
+     */
+    if (barred.has(cheat)) {
+      if (rawSpec.notes) {
+        rawSpec.notes.push(`${cheat} turns for free and is already barred, so ` +
+          `barring it again changes nothing -- something is handing it back`);
+      }
+      return null;
+    }
+    // Which wheel, not merely that there was one: the summary at the end
+    // cannot say what was taken out on the way.
+    if (rawSpec.notes) rawSpec.notes.push(`round ${round + 1}: barring ${cheat}, which turns for free`);
     barred.add(cheat);
   }
   return null;
@@ -2662,7 +3458,7 @@ function planOnce(graph, rawSpec) {
     return giveUp('the candidate walk found no process at all');
   }
 
-  const build = (procs, materials) => model(graph, spec, procs, materials);
+  const build = (procs, materials, collapse) => model(graph, spec, procs, materials, collapse);
   const why = {};
   const narrow = shortlist(graph, spec, whole, build, why);
 
@@ -2702,15 +3498,21 @@ function planOnce(graph, rawSpec) {
   }
 
   const sub = narrow || whole;
-  const procs = sub.processes;
-  if (!procs.length) return giveUp('the shortlist came back empty');
+  if (!sub.processes.length) return giveUp('the shortlist came back empty');
 
-  const built = model(graph, spec, procs, sub.materials);
+  const built = model(graph, spec, sub.processes, sub.materials);
   if (!built) {
-    return giveUp(`no model over ${procs.length} processes -- a target nothing ` +
+    return giveUp(`no model over ${sub.processes.length} processes -- a target nothing ` +
       `in the shortlist touches, or no row to constrain it`);
   }
   const { index, supply, vars, rows, fetchCost, bought } = built;
+  // Phase changes inside one substance moved nothing once the rows collapsed,
+  // so the model dropped them and everything downstream works the shorter list.
+  const procs = built.procs;
+  if (notes && procs.length !== sub.processes.length) {
+    notes.push(`collapse: ${sub.processes.length - procs.length} of ` +
+      `${sub.processes.length} columns did nothing once the phases were one row`);
+  }
 
   /** Run the whole thing with some processes forbidden, and say what it cost. */
   /**
@@ -3244,6 +4046,72 @@ function planOnce(graph, rawSpec) {
     }
   }
 
+  /**
+   * Last, the same answer with the states told apart again.
+   *
+   * Collapsing a family leaves the simplex a wider face to pick its corner
+   * from, and a wider face has more corners with halves on them -- which does
+   * not change what the plan is, every supply being pinned and every step
+   * settled, but does change the size it is offered at. The finer rows are
+   * where the whole-numbered corners live, so once the answer is decided the
+   * question is put again over just the steps it chose, with each state
+   * counted on its own row and the crossings between them back on the table.
+   *
+   * Cheap, because it is twenty or thirty columns rather than nine hundred,
+   * and safe, because the collapsed answer with its crossings filled in is a
+   * point of it -- so it can only fail to solve if something else has gone
+   * wrong, and then the collapsed answer stands. Every supply is held exactly
+   * where it stands, so the shopping list cannot move a unit; the objective is
+   * the fewest runs, which among corners of the same face is the one least
+   * able to be written in fractions.
+   */
+  let told = null;
+  if (TELL_STATES_APART) {
+    const { family, stands } = phaseFamilies(graph, spec.mergeStates);
+    const kept = procs.filter((p) => !banned.has(p.id) && !rzero(best.x[index.get(p.id)]));
+    const reps = new Set();
+    for (const p of kept) {
+      for (const m of [...p.produces, ...inputsOf(p)]) {
+        if (family.has(stands(m.name))) reps.add(stands(m.name));
+      }
+    }
+    if (reps.size) {
+      const crossings = graph.processes.filter((q) => {
+        if (q.kind !== 'phase') return false;
+        const ins = inputsOf(q);
+        if (ins.length !== 1 || q.produces.length !== 1) return false;
+        const rep = stands(ins[0].name);
+        return reps.has(rep) && stands(q.produces[0].name) === rep;
+      });
+      const fineProcs = [...new Set([...kept, ...crossings])];
+      const mats = new Set();
+      for (const p of fineProcs) for (const m of [...p.produces, ...inputsOf(p)]) mats.add(m.name);
+      for (const t of spec.targets) mats.add(t.name);
+      const fine = model(graph, spec, fineProcs, mats, false);
+      if (fine) {
+        const pins = [];
+        for (const [name, i] of fine.supply) {
+          const at = supply.get(name);
+          pins.push({ coeffs: new Map([[i, rat(1)]]), op: '=',
+                      rhs: at === undefined ? R0 : best.x[at] });
+        }
+        const cost = new Map();
+        for (const p of fine.procs) cost.set(fine.index.get(p.id), rat(1));
+        const got = solveLP({ vars: fine.vars, rows: [...fine.rows, ...pins], cost,
+                              lo: new Map(), steep: true });
+        if (got.ok) told = { fine, x: got.x };
+      }
+      if (notes) {
+        notes.push(told
+          ? `told apart: ${fineProcs.length} columns over ${reps.size} famil${reps.size === 1 ? 'y' : 'ies'}`
+          : `told apart: no answer over ${reps.size} collapsed famil${reps.size === 1 ? 'y' : 'ies'}, keeping the collapsed one`);
+      }
+    }
+  }
+  if (told) {
+    return assemble(graph, spec, told.fine.procs, told.fine.index, told.fine.supply,
+                    told.x, base.total, sub, notes);
+  }
   return assemble(graph, spec, procs, index, supply, best.x, base.total, sub, notes);
 }
 
@@ -3266,23 +4134,200 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     const v = x[index.get(p.id)];
     if (!rzero(v)) mul = lcm(mul, v.d);
   }
-  const scale = rat(mul);
+  let scale = rat(mul);
   const runs = new Map();
   for (const p of procs) {
     const v = rmul(x[index.get(p.id)], scale);
     if (!rzero(v)) runs.set(p.id, v);
   }
 
-  const made = new Map();
-  const used = new Map();
-  const add = (map, name, v) => map.set(name, radd(map.get(name) || R0, v));
-  for (const [id, n] of runs) {
-    const p = graph.byId.get(id);
-    for (const o of p.produces) add(made, o.name, rmul(n, rat(o.count)));
-    for (const c of inputsOf(p)) add(used, c.name, rmul(n, rat(c.count)));
+  const tally = () => {
+    const made = new Map();
+    const used = new Map();
+    const add = (map, name, v) => map.set(name, radd(map.get(name) || R0, v));
+    for (const [id, n] of runs) {
+      const p = graph.byId.get(id);
+      for (const o of p.produces) add(made, o.name, rmul(n, rat(o.count)));
+      for (const c of inputsOf(p)) add(used, c.name, rmul(n, rat(c.count)));
+    }
+    return { made, used };
+  };
+  let { made, used } = tally();
+
+  const asked = new Map();
+  for (const t of spec.targets) {
+    asked.set(t.name, radd(asked.get(t.name) || R0, rmul(rat(t.amount), scale)));
   }
 
-  const asked = new Map(spec.targets.map((t) => [t.name, rmul(rat(t.amount), scale)]));
+  /**
+   * The dissolving the model was never asked to choose.
+   *
+   * Same problem as the melting below and a different repair. An aqueous salt
+   * has no row: every coefficient that named it was written onto its dry half
+   * and its water instead, and the step that crosses between them contributed
+   * nothing to either and lost its column. So the solve knows it needs a
+   * `Lithium Sulfate` and a Water, and the step that wanted them wants them
+   * dissolved, and nothing in the answer says to dissolve them.
+   *
+   * Recoverable, because the recipes never forgot: net each salt against what
+   * the steps make, use, and were asked for, and put the crossing back. Short
+   * of it, dissolve; holding it spare, split it.
+   *
+   * Unlike a phase crossing this one is not free -- a Water is consumed going
+   * one way and handed back the other -- but it costs nothing *here*, because
+   * that water is exactly what the solve already paid for when it wrote the
+   * salt's coefficients onto the water row. The books were kept in the model;
+   * this only says out loud which vessel does it.
+   *
+   * Before the phase pass on purpose. Dissolving `Aqueous Potash` wants Steam
+   * where the plan may be holding Water, and settling that is the next pass's
+   * job.
+   */
+  {
+    const { pairs } = hydrationFamilies(graph);
+    const netOf = (name) =>
+      rsub(made.get(name) || R0, radd(used.get(name) || R0, asked.get(name) || R0));
+    const wetted = [];
+    for (const [aq, h] of pairs) {
+      const n = netOf(aq);
+      if (rzero(n)) continue;
+      const short = rcmp(n, R0) < 0;
+      /**
+       * The way across, and the cheap one where there is a choice: a reaction
+       * runs in a vessel the plan already has, while the filter is a block
+       * that has to be built and placed. `hydrationFamilies` lists the
+       * reactions first for that reason, so the agreeing pair it settled on
+       * is already the reaction wherever one agrees.
+       */
+      const id = short ? h.join : h.split;
+      const q = graph.byId.get(id);
+      if (!q) continue;
+      const per = short ? q.produces.find((x) => x.name === aq)
+                        : inputsOf(q).find((x) => x.name === aq);
+      if (!per || !per.count) continue;
+      runs.set(id, radd(runs.get(id) || R0,
+                        rdiv(short ? rsub(R0, n) : n, rat(per.count))));
+      wetted.push(id);
+    }
+    if (wetted.length) {
+      ({ made, used } = tally());
+      if (notes) notes.push(`hydration: put back ${[...new Set(wetted)].sort().join(', ')}`);
+    }
+  }
+
+  /**
+   * The melting and the freezing the model was never asked to choose.
+   *
+   * Its rows are keyed on one member of each family, so a demand for Molten
+   * Silica is answered by making Glass and nothing in the answer says which
+   * was meant. The recipes did not forget -- every step still names the state
+   * it wants -- so what is missing is recoverable here: net each member of a
+   * family against what the steps make, use and were asked for, and where one
+   * is short while another is over, cross between them.
+   *
+   * That crossing is what the reader has to do and what the operating window
+   * has to allow for, so it goes in as a step like any other. It costs nothing
+   * in the tally: `reactorsIn` does not count a phase change, because it
+   * happens in the open air or inside whichever reactor wanted the hot form.
+   *
+   * Nothing here can change what the plan is worth. Every crossing inside a
+   * family is one for one both ways, so this moves quantity between names
+   * without creating or destroying any, and the shopping list it settles was
+   * settled by the solve.
+   */
+  {
+    const { family, stands, route, worth } = phaseFamilies(graph, spec.mergeStates);
+    const prices = fetchPrices(graph, spec.kinds);
+    const netOf = (name) =>
+      rsub(made.get(name) || R0, radd(used.get(name) || R0, asked.get(name) || R0));
+    const crossed = [];
+    /**
+     * Counted in the family's own units, not in anybody's.
+     *
+     * A member may pack several units into one -- a Liquid Oxygen is four
+     * Oxygen Gas -- so a shortfall of two Liquid Oxygen and a surplus of two
+     * Oxygen Gas are not the same quantity and cannot be netted against each
+     * other as written. Everything below is in units of the material that
+     * stands for the family, which is what the row was counting all along, and
+     * each crossing is run as many times as it takes to move that much: the
+     * step gives `count` of its output, and each of those is `worth` of them.
+     */
+    const cross = (path, units) => {
+      for (const id of path) {
+        const q = graph.byId.get(id);
+        const out = q.produces[0];
+        const each = rmul(rat(out.count), worth(out.name));
+        runs.set(id, radd(runs.get(id) || R0, rdiv(units, each)));
+      }
+      crossed.push(...path);
+    };
+    for (const [, members] of family) {
+      const short = [];
+      const over = [];
+      for (const m of members) {
+        const n = rmul(netOf(m), worth(m));
+        if (rcmp(n, R0) < 0) short.push([m, rsub(R0, n)]);
+        else if (rcmp(n, R0) > 0) over.push([m, n]);
+      }
+      if (!short.length) continue;
+      // A leftover the reader has claimed is not spare stock to melt down.
+      over.sort((a, b) => (spec.kept.has(a[0]) ? 1 : 0) - (spec.kept.has(b[0]) ? 1 : 0) ||
+                          a[0].localeCompare(b[0]));
+      for (const want of short) {
+        for (const have of over) {
+          if (rzero(want[1])) break;
+          if (rzero(have[1])) continue;
+          const path = route(have[0], want[0]);
+          if (!path || !path.length) continue;
+          const take = rcmp(have[1], want[1]) < 0 ? have[1] : want[1];
+          cross(path, take);
+          have[1] = rsub(have[1], take);
+          want[1] = rsub(want[1], take);
+        }
+        if (rzero(want[1])) continue;
+        /**
+         * And what the family cannot cover comes in at the door, as whichever
+         * state the plan is allowed to go out for.
+         *
+         * Held first and then cheapest, which is the order the shopping list
+         * is decided in. Where that is the short material itself there is
+         * nothing to do: it is drawn as it stands, the way it always was.
+         */
+        const [door] = members
+          .filter((m) => supply.has(m))
+          .sort((a, b) => (spec.have.has(b) ? 1 : 0) - (spec.have.has(a) ? 1 : 0) ||
+                          (prices.get(a) ?? 1) - (prices.get(b) ?? 1) ||
+                          a.localeCompare(b));
+        if (!door || door === want[0]) continue;
+        const path = route(door, want[0]);
+        if (path && path.length) cross(path, want[1]);
+      }
+    }
+    /**
+     * And the batch grows to whatever makes the crossings whole too.
+     *
+     * Four Oxygen Gas go into a Liquid Oxygen, so a plan short of one Liquid
+     * Oxygen condenses once and a plan short of one Oxygen Gas condenses a
+     * quarter of a time, which is no more a thing you can do than running a
+     * reactor four sevenths of a time. The same answer serves: multiply up
+     * until every count is whole. It costs nothing where every crossing
+     * already divides, which is every family but the eight that pack.
+     */
+    let more = 1n;
+    for (const v of runs.values()) if (!rzero(v)) more = lcm(more, v.d);
+    if (more !== 1n) {
+      mul *= more;
+      scale = rat(mul);
+      const by = rat(more);
+      for (const [id, v] of runs) runs.set(id, rmul(v, by));
+      for (const [name, v] of asked) asked.set(name, rmul(v, by));
+    }
+    if (crossed.length || more !== 1n) {
+      ({ made, used } = tally());
+      if (notes) notes.push(`phase: put back ${[...new Set(crossed)].sort().join(', ')}`);
+    }
+  }
+
   const drawn = new Map();       // what has to come from outside the steps
   const spare = new Map();       // what is left when they have all run
   for (const name of new Set([...made.keys(), ...used.keys(), ...asked.keys()])) {
@@ -3487,7 +4532,23 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   const priming = [];
   const primingAll = [];
   const warmup = [];
-  {
+  let laidIn = false;
+  /**
+   * The pass above, run once, the first time anybody asks what to lay in.
+   *
+   * It is deferred because it is the most expensive thing `assemble` does and
+   * most of what it computes is thrown away. Refusing each charge in turn
+   * means firing the whole factory again per charge, so the cost climbs with
+   * the plan: measured on Lithium Oxide, twenty-seven steps took 1.2s, thirty-
+   * nine took 6.7s, and forty-eight took 34.9s -- against 1.25s for every
+   * solve in the same question put together. An ore attempt is a candidate,
+   * and ten of eleven candidates are dropped on atoms, items and reactors,
+   * none of which consult a charge. So the plans that lose now never pay for
+   * an answer nobody reads, and the one that wins pays once.
+   */
+  const layIn = () => {
+    if (laidIn) return;
+    laidIn = true;
     const prices = fetchPrices(graph, spec.kinds);
     /**
      * One go at starting the factory, refusing to be started on `refuse`.
@@ -4104,19 +5165,19 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     primingAll.push(...priming);
     for (const c of later) priming.splice(priming.indexOf(c), 1);
     warmup.push(...later);
-  }
+  };
 
   const plan = {
     spec: { ...spec, targets: spec.targets.map((t) => ({ ...t, amount: t.amount * Number(mul) })) },
     fresh: true,
     steps, frontier, feed, byproducts,
-    priming,
+    get priming() { layIn(); return priming; },
     // Every charge the pass found, including the ones it no longer asks for.
-    primingAll,
+    get primingAll() { layIn(); return primingAll; },
     // Charges the plant repays itself: not asked for, but the first cycle
     // makes `warmupLag` less than the plan says while they fill.
-    warmup,
-    warmupLag: warmup.reduce((a, c) => Math.max(a, c.lag || 0), 0),
+    get warmup() { layIn(); return warmup; },
+    get warmupLag() { layIn(); return warmup.reduce((a, c) => Math.max(a, c.lag || 0), 0); },
     brokenLoops: [],
     graph,
     fetchTotal: rnum(rmul(fetchTotal, scale)),

@@ -337,11 +337,58 @@ function assignMatter(materials, byName) {
     return n || null;
   };
 
-  // matter(other) = ratio * matter(name), read off the two transition fields
-  // in both directions.
+  /**
+   * matter(other) = ratio * matter(name), read off the two transition fields --
+   * but only where the trip comes back.
+   *
+   * The ratio is stated one way and used both, which is fine for a real phase
+   * change and wrong for a smelt. The game writes ore smelting in the same
+   * fields: `Galena evap -> Molten Lead`, `Cassiterite evap -> Molten Tin`,
+   * one way with nothing coming back. Followed backwards, the ore lands in the
+   * metal's group at a ratio of one, the group is anchored on whichever member
+   * the walk reached first, and the metal inherits the ore's formula -- so Lead
+   * weighed two atoms because galena is PbS, and Tin three because cassiterite
+   * is SnO2. Quick Lime weighed five and Granite Gravel five against a formula
+   * that sums to thirteen.
+   *
+   * So a link needs a transition each way, which is the same test
+   * `phaseFamilies` applies and for the same reason: a crossing that does not
+   * come back is a destruction, not a state. Four Oxygen Gas to a Liquid Oxygen
+   * is stated both ways and keeps its ratio, which is what makes a unit of the
+   * liquid eight atoms.
+   */
   const links = new Map(materials.map((m) => [m.name, []]));
+  /**
+   * A weight carries between two materials when they are the same substance.
+   *
+   * Which is a question about the elements, not about how the transition was
+   * written. Galena is `PbS` and Molten Lead is `Pb`: the sulfur leaves, so
+   * they are not one substance and the weight must not carry -- that is why
+   * Lead weighed two atoms. Granite is `CaAl2Si2O8` and Molten Anorthite is
+   * the same, so it may. And where one side has no formula there is nothing to
+   * contradict, which is the case that matters: `Rhyolite evap -> Rhyolitic
+   * Lava` and the lava is `KAlSi3O8`, a rock and its own melt, so the rock
+   * weighs thirteen rather than nothing.
+   *
+   * Asking instead whether the trip is stated both ways was tried and is not
+   * the same question. It is too strict where the data writes only one side of
+   * a real phase change, which is often, and too lax where it writes both
+   * sides of something that is not one: aqueous Hydrofluoric Acid is `H3FO`
+   * and its gas is `HF`, stated each way, and the water goes -- so the gas
+   * inherited the acid's five atoms when hydrogen fluoride is two.
+   */
+  const elementsOf = (name) => {
+    const m = byName.get(name);
+    return m?.atoms && m.atoms.size ? [...m.atoms.keys()].sort().join(',') : null;
+  };
+  const sameStuff = (a, b) => {
+    const x = elementsOf(a);
+    const y = elementsOf(b);
+    return x === null || y === null || x === y;
+  };
   const link = (a, b, ratio) => {
     if (!links.has(a) || !links.has(b)) return;
+    if (!sameStuff(a, b)) return;
     links.get(a).push([b, ratio]);
     links.get(b).push([a, 1 / ratio]);
   };

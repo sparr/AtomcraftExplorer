@@ -1,164 +1,377 @@
 # Collapsing the phases into one material
 
-A plan's model carries every state of a substance as its own material, with its
-own row, and carries the melting and freezing between them as their own columns.
-Aluminum, Aluminum Vapor and Molten Aluminum are three rows and the steps
-between them are columns whose whole effect is to move quantity from one of
-those rows to another.
+A plan's model carried every state of a substance as its own material, with its
+own row, and carried the melting and freezing between them as their own
+columns. Aluminum, Aluminum Vapor and Molten Aluminum were three rows and the
+steps between them were columns whose whole effect was to move quantity from
+one of those rows to another.
 
-Making them one material is worth about a quarter of the rows and a third of
-the columns, and the columns it removes are the worst ones in the model.
+Making them one material is worth about a fifth of the rows and a quarter of
+the columns, and the columns it removes are the worst ones in the model. It is
+built. What follows is what was built, what it measured, and the two families
+it does not apply to yet.
 
-## What it is worth
-
-Measured on five models, families built as described below:
-
-```
-model            rows  ->  after     cols  ->  after   (phase cols dropped)
-glass             365 ->   279        536 ->   364      (172)
-columbite         359 ->   271        508 ->   356      (152)
-lepidolite-4      382 ->   289        632 ->   423      (209)
-aluminum          377 ->   285        578 ->   384      (194)
-combined          385 ->   288        590 ->   390      (200)
-```
-
-Rows fall about 24% and columns about 33%. Simplex work per pivot goes as rows
-times columns, so that is roughly half the arithmetic before counting the
-pivots saved.
-
-The columns it removes are worth more than their number. A phase step inside a
-collapsed family contributes nothing to any row -- it is a literal no-op, a
-null direction in the model. Those are the exactly-opposite column pairs found
-earlier in the solver work: 724 of them in one model, and they are the standing
-explanation for the degenerate walks, the batch-size lottery and the
-vertex-dependent step counts. Collapsing deletes that class outright rather
-than working around it.
-
-## The families
+## What it does
 
 Two materials are the same substance when a phase step goes from one to the
-other **and another comes back**. The return trip is the whole of the test.
+other **and another comes back**, both one for one. The return trip is the
+whole of the test: melting a Gun gives Molten Iron and no amount of cooling
+gives the Gun back, so that is a destruction and stays a column. With the
+return trip required there are 116 families covering 272 materials, the largest
+of them three.
 
-Without it, melting welds everything that shares a destination: 116 materials
-in one family because every oscillator, wire and electrode has an
-`evap:` to Molten Copper, and a second of 36 because Bread, Cake, Chicken and
-the spores all char to Carbon. Melting a Gun gives Molten Iron and no amount of
-cooling gives the Gun back. It is a destruction, not a state change.
+Each family keeps one name -- the shortest, never a Static member, never a
+Molten/Frozen/Dry/Liquid/Solid form where there is an alternative, ties broken
+by how often the recipes say it. `model()` keys every row on that name, so the
+family has one row and one balance. It keeps a **supply column per member**,
+because what is fetchable, what it costs and what the reader is holding are all
+facts about the particular state -- nobody mines molten aluminium -- so the
+shopping list still names something you could go and get.
 
-With it: **116 families covering 272 materials, the largest of them three**.
-Aluminum with its vapour and its melt. Chlorine with its liquid and its solid.
-Ammonia, Ammonia Gas, Ammonia Crystals.
+The recipes are left alone. A step still says it consumes Molten Silica; only
+the row that coefficient lands in changes. That is what keeps the phase
+readable at the end, and it is why this is a change to the model rather than to
+the chemistry.
 
-### Which member stands for the family
+A step whose coefficients then net to nothing is dropped outright. Asked of the
+coefficients rather than of the family, because a crossing that hands back more
+than it was given is not a no-op however same-substance its ends look --
+petroleum cracking is exactly that.
 
-Sparr's rule: **the shortest name**. That lands on the unprefixed solid where
-there is one, and on the gas where the solid form is the prefixed name, which
-is what a reader would call the stuff. It is right for 106 of the 116.
+Three things had to move with it:
 
-Two amendments, each for a case the plain rule gets wrong:
+- **Welds do not cross a family.** A weld says everything made of this is spent
+  by that one step, which is false of a member whose row is the whole
+  substance: the eater may be fed by a sibling state instead. Welding it would
+  forbid exactly the freedom the collapse grants.
+- **The shortlist walks the uncollapsed model.** That walk breaks its ties on
+  how many times the columns run, and once the crossings are gone they run for
+  nothing. Asked for Carbon from Carbon Dioxide, the potassium route counts
+  four runs against the hydrogen route's five and wins -- and the hydrogen
+  route, four reactions against five, is then not merely beaten but absent.
+  The collapse cannot be allowed to decide which routes are on the table; what
+  it is for is the arithmetic afterwards.
+- **`assemble` puts the crossing back.** Net each member of a family against
+  what the steps make, use and were asked for; where one is short while another
+  is over, cross between them, and where the family cannot cover it, draw it at
+  the door as whichever state the plan is allowed to go out for -- held first,
+  then cheapest. `phaseFamilies` carries a `route(from, to)` for this, which
+  stays inside the family on purpose: `evap:Sand` is a one-for-one crossing too
+  and it does not come back, so following it would have a plan freezing molten
+  silica into sand.
 
-- **Never a Static member.** Ice is shorter than Water and Steam and is a
-  placed pixel; a plan cannot carry it. `Ice, Steam, Water` is the only family
-  with a Static member.
-- **Prefer a member that is not a Molten, Frozen, Dry, Liquid or Solid form.**
-  Otherwise Dry Ice represents Carbon Dioxide, which appears in a third of all
-  plans.
+## What it measured
 
-Ties on length are broken by how often the recipes name the material, which is
-`materialMentions` in `plan-graph.js`. Water and Steam are both five letters
-and alphabetical order picked Steam; the recipes say Water 213 times against
-Steam's 115, and Water is plainly the name to keep. Phase steps are excluded
-from that count because they mention both ends of every family alike and so
-recreate the tie they are meant to break.
+Model size, over the candidate set each question actually builds:
 
-Seven families are represented by a name that is simply a different word for
-the same substance -- Granite Gravel over Molten Anorthite, Andesite over
-Andesitic Lava, Hydroiodic Acid over Hydrogen Iodide Gas. Cosmetically odd,
-harmless: the name is only an identity as far as the model is concerned.
+```
+model            rows  ->  after     cols  ->  after   (columns dropped)
+columbite         376 ->   299        866 ->   667     (189)
+lepidolite-4      400 ->   321        948 ->   729     (207)
+aluminum          370 ->   301        633 ->   443     (190)
+combined          403 ->   321        961 ->   730     (215)
+```
 
-**Glass represents Molten Silica.** Sparr's call, with the note that we may
-want to unbundle those later. It is the one collapse that touches a material
-people ask for by name.
+Rows fall about 20%, columns about 23%. The columns it removes are worth more
+than their number: a crossing inside a collapsed family contributes nothing to
+any row, so it is a null direction the simplex was free to walk any distance
+along -- the exactly-opposite column pairs behind the degenerate walks and the
+vertex-dependent step counts.
 
-## What is already written
+Plans, over `tools/phase-corpus.mjs` -- the canonical cases plus every eighth
+material the game can make, 194 plans:
 
-Both in place, both additive, neither used by the solver yet. The tree behaves
-exactly as it did before them.
+```
+193 identical, 1 moved, 0 lost a plan, 0 gained one
+194.1s -> 164.2s
+```
 
-- `phaseFamilies(graph)` in `src/plan-fresh.js` -- cached per graph, returns
-  `{ repOf, family, stands }`. `stands(name)` gives the representative, or the
-  name itself when it is in no family.
-- `materialMentions(graph)` in `src/plan-graph.js` -- cached per graph, a Map
-  of material name to how many non-phase processes name it.
+Fifteen per cent off the wall clock and one plan changed: Frozen Aqueous
+Ammonium Iodide now freezes the iodine and filters that, rather than filtering
+first. Same real step count. `npm test` is green, 78 met and nothing broken,
+including the batch ceilings and the charge invariants.
 
-## The surgery
+## What is not done
 
-### 1. Key the model's rows on the representative
+**Two families are held back by default**, and the reason is written beside
+`HELD_BACK` in `plan-fresh.js`. Both pass every test for being one substance.
+Merged, a family's row stops saying how many of each state there are, which
+leaves the simplex a wider face to pick its corner from -- and a wider face has
+more corners with halves on them. The run counts come back as fractions and the
+plan multiplies up by their common denominator.
 
-In `model()` in `src/plan-fresh.js`, every place a material name becomes a row
-key goes through `stands()`. The supply columns, the `eaten` set and the net
-map all key the same way, so a family has one row, one supply column and one
-balance.
+They are held back by the planner and offered by the scoreboard: `mergeableStates`
+lists them, the sweep asks the question once more per family, and the menu puts
+the two answers side by side. `spec.mergeStates` carries the choice and rides in
+the URL as `ms`. Nobody has to decide this once and for all, which is the right
+shape for a trade that has a winner on each side.
 
-Leave the processes' recipes alone. A process still says it consumes Molten
-Silica; only the row that coefficient lands in changes. That is what keeps the
-phase information available to the assembly step, and it is why this is a
-change to the model rather than to the chemistry.
+- **Water and Steam.** Merged: the Lepidolite order comes out in batches of
+  four rather than two, the Aluminum one in eights rather than fours, and
+  Lithium Hydroxide buys five units where it bought two. Against that, three
+  plans lose a step -- Selenium and Hypochlorous Acid stop running a lithium
+  sulfide wheel to make their steam and simply boil water, dropping eleven
+  charges between them.
+- **Hydrofluoric Acid and its gas.** Merged: Aluminum out of Lepidolite finds a
+  route through the glass one reaction shorter than the sulfate route, and
+  offers it in batches of eight rather than four.
 
-### 2. Drop the columns that become no-ops
+Neither is obviously the wrong trade and both break a stated invariant -- the
+batch ceilings in `test-fresh.mjs`, and "at least one charge is holding the
+plan up", which stops being true of the aluminium plan because the shorter
+route has no closed wheel to seed. So the planner keeps its invariants and the
+reader gets the choice.
 
-A process whose every input and output is in one family contributes nothing to
-any row once the rows are collapsed. Those are the 152 to 209 columns per model
-above. Drop them from `procs` before building the model, in `walkSubgraph` or
-just inside `model()`.
+The Lepidolite pair is worth reading in full, because it is what the scoreboard
+work below was built to show. Step for step the two plans are identical but for
+two lines: merged, the plan runs `cond:Steam` 1.5 times per unit and 0.75 more
+`rx:Electrolysis of Water`. What that buys is the charge. The unmerged plan
+vents its steam and needs two Hydrogen Gas laid in before it will turn -- a
+charge marked `holdsUp`, which the plant never pays back, because nothing
+outside the wheel it seeds will ever fill it. The merged plan condenses that
+steam, closes its own hydrogen loop, and needs nothing but the chlorine. Ore,
+purchases, reactors and total waste per unit are identical, and have to be:
+same inputs and same products means the same matter left over.
 
-Careful: this is the same shape as the welding condition, and the welding
-condition was got wrong three times. It is a property of the family map, not of
-the candidate set, so compute it from `stands()` and nothing else.
+```
+per unit of each product        unmerged   merged
+reactors                              14       14
+ore fed                            1.500    1.500
+bought                       0.5 Carbon    0.5 Carbon
+left over                6.000u/17.500a   6.000u/17.500a
+to lay in            Chlorine + 2 Hydrogen   Chlorine
+steps run                             18    18.75
+batch                                  2        4
+```
 
-### 3. Put the phase back at assembly
+## What the scoreboard learned from it
 
-This is the part that has not been designed and is the real work.
+Three things, all of which that pair exposed.
 
-Once the rows are collapsed, a plan can satisfy a request for Glass with Molten
-Silica, or feed Aluminum to a reaction that asks for Molten Aluminum. The
-recipe still names the phase it wants, so `assemble()` can compare what a step
-asks for against what the plan is handing it and insert the melt or the
-condense where they differ -- which is what the reader should see, and what the
-operating window needs in order to be right.
+**`steps` counts running, not building.** It was `plan.steps.length`, hinted as
+"reactors plus the phase changes, which are free", which counted neither: a
+vessel turned forty times was one step, and a condenser that costs nothing to
+own was one as well. That decided exactly this comparison -- the merged plan
+scored a step worse for owning a condenser, so `digest` found it dominated and
+dropped the plan that needs no charge. Sparr: one reactor run four times is
+four steps. So it counts runs, per unit, with the phase changes left out, and
+`reactors` goes on counting vessels. The two now answer different questions,
+and on this pair they disagree: the merged plan does more running, 18.75 runs a
+unit against 18, because closing the hydrogen loop means electrolysing three
+quarters more water.
 
-The planner already folds phase changes into the reactor that follows them and
-does not count them as steps, so the machinery to *present* this exists. What
-is new is deriving which phase change is needed rather than reading it off a
-column the solver chose.
+**A charge is a column.** Matter that has to be in the pipes before the first
+batch is a different kind of cost from a thing bought each batch, and nothing
+was measuring it. Absolute rather than per unit, which was measured and not
+assumed: the Lepidolite plan asks for one Chlorine Gas and two Hydrogen Gas
+whether it is making two of each product or six.
 
-## Traps, each of which has already been walked into once
+**So is the batch.** Everything else is divided by it so the rows mean the same
+thing; the number itself is a real difference between two answers and no column
+could say it. Without it the merged row simply beats the unmerged one and the
+smaller batch is never offered -- which is to say the axis would surface
+nothing.
 
-- **Count over the graph, never over the candidate set.** The candidate walk
-  keeps a few ways of making each material and prunes the rest, so anything it
-  pruned to one maker looks structural when it is not. This produced welds on
-  Bread, Cake and Silica, and turned a two-step Glass plan into twenty-three.
-- **Sand is not in a family.** `evap:Sand` gives Molten Silica and molten
-  silica condenses to Glass, not to sand, so the melt is one-way and stays a
-  real column and a real step. The sand-into-a-hot-reactor example that
-  motivated this work is not itself a phase collapse.
-- **A material the reader asked for is not an intermediate.** The welding work
-  tied Tantalum to its one consumer and the combined factory could no longer
-  let go of the metal it exists to make. Targets, held materials and anything
-  kept need the same exemption here.
-- **Static is not a phase you can carry.** Only `Ice, Steam, Water` is
-  affected, and water is the family most likely to expose a mistake because
-  `cond:Steam` is load-bearing in many plans. Worth proving the mechanism on
-  the metals first and bringing water in deliberately.
+With those three, the pair comes out as a fork rather than a winner: one row
+best on the charge, the other best on the steps and the batch, neither beating
+the other.
 
-## How to know it worked
+**And a fourth, later: the order the costs are weighed in.** `weighPlan`
+settles which ore a plan starting from nothing buys, and it read atoms, then
+items, then reactors, in that order and no other -- which is how it came to pay
+twenty-five reactors to save an atom, and on Copper Oxide to buy *more items*
+for fewer atoms, atoms deciding before items are ever consulted. Sparr: it
+should be configurable and exposed to the scoreboard for optimisation.
 
-- `npm test` -- 78 checks in the corpus plus the plan-UI suite. Green before
-  this work starts.
-- The 313-plan corpus from the solver investigation is the real net: it catches
-  phase-name mismatches across hundreds of plans rather than the handful that
-  get eyeballed. Generator and labels are described in the solver notes;
-  regenerate rather than trusting a stale copy.
-- Specific things to look at rather than assert: that `co2-carbon` still buys
-  nothing, that `glass` is still two steps, that the combined factory still
-  produces Tantalum, and that plans which melt something still say so.
+`spec.weigh` names the costs in the order they matter, riding in the URL as
+`wg`, and the sweep asks the question once per cost the menu has a column for.
+Left empty it weighs exactly what it weighed before in exactly the order it
+weighed it, so nothing moves: 194 of 194 corpus plans identical. Name one and
+that decides, with the rest of the board following as tie-breaks so two plans
+level on what was asked about are not separated by the order the ores happened
+to come up in.
+
+The reach is narrower than the complaint: it chooses between *finished* plans,
+one per ore, so it bites only where a question has more than one ore worth
+trying. Five of twelve targets measured answer differently for it, and the
+differences are not small:
+
+```
+Carbon     0.33 atoms a unit over 5 reactors   |  1 atom over 1 reactor, no charge
+Aluminum   2.5 atoms over 6 reactors           |  4 atoms over 1 reactor
+           or, weighed by the charge, 3.67 atoms over 21 reactors and nothing to lay in
+Boron Oxide 6.5 atoms over 6 reactors, charge 18 | 14 atoms over 1 reactor, charge 0
+```
+
+A weighing is a question rather than a property of the answer, so unlike the
+ore it stays out of the row key: four orders reaching the same one-reactor
+Carbon plan are one row offered four ways, and the row is named for whichever
+found it first. A merge
+that changes nothing -- Hydrofluoric Acid, on this question -- scores
+identically to the plain row and is dropped rather than offered as a choice
+between a thing and itself.
+
+**The batch is answered, and the answer is a trade.** See below; what follows
+is the state before it was tried.
+
+**The batch was the open question underneath both.** Nothing the reader is
+promised turns on which corner of the optimal face the simplex lands on -- the
+shopping list is pinned, so is what goes in at the door, and the steps are
+settled -- but the size of the batch does. Two things were tried and neither
+helped: a final pass minimising total runs with the fetch and draw totals
+pinned (which let the mix change underneath at the same price, and had the
+Glass plan buying Molten Silicon to save a run), and the same pass with every
+supply column pinned individually (which is tight enough to be safe and found
+nothing smaller). The remaining idea is to re-solve the settled answer on the
+uncollapsed model, restricted to the steps it chose plus the crossings between
+them -- a model of twenty or thirty columns, where the finer rows are back and
+the arithmetic is trivial. Whether its vertices are any less fractional is not
+known; it is more constrained, not less.
+
+
+## The Lithium Hydroxide question, and what was under it
+
+It was the one plan the collapse measurably made dearer -- five units bought
+where it bought two -- and the reason turned out to have nothing to do with the
+collapse.
+
+**Merged, all six ore attempts returned no plan at all.** `solveFresh` fell
+through to the path that may buy no ore, and that is where the five units came
+from. Behind it: `walkSubgraph` drops an excluded step in `usable` and then the
+"a chamber is all or none of it" rule hands it straight back, because a rival
+of it was worth having. The free-lunch pass barred `rx:Pyrolusite
+Decomposition`, got it back through `rx:Pyrolusite Reduction`, and barred it
+again every round until the eight ran out.
+
+Both rules are right and they cannot both bite. A chamber runs whichever of its
+reactions is valid on the tick, so half a competition cannot be had -- and a
+free-lunch bar is a veto on a column of the model, not a claim that the
+reaction cannot happen. Refusing the whole chamber was tried first and is far
+worse: Copper Oxide went from two steps to twenty-eight. So `freeLunch` now
+names a member of the wheel that barring can actually stop, which there almost
+always is, since barring any member stops the wheel. The round loop also gives
+up when the wheel it wants is already barred, rather than spending five more
+solves to reach the same answer.
+
+**What is left is the opposite of a regression.** Merged, Lithium Hydroxide
+costs 1.833 priced units a unit against 1.5 unmerged. The unmerged answer is
+only reached by keeping a plan the free-lunch pass had already flagged: it bars
+`rx:Hydrochloric Acid Dissolves Manganese`, then `rx:Lithium Sulfide + Water`,
+finds the next solve impossible, and hands back the round-two answer -- which
+still contains `rx:Lithium Sulfide + Water`. The merged run bars three wheels
+and then finds a plan that is clean. The cheaper answer is the one with a wheel
+in it.
+
+That is worth keeping separate from the collapse, because it is true without
+it: `return best` after a dead end hands back a plan already judged to turn for
+free, and marks it in no way. `plan.shortfall` says whether a plan delivers,
+and nothing says whether it is honest.
+
+### What the fix moved, and the rule it exposed
+
+Over the 194-plan corpus: **five questions gained a plan where there was none**
+-- Carbon Dioxide, Oxygen Gas, Silica, Liquid Oxygen and Molten Ammonium
+Nitrate -- **none lost one, and seven moved**. The seven all moved the same
+way, and not in a good direction to look at: Copper Oxide from two steps to
+twenty-eight, Hydrogen Bromide from two to thirty-two, Lye from five to
+twenty-seven.
+
+They are the ore loop working for the first time on those questions, and then
+`weighPlan` choosing between its answers by atoms, then units, then reactors,
+strictly in that order. Copper Oxide is the clearest: two Copper at one atom
+each against two Copper(I) Sulfide at three, which is the same two things
+bought and a third of the matter, so the atoms decide it -- and the plan behind
+the cheaper atoms takes twenty-five reactors rather than two. Sparr has called
+that trade wrong before, in as many words, when the welding work had Glass go
+"from one reactor to eighteen to save half an atom".
+
+So the bar is fixed and the ordering underneath it is not. Whether twenty-three
+reactors are worth four atoms is not a thing the measurement can settle.
+
+
+## Telling the states apart again, once the answer is settled
+
+The idea left at the end of the last section, built and measured. `TELL_STATES_APART`
+in `plan-fresh.js` turns it on; it is off.
+
+Once the collapsed answer is settled, the question is put again over just the
+steps it chose, with each state back on its own row and the crossings between
+them on the table, every supply pinned exactly where it stands, asking for the
+fewest runs. Twenty or thirty columns rather than nine hundred. The collapsed
+answer with its crossings filled in is a point of it, so it cannot fail to
+solve for any reason of its own, and with the supplies pinned the shopping list
+cannot move a unit.
+
+**It works.** The whole-numbered corners do live on the finer rows, and the
+batch penalty from collapsing disappears:
+
+```
+                     as shipped   +Water   +HF   +both
+aluminum (world)          2          2       2      2
+the four                  2          2       2      2
+potassium                 2          2       2      2
+columbite                 4          4       4      4
+```
+
+Every one of those was 4 or 8 in some column before. Every batch ceiling in
+`test-fresh.mjs` is met, and Aluminum out of Lepidolite comes in twos against a
+ceiling of four. Which also empties the batch half of the case for holding
+Water and Hydrofluoric Acid back: merged or apart, the batch is the same.
+
+**It is on.** It was gated off at first, on the grounds that the aluminium
+plan's Carbon charge stopped repaying itself: "six carbon made against five
+spent" at the larger batch against three against three at the smaller. That was
+misread. Five is the *charge*; the plan makes six and spends six. Carbon closes
+exactly at both sizes -- three and three at the smaller, six and six at the
+larger -- so neither fills its own pipe, and a charge that seeds the loop is
+the expected answer at either. Sparr, on the smaller: three in and three out
+needing a charge of one to three carbon is a perfectly fine outcome.
+
+Two checks in `test-fresh.mjs` named Carbon as a charge that does not hold the
+plan up. They are now written by the property rather than by the material, the
+way the check above them already was -- at least one charge holds the plan up,
+at least one does not, the asked-for ones are exactly the first kind and the
+rest are in `warmup` with their lag reported. The old wording also said the
+carbon's chain runs back to fetched Dolomite, and this plan buys Limestone
+Gravel.
+
+Cost: about a tenth of the wall clock, and eight of the hundred and ninety-four
+plans move. None loses an answer.
+
+Which also removed the last argument for `HELD_BACK`, and it is now empty.
+
+## Nothing held back
+
+The batch was the whole of the case against Hydrofluoric Acid and half the case
+against Water; the other half of Water's -- that Lithium Hydroxide bought five
+units where it bought two -- was the chamber-and-bar bug. With both gone, both
+names came out: 124 families, and Water, Steam, Hydrofluoric Acid and its gas
+collapse like everything else.
+
+`npm test` green, every batch ceiling met, Aluminum out of Lepidolite still in
+twos against a ceiling of four. Over the corpus: **183 identical, 11 moved, none
+lost an answer, none gained one**, and about a tenth faster. One fewer plan
+hands back an element nothing put in.
+
+Of the eleven:
+
+```
+four gain a rehydrated crossing and nothing else -- Aqueous Ammonium Iodide,
+     Aqueous Sodium Carbonate, Aqueous Tin Sulfate, Boric Acid. A phase step
+     costs no reactor, so these are the same plan said more fully.
+Hypochlorous Acid   charge of eleven things -> nothing at all
+Limestone Gravel    buys 24 units -> 8
+Silica              buys 14 units -> 7, and a shorter charge
+Selenium            one step fewer, one charge fewer
+Aqueous Lye         same everything but the order of two steps
+Copper Oxide        same rate, one Copper a unit either way; batch 2 -> 4,
+                    charge one thing -> four, and it now leaves nothing over
+Lithium Hydroxide   1.5 units a unit -> 2.75, and stops minting hydrogen
+```
+
+The last one is the trade worth reading. It used to buy two Lithium Oxide and
+conjure the hydrogen; it now buys the hydrogen and the hydrogen sulfide as
+well. Dearer, and honest -- it is the only plan of the eleven that got more
+expensive, and it got more expensive because it stopped cheating. Copper Oxide
+is the only place the merge costs anything at all, and what it costs is a
+doubled batch on a plan that leaves nothing behind.

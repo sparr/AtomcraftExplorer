@@ -27,7 +27,7 @@ globalThis.fetch = async () => ({
 
 const { loadData } = await import('../src/data.js');
 const { buildProcessGraph } = await import('../src/plan-graph.js');
-const { solveFresh, SOURCES } = await import('../src/plan-fresh.js');
+const { solveFresh, SOURCES, mergeableStates, WEIGH_BY } = await import('../src/plan-fresh.js');
 const { rnum } = await import('../src/rational.js');
 const { digest, optionSets, SCORES } = await import('../src/plan-menu.js');
 
@@ -49,16 +49,30 @@ const targets = spec.targets.map((n) => (typeof n === 'string' ? { name: n, amou
 const entries = [];
 let slowest = 0;
 const began = Date.now();
-for (const sources of optionSets([...SOURCES])) {
+const queue = optionSets([...SOURCES]).map((sources) => ({ options: sources }));
+// And the same question once more per family of states the planner holds back,
+// which is the other axis the page sweeps. See `sweepQueue` in plan-view.js.
+for (const { rep } of mergeableStates(graph)) {
+  queue.push({ options: [...(spec.sources || SOURCES)], merge: rep });
+}
+// And one per column the menu has, which is the order the finished answers are
+// weighed in. See `sweepQueue` in plan-view.js.
+for (const id of WEIGH_BY) {
+  queue.push({ options: [...(spec.sources || SOURCES)], weigh: id });
+}
+for (const { options: sources, merge, weigh } of queue) {
   const t0 = Date.now();
   let plan = null;
   try {
-    plan = solveFresh(graph, { ...spec, targets, sources });
+    plan = solveFresh(graph, { ...spec, targets, sources,
+                               mergeStates: merge ? [merge] : [],
+                               weigh: weigh ? [weigh] : [] });
   } catch (e) {
-    console.error(`  ${sources.join('+')} threw: ${e.message}`);
+    console.error(`  ${sources.join('+')}${merge ? ` +${merge}` : ''}` +
+                  `${weigh ? ` by ${weigh}` : ''} threw: ${e.message}`);
   }
   slowest = Math.max(slowest, Date.now() - t0);
-  entries.push({ options: sources, plan });
+  entries.push({ options: sources, merge, weigh, plan });
 }
 const took = Date.now() - began;
 
@@ -71,7 +85,10 @@ console.log(`${entries.length} runs in ${(took / 1000).toFixed(1)}s ` +
 console.log('\n' + SCORES.map((s) => s.short.padStart(7)).join(' ') + '   sources');
 for (const row of menu) {
   console.log(SCORES.map((s) => cell(row[s.id])).join(' ') + '   ' +
-              row.via[0].join('+') + (row.via.length > 1 ? ` (+${row.via.length - 1})` : '') +
+              (row.merge ? `${row.via[0].join('+')} [${row.merge} as one]`
+                : row.weigh ? `${row.via[0].join('+')} [${row.weigh} first]`
+                : row.via[0].join('+')) +
+              (row.via.length > 1 ? ` (+${row.via.length - 1})` : '') +
               (row.best.length ? `   best: ${row.best.join(', ')}` : ''));
 }
 if (barren.length) console.log(`\n${barren.length} combinations found no route at all.`);

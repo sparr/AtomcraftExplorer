@@ -24,18 +24,70 @@ export function atomsIn(graph, name, element) {
   if (!ast) return null;
   let total = 0;
   let ok = true;
-  const walk = (items, times) => {
+  /**
+   * The same arithmetic `tally` in `formula.js` does, and it has to be: this
+   * walked the tree itself and quietly dropped two node kinds it had no case
+   * for.
+   *
+   * A `coeff` is the number in front of a segment -- `HNO3 + 3HCl` for aqua
+   * regia, `CaSO4·2H2O` for gypsum, `2 H2` for Hydrogen Gas x2 -- and skipping
+   * it counted one hydrogen where there are four, three where there are three
+   * chlorine, and two hydrogen in a container that holds four. Which is what
+   * had `rx:Expansion of Hydrogen Gas x2` reading as making two hydrogen out
+   * of nothing: one packet in at two, two gas out at two each. It holds four,
+   * and `atoms` on the material has said so all along.
+   *
+   * A `pct` is a percentage, and 17% Co 83% Fe is not a count of anything --
+   * so it is not counted, it is declined. Dropping it silently made a unit of
+   * Molten Cobalt Steel read as one cobalt and one iron, and six of them out
+   * of one cobalt and five iron as five cobalt and an iron created.
+   */
+  const walk = (items, mult) => {
+    let pending = mult;
     for (const node of items) {
       if (!ok) return;
-      if (node.k === 'el') { if (node.sym === element) total += node.n * times; }
-      else if (node.k === 'group') {
-        if (node.branches.length !== 1) { ok = false; return; }
-        walk(node.branches[0], times * node.n);
-      } else if (node.k === 'unknown') { ok = false; return; }
+      switch (node.k) {
+        case 'coeff': pending = mult * node.n; break;
+        case 'el': if (node.sym === element) total += node.n * pending; break;
+        case 'group':
+          if (node.branches.length !== 1) { ok = false; return; }
+          walk(node.branches[0], node.n * pending);
+          break;
+        // A segment break ends whatever coefficient was in front of it.
+        case 'sep': pending = mult; break;
+        case 'pct': ok = false; return;
+        case 'unknown': ok = false; return;
+        default: break;
+      }
     }
   };
   walk(ast, 1);
-  return ok ? total : null;
+  if (!ok) return null;
+  /**
+   * And a unit may hold several formula-units of the substance.
+   *
+   * Liquid Oxygen's formula is `O2` and a unit of it holds four Oxygen Gas, so
+   * eight oxygen. The formula describes the substance; `matter` describes the
+   * unit, having been derived by following the phase ratios, and the game
+   * writes it both ways -- Liquid Hydrogen is written `H8` and carries its own
+   * packing, Liquid Oxygen is not. Sparr: liquid oxygen should be tallied as
+   * eight atoms. So the formula gives the proportions and `matter` gives the
+   * size.
+   *
+   * Only where the two divide evenly. `Ammonium Ion` sums to five and weighs
+   * four, a ratio of four fifths, and scaling by that would give fractions of
+   * an atom. A ratio that is not a whole number of formula-units means the
+   * formula is describing something other than the unit, and then the
+   * formula's own count stands.
+   *
+   * Two materials have a ratio other than one at all: Liquid Oxygen, which is
+   * scaled, and Ammonium Ion, which is declined.
+   */
+  const mine = graph.db.byName.get(name);
+  const whole = mine?.atoms
+    ? [...mine.atoms.values()].reduce((a, b) => a + b, 0) : 0;
+  const times = whole && mine.matter ? mine.matter / whole : 1;
+  return Number.isInteger(times) && times > 0 ? total * times : total;
 }
 
 /**
@@ -49,10 +101,34 @@ export function atomsIn(graph, name, element) {
  * Carbon and three Oxygen Gas going in and three Carbon Dioxide coming out:
  * one carbon atom in and three out.
  */
-export function mintsElement(graph, a, b, element) {
+/**
+ * Whichever of the two is named first.
+ *
+ * The handoff is looked for one way round -- what `a` makes that `b` eats --
+ * and a pair named the other way finds nothing and is declared unprovable at
+ * the first line. Three of the sixteen pairs `find-wheels.mjs` turns up are
+ * named that way: the manganese dissolve against the condense that hands the
+ * manganese back, the quicklime against the recipe that makes its hydrochloric
+ * acid, and the potassium sulfide decomposition against the recipe that makes
+ * the sulfide. All three were reported as "cannot count the H" or "cannot
+ * count the O" -- which was never the trouble, every material in them counts
+ * -- and all three exclusions sat disarmed.
+ *
+ * What they let through is not subtle. Asked for Oxygen Gas, the plan buys
+ * nothing at all and hands back three of it a batch, turning potassium and
+ * sulfur in a circle while the oxygen falls out of
+ * `rx:Potassium Sulfide Decomposition`, which takes two Potassium Sulfide and
+ * gives back two Potassium Oxide and two Sulfur Dioxide Gas.
+ *
+ * So the pair is tried the other way round before being given up on, which is
+ * what the comment beside `KNOWN_BUGS` always said happened. The arithmetic
+ * below nets the element whichever recipe is named first, so nothing else
+ * needs to change.
+ */
+export function mintsElement(graph, a, b, element, swapped = false) {
   if (!a || !b) return false;
   const shared = a.produces.find((o) => b.consumes.some((c) => c.name === o.name));
-  if (!shared) return false;
+  if (!shared) return swapped ? false : mintsElement(graph, b, a, element, true);
   const per = b.consumes.find((c) => c.name === shared.name).count;
   const times = shared.count / per;
 

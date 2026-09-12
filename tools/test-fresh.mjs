@@ -101,11 +101,48 @@ let met = 0, missed = 0, broke = 0;
  * is the same at both sizes was filling the pipe, and one that doubles with
  * the plant is holding it up.
  */
+/**
+ * And the plan does not find them until somebody reads them.
+ *
+ * Refusing each charge in turn means firing the whole factory again per
+ * charge, which makes the pass cost more than the solve and grow faster than
+ * it: on Lithium Oxide, twenty-seven steps took 1.2s, thirty-nine took 6.7s
+ * and forty-eight took 34.9s, against 1.25s for every solve in that question
+ * put together. Eleven ores were tried and ten of the answers thrown away on
+ * atoms, items and reactors, none of which ask about a charge -- so the
+ * question spent sixty-three seconds and read one charge list. Deferred, the
+ * same question takes four, and the plan below is the same plan.
+ */
+console.log('--- the charge pass waits to be asked');
+{
+  const held = solveFresh(graph, { targets: [{ name: 'Aluminum', amount: 1 }],
+                                   have: ['Lepidolite'], sources: ['world'] });
+  const own = Object.getOwnPropertyDescriptor(held, 'priming');
+  const first = held.priming;
+  const checks = [
+    ['a fresh plan holds its charges behind a getter, not a finished list',
+     !!own && typeof own.get === 'function'],
+    /**
+     * Asked twice it must not run twice -- the pass appends to arrays it
+     * captured, so a second run would hand back every charge doubled.
+     */
+    ['and asking again gets the same list, not the pass run a second time',
+     held.priming === first && held.priming.length === first.length],
+    ['the other three ways in agree with it',
+     held.primingAll === held.primingAll && held.warmup === held.warmup &&
+     held.warmupLag === held.warmupLag],
+  ];
+  for (const [what, ok] of checks) {
+    console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
+    if (ok) met++; else broke++;
+  }
+  console.log('');
+}
+
 console.log('--- what each charge is buying');
 {
   const alu = solveFresh(graph, { targets: [{ name: 'Aluminum', amount: 1 }],
                                   have: ['Lepidolite'], sources: ['world'] });
-  const of = (n) => alu.primingAll.find((c) => c.name === n);
   const checks = [
     ['every charge says whether it is holding the plan up',
      alu.primingAll.length > 0 && alu.primingAll.every((c) => typeof c.holdsUp === 'boolean'
@@ -120,12 +157,19 @@ console.log('--- what each charge is buying');
     ['at least one charge is holding the plan up',
      alu.primingAll.some((c) => c.holdsUp === true)],
     /**
-     * The carbon's chain runs back to Dolomite, which is fetched, so it does
-     * arrive -- later than it is first wanted. Withholding it costs the same
-     * output whether the plan is run once or twice.
+     * And at least one is not: its chain reaches something fetched, so it does
+     * arrive, later than it is first wanted.
+     *
+     * Named by the property rather than by the material, for the same reason
+     * the check above it is. This said "the Carbon, whose chain reaches
+     * fetched Dolomite, does not" -- and the plan buys Limestone Gravel rather
+     * than Dolomite, and its carbon loop closes exactly, three made against
+     * three spent, so a charge that seeds that loop is the expected answer and
+     * not a fault. Sparr, on the plan that does it: three in and three out
+     * needing a charge of one to three carbon is a perfectly fine outcome.
      */
-    ['the Carbon, whose chain reaches fetched Dolomite, does not',
-     of('Carbon')?.holdsUp === false],
+    ['at least one charge is not holding the plan up',
+     alu.primingAll.some((c) => c.holdsUp === false)],
     /**
      * So the reader is sent out for those and not the others, and told what
      * the first cycle costs while the plant fills its own pipes.
@@ -134,7 +178,8 @@ console.log('--- what each charge is buying');
      alu.priming.map((c) => c.name).sort().join() ===
      alu.primingAll.filter((c) => c.holdsUp).map((c) => c.name).sort().join()],
     ['the rest are the plant getting itself going, with the lag said out loud',
-     alu.warmup.some((c) => c.name === 'Carbon') && alu.warmupLag === 4],
+     alu.warmup.length > 0 && alu.warmup.every((c) => c.holdsUp === false) &&
+     alu.warmupLag === alu.warmup.reduce((a, c) => Math.max(a, c.lag || 0), 0)],
   ];
   for (const [what, ok] of checks) {
     console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);
@@ -202,7 +247,21 @@ console.log('--- what comes out of the ground can be bought, recipe or no');
      !fetchable(graph, 'Limestone', kinds, world)],
     ['so Steel buys the gravel rather than Dolomite to crack it out of',
      bought.includes('Limestone Gravel') && !bought.includes('Dolomite')],
-    ['and its shopping list is lighter for it (46 atoms before)', atoms <= 26],
+    /**
+     * The weight, not the route -- the route is the check above.
+     *
+     * This read `<= 26` against "46 atoms before", and both figures were
+     * computed with a Hematite that weighed one atom. It weighs five, which is
+     * what `Fe2O3` comes to: `assignMatter` was following ore smelting
+     * backwards as though it were a phase change, and anchoring the iron group
+     * on whichever member it reached first. Six Hematite and four Limestone
+     * Gravel is the same shopping list it always was, and it comes to fifty.
+     *
+     * The 46 it was being compared against was counted the same wrong way, so
+     * there is no honest comparison to restate -- only the corrected weight of
+     * the list the plan actually buys.
+     */
+    ['and its shopping list weighs what the ore in it weighs', atoms <= 50],
   ];
   for (const [what, ok] of checks) {
     console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);

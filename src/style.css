@@ -1162,3 +1162,8 @@ td.menu-num.is-best { color: var(--ok); font-weight: 600; }
   stroke-width: 2;
   stroke-dasharray: 3 3;
 }
+
+/* The ore cap got in the way of a plan that came back anyway: said beside the
+   step count, where the batch note already is, because it is the same kind of
+   remark -- something about the answer the answer itself cannot show. */
+.plan-capped { display: inline-flex; align-items: center; gap: .35rem; }

@@ -19,7 +19,7 @@ import { routesFor } from './routes.js';
 import { drawPlan } from './plan-picture.js';
 import { rat, rmul, rsub, rdiv, rstr, rcmp, R0 } from './rational.js';
 import { solveFresh, blankFresh, questionShape, oreReach, oreCandidates,
-         withElements, normalizeFresh,
+         withElements, normalizeFresh, mergeableStates, WEIGH_BY,
          SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
 import { rnum } from './rational.js';
@@ -477,6 +477,34 @@ function renderSteps() {
       `would take a fraction of one, so the whole plan is multiplied by ` +
       `${rstr(solved.scale)}.`;
     head.append(note);
+  }
+  /**
+   * Say when the cap was in the way of a plan that came back anyway.
+   *
+   * Sparr: there should be an indicator when a plan was affected by the cap and
+   * increasing it might improve the result. The no-plan path has said this for
+   * a while; an answer that came back is the harder case, because nothing about
+   * it looks wrong. Asked for Silica the six cheapest ores give one answer and
+   * the seventh gives a better one, and until this there was nothing to
+   * suggest looking.
+   *
+   * "Might" is the whole of the claim. Spending more is another whole solve
+   * each and may turn up nothing, which is why it is offered rather than done.
+   */
+  if (solved.oreCap) {
+    const next = Math.min(plan.oreTries * 2, ORE_TRIES_MAX, solved.oreCap.of);
+    const capped = el('span', 'muted plan-capped');
+    capped.append(`one of the ${solved.oreCap.tried} cheapest ores of ` +
+                  `${solved.oreCap.of}; another may do better `);
+    if (next > plan.oreTries) {
+      capped.append(button('ghost small', `Try ${next}`,
+        `Each one is another whole solve, so this will take longer`,
+        () => edit(setPlanOption, 'oreTries', next)));
+    }
+    capped.title = `With nothing in hand the plan buys one material carrying ` +
+      `what you asked for, and the cheapest ${solved.oreCap.tried} of ` +
+      `${solved.oreCap.of} were tried. The rest were not looked at.`;
+    head.append(capped);
   }
   box.append(head);
 
@@ -1355,6 +1383,7 @@ function renderOptions() {
   for (const [id, cb] of sourceBoxes) cb.checked = plan.sources.includes(id);
 
   $('#plan-ores').value = String(plan.oreTries);
+  $('#plan-weigh').value = plan.weigh[0] || '';
   $('#plan-leftovers').checked = plan.keepLeftovers;
   $('#plan-avoid').checked = plan.avoidSideEffects;
 }
@@ -1455,23 +1484,76 @@ const menuTools = () => ({
  */
 function sweepQueue(ask) {
   const queue = optionSets([...SOURCES]).map((options) => ({ options }));
+  /**
+   * And the ores only where the solver would consider one at all.
+   *
+   * Buying a material that carries the answer is the one exemption the planner
+   * allows, and only when nothing in hand carries it -- `oreReach` is that
+   * condition, returning null where the question is already started. This
+   * asked `oreCandidates` outright and got the exemption's own list, which is
+   * a list of things containing what was asked for. Asked for Tantalum and
+   * Niobium out of Columbite, which carries both, the menu offered five rows
+   * buying niobic and tantalic acids: answers the planner refuses to consider
+   * and the reader never wanted, since those are the want.
+   */
   let ores = [];
   try {
-    ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
+    if (oreReach(ctx.graph, ask)) {
+      ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
+    }
   } catch { ores = []; }
   for (const ore of ores) queue.push({ options: [...ask.sources], ore });
+  /**
+   * And one more per family of states the planner will not merge on its own.
+   *
+   * The planner treats a substance's states as one material wherever the
+   * crossing goes both ways one for one, which is nearly always an
+   * improvement and is sometimes a trade. Where it is a trade the family is
+   * held back and the question is asked both ways here instead, because the
+   * two answers differ in a way no single rule can settle: asked for the four
+   * out of Lepidolite, merging Water and Steam has the plan condense its steam
+   * and reuse it, so nothing needs laying in -- and offers it in batches of
+   * four rather than two. Neither beats the other, which is what the menu is
+   * for.
+   *
+   * Asked against the sources the plan is already using, for the same reason
+   * the ore questions are: the answer to "may these be one substance" does not
+   * usually turn on which categories are switched on.
+   */
+  for (const { rep } of mergeableStates(ctx.graph)) {
+    queue.push({ options: [...ask.sources], merge: rep });
+  }
+  /**
+   * And one more per thing the menu has a column for.
+   *
+   * Which ore a plan starting from nothing buys is settled by weighing the
+   * finished answers, and the order that weighing goes in was fixed: atoms,
+   * then items, then reactors. Read strictly that pays twenty-five reactors to
+   * save an atom, and anything the reader can be shown a column of is
+   * something they can reasonably ask to be optimised for instead. Asked for
+   * Carbon it is five reactors and a third of an atom a unit, or one reactor
+   * and a whole one -- and nothing could offer the second.
+   *
+   * Against the sources the plan is already using, like the ore and the states,
+   * because the answer to "which of these do I care about" does not usually
+   * turn on which categories are switched on.
+   */
+  for (const id of WEIGH_BY) {
+    queue.push({ options: [...ask.sources], weigh: id });
+  }
   return queue;
 }
 
 function startSweep(ask) {
   const token = ++sweepToken;
-  sweep = { key: questionKey(ask), ask, entries: [], queue: sweepQueue(ask),
+  const queue = sweepQueue(ask);
+  sweep = { key: questionKey(ask), ask, entries: [], queue, total: queue.length,
             token, shapes: new Map() };
   const turn = () => {
     if (!sweep || sweep.token !== token) return;      // a newer question won
     const step = sweep.queue.shift();
     if (!step) { sweep.queue = null; renderMenu(); return; }
-    const { options, ore } = step;
+    const { options, ore, merge, weigh } = step;
     /**
      * Two source sets can be the same question wearing different clothes.
      *
@@ -1483,7 +1565,15 @@ function startSweep(ask) {
      * the same answer more slowly.
      */
     let answer = null;
-    const asked = { ...ask, sources: options, ...(ore ? { oreAllowed: [ore] } : {}) };
+    /**
+     * Said outright rather than inherited, so pressing a row gives the plan
+     * that was scored. A row offering a merge asks for exactly that one; every
+     * other row asks the way the planner would on its own, which is what makes
+     * the choice reversible from the menu that offered it.
+     */
+    const asked = { ...ask, sources: options, mergeStates: merge ? [merge] : [],
+                    weigh: weigh ? [weigh] : [],
+                    ...(ore ? { oreAllowed: [ore] } : {}) };
     // The shape says two source sets are the same question. It knows nothing
     // about which ore may be bought, so an ore question is never served from it.
     const shape = ore ? null : questionShape(ctx.graph, asked);
@@ -1495,7 +1585,7 @@ function startSweep(ask) {
       } catch { answer = null; }                      // a combination that cannot: a row of its own
       if (shape !== null) sweep.shapes.set(shape, answer);
     }
-    sweep.entries.push({ options, ore, plan: answer });
+    sweep.entries.push({ options, ore, merge, weigh, plan: answer });
     renderMenu();
     setTimeout(turn, 0);
   };
@@ -1508,7 +1598,23 @@ function menuRow(row, table) {
   const tr = el('tr', 'menu-row');
   const isOre = !!row.ore;
   const oreNow = plan.oreAllowed.length === 1 && plan.oreAllowed[0] === row.ore;
-  if (sameSources(row.via[0], plan.sources) && (isOre ? oreNow : !plan.oreAllowed.length)) {
+  const mergeNow = row.merge
+    ? plan.mergeStates.length === 1 && plan.mergeStates[0] === row.merge
+    : !plan.mergeStates.length;
+  const weighNow = row.weigh
+    ? plan.weigh.length === 1 && plan.weigh[0] === row.weigh
+    : !plan.weigh.length;
+  /**
+   * Highlighted when this row is the plan on the table, by any way in.
+   *
+   * It compared the reader's sources against `row.via[0]`, which is the
+   * *shortest* set that reaches the row rather than the one they are on -- so a
+   * row offered as "made (+7)" never matched anybody holding the usual four,
+   * and the board went unhighlighted on nearly every question.
+   */
+  const hereNow = row.via.some((v) => sameSources(v, plan.sources));
+  if (hereNow && mergeNow && weighNow &&
+      (isOre ? oreNow : !plan.oreAllowed.length)) {
     tr.classList.add('is-current');
   }
   for (const score of SCORES) {
@@ -1523,13 +1629,33 @@ function menuRow(row, table) {
    * using, so naming those again would be noise; what distinguishes them is
    * the thing on the shopping list.
    */
+  /**
+   * A merged row is named by the substance, not by the machinery.
+   *
+   * "Water and Steam as one" is a thing a reader can decide about; the family
+   * representative on its own is not, and neither is anything with the word
+   * collapse in it.
+   */
+  const mergeLabel = (rep) => {
+    const fam = mergeableStates(ctx.graph).find((f) => f.rep === rep);
+    const names = (fam ? fam.members : [rep])
+      .map((n) => ctx.db.byName.get(n)?.display ?? n)
+      .sort((a, b) => (a === rep ? -1 : b === rep ? 1 : a.localeCompare(b)));
+    return `${listed(names)} as one`;
+  };
   const label = row.ore
     ? `buy ${ctx.db.byName.get(row.ore)?.display ?? row.ore}`
-    : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+    : row.merge
+      ? mergeLabel(row.merge)
+      : row.weigh
+        ? `${SCORES.find((s) => s.id === row.weigh)?.label ?? row.weigh} first`
+        : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
   const pick = button('link', label, `Switch the plan to ${label}`,
-                      () => setPlan(row.ore
-                        ? { ...plan, sources: [...row.via[0]], oreAllowed: [row.ore] }
-                        : { ...plan, sources: [...row.via[0]], oreAllowed: [] }));
+                      () => setPlan({ ...plan,
+                                      sources: [...row.via[0]],
+                                      oreAllowed: row.ore ? [row.ore] : [],
+                                      mergeStates: row.merge ? [row.merge] : [],
+                                      weigh: row.weigh ? [row.weigh] : [] }));
   via.append(pick);
   if (row.via.length > 1) {
     via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
@@ -1577,16 +1703,17 @@ function renderMenu() {
 
   if (!mine) {
     body.textContent = '';
-    status.textContent = 'Thirty-one ways to answer this, scored side by side. It takes a moment.';
+    status.textContent = 'Every way to answer this, scored side by side. It takes a moment.';
     return;
   }
 
   const { menu, distinct, barren } =
     digest(sweep.entries, menuTools(), { keepLeftovers: plan.keepLeftovers });
   const done = sweep.entries.length;
+  const total = sweep.total ?? 31;
   status.textContent = running
-    ? `${done} of 31 tried…`
-    : `${distinct} different answer${distinct === 1 ? '' : 's'} from 31 ways of asking` +
+    ? `${done} of ${total} tried…`
+    : `${distinct} different answer${distinct === 1 ? '' : 's'} from ${total} ways of asking` +
       (barren.length ? `; ${barren.length} found no route at all` : '');
 
   body.textContent = '';
@@ -1636,6 +1763,8 @@ export function render() {
     // Empty is the usual case and means the solver picks; a row of the menu
     // having been pressed is what puts one here.
     ...(plan.oreAllowed.length ? { oreAllowed: plan.oreAllowed } : {}),
+    ...(plan.mergeStates.length ? { mergeStates: plan.mergeStates } : {}),
+    ...(plan.weigh.length ? { weigh: plan.weigh } : {}),
   };
   shownTargets = targetsFor(question);
 
@@ -1774,6 +1903,34 @@ export function initPlan(context) {
     if (Number.isFinite(n) && n > 0) edit(setOption, 'oreTries', Math.min(n, ORE_TRIES_MAX));
     else e.target.value = String(plan.oreTries);
   });
+  /**
+   * Which cost decides between two finished plans, said outright.
+   *
+   * The scoreboard offers this a row at a time -- press "reactors first" and
+   * it sets itself -- which only helps a reader who has run the comparison and
+   * noticed. It belongs beside the other budgets as well, since it is one.
+   *
+   * Empty means the order it has always used: atoms, then items, then
+   * reactors. Anything else puts that cost first and lets the rest of the
+   * board break the ties behind it.
+   */
+  {
+    const pick = $('#plan-weigh');
+    const opt = (value, label) => {
+      const o = document.createElement('option');
+      o.value = value;
+      o.textContent = label;
+      pick.append(o);
+    };
+    opt('', 'atoms, then items, then reactors');
+    for (const id of WEIGH_BY) {
+      opt(id, `${SCORES.find((s) => s.id === id)?.label ?? id} first`);
+    }
+    pick.addEventListener('change', (e) => {
+      const id = e.target.value;
+      edit(setOption, 'weigh', id ? [id] : []);
+    });
+  }
   $('#toggle-plan-picture').addEventListener('click', togglePicture);
   // Rows or columns, since a plan is a long thin thing and a page scrolls down.
   // Reactions with the materials written on the arrows, or a node for each.
