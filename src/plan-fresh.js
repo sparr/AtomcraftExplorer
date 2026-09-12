@@ -556,6 +556,44 @@ const inputsOf = (p) => [...p.consumes, ...p.requires];
  * whichever is named first -- so the exclusion still lifts itself if the game
  * is ever fixed.
  */
+/**
+ * Recipes that gain an element, barred only from the questions they could
+ * answer with it.
+ *
+ * Sparr: ban it for plans that are trying to output that element, and not
+ * otherwise. A recipe that hands back a chlorine it was not given is only
+ * load-bearing where the chlorine is wanted -- asked for Hydrogen Bromide it
+ * is how the bromide gets its hydrogen, and asked for Tantalum it is a step
+ * nobody takes. Barring it outright costs every route through it on every
+ * question; barring it where the want is made of what it mints costs nothing
+ * anywhere else.
+ *
+ * Hand-curated, because the scan that would fill it in cannot yet tell a wrong
+ * recipe from a wrong formula: 177 processes gain atoms and most of them gain
+ * them because an aqueous form parses without its water, or because Aqueous
+ * Bromine parses as one bromine rather than two. What belongs here is the
+ * other kind, where every formula in the recipe parses and none of them is a
+ * mixture, so there is nothing left to blame but the recipe.
+ *
+ * `rx:Hydrochloric Acid Dissolves Steel` is the first: one Hydrochloric Acid
+ * and one Steel give one Iron(II) Chloride and one Hydrogen Gas, which is a
+ * chlorine and a hydrogen more than went in. The chemistry is `Fe + 2 HCl`,
+ * and the recipe says one. Twelve runs of it in the Hydrogen Bromide plan.
+ */
+const MINTS_INTO_WANT = [
+  { drop: 'rx:Hydrochloric Acid Dissolves Steel', mints: ['Cl', 'H'] },
+];
+
+/** The barred-where-it-would-be-used list, as the candidate walk asks it. */
+function mintsWhatIsWanted(spec) {
+  if (!spec.wanted || !spec.wanted.length) return new Set();
+  const out = new Set();
+  for (const { drop, mints } of MINTS_INTO_WANT) {
+    if (spec.wanted.some((want) => mints.some((el) => want.has(el)))) out.add(drop);
+  }
+  return out;
+}
+
 const KNOWN_BUGS = [
   { drop: 'rx:Molten Steel + Oxygen Gas', with: 'rx:Steel Alloy', mints: 'C' },
   /**
@@ -689,6 +727,9 @@ const subgraphKey = (spec) => JSON.stringify([
   [...spec.have].sort(),
   spec.targets.map((t) => t.name).sort(),
   [...spec.excludeProcesses].sort(),
+  // Barred-where-wanted depends on what is being made, which the target names
+  // above already say -- but through their elements, so it is spelled out.
+  [...mintsWhatIsWanted(spec)].sort(),
   [...spec.excludeMaterials].sort(),
   spec.oreTries,
   /**
@@ -812,8 +853,10 @@ function walkSubgraph(graph, spec) {
   const digsIn = (p) => p.kind !== 'mine' && p.kind !== 'handling' &&
     inputsOf(p).some((i) => landscape(graph, i.name));
 
+  const mintsWanted = mintsWhatIsWanted(spec);
   const usable = (p) => kinds.has(p.kind) &&
     !buggy.has(p.id) &&
+    !mintsWanted.has(p.id) &&
     !spec.excludeProcesses.has(p.id) &&
     !staticFeed(p) &&
     !digsIn(p) &&
@@ -1518,7 +1561,16 @@ export function phaseFamilies(graph, merge = null) {
   if (!store) familyCache.set(graph, store = new Map());
   let found = store.get(key);
   if (found) return found;
-  const edge = new Set();
+  /**
+   * A crossing, and what it is worth.
+   *
+   * `in` of one material become `out` of the other, so one unit of the first
+   * is worth `out/in` of the second. One for one is the common case and it is
+   * not the only one: four Oxygen Gas condense into one Liquid Oxygen, which
+   * is the same substance packed four to a unit rather than a different
+   * substance.
+   */
+  const edge = new Map();
   /**
    * The step that makes each crossing, so a family can be travelled and not
    * merely recognised. Chains count -- `chain:heat:Aluminum#2` is one step
@@ -1533,10 +1585,11 @@ export function phaseFamilies(graph, merge = null) {
     const ins = inputsOf(p);
     const outs = p.produces;
     if (ins.length !== 1 || outs.length !== 1) continue;
-    if (ins[0].count !== 1 || outs[0].count !== 1) continue;
+    if (!ins[0].count || !outs[0].count) continue;
     const key = `${ins[0].name}|${outs[0].name}`;
-    edge.add(key);
-    if (hop.has(key)) continue;
+    if (edge.has(key)) continue;
+    edge.set(key, { from: ins[0].name, to: outs[0].name,
+                    taken: ins[0].count, given: outs[0].count });
     hop.set(key, p.id);
     if (!next.has(ins[0].name)) next.set(ins[0].name, []);
     next.get(ins[0].name).push(outs[0].name);
@@ -1547,11 +1600,23 @@ export function phaseFamilies(graph, merge = null) {
     return x;
   };
   for (const m of graph.db.materials) parent.set(m.name, m.name);
-  for (const key of edge) {
-    const [a, b] = key.split('|');
-    if (!edge.has(`${b}|${a}`)) continue;
-    const x = find(a);
-    const y = find(b);
+  /**
+   * Joined when the crossing comes back, and comes back to where it started.
+   *
+   * The return trip is the whole of the test, and it has to close: the two
+   * ratios must be reciprocal. Four gas into one liquid and one liquid into
+   * four gas closes, and is a packing ratio. One vapour into two oil and one
+   * oil into two vapour does not, and is how a round trip mints matter -- so
+   * that pair stays two materials and both columns stay in the model.
+   */
+  const joined = [];
+  for (const [key, e] of edge) {
+    const back = edge.get(`${e.to}|${e.from}`);
+    if (!back) continue;
+    if (e.given * back.given !== e.taken * back.taken) continue;
+    joined.push(e);
+    const x = find(e.from);
+    const y = find(e.to);
     if (x !== y) parent.set(x, y);
   }
   const members = new Map();
@@ -1588,15 +1653,70 @@ export function phaseFamilies(graph, merge = null) {
     for (const m of family.get(rep) || []) repOf.delete(m);
     family.delete(rep);
   }
+  /**
+   * What a unit of each member is worth, in units of the one that stands for
+   * the family.
+   *
+   * One for one is the common case and it is not the only one: a Liquid Oxygen
+   * is four Oxygen Gas, so its coefficients go into the row multiplied by four
+   * and come back out divided by four at hydration. Walked out from the
+   * representative over the crossings that closed, which is what makes the
+   * number well defined -- and checked afterwards against every crossing in
+   * the family, because a family whose scales disagree with one of its own
+   * crossings is one where some route round it gains, and that is a family
+   * this has no business collapsing.
+   */
+  const scale = new Map();
+  {
+    const within = new Map();
+    for (const e of joined) {
+      if (!repOf.has(e.from) || repOf.get(e.from) !== repOf.get(e.to)) continue;
+      if (!within.has(e.from)) within.set(e.from, []);
+      if (!within.has(e.to)) within.set(e.to, []);
+      within.get(e.from).push(e);
+      within.get(e.to).push(e);
+    }
+    for (const [rep, members] of family) {
+      scale.set(rep, rat(1));
+      const queue = [rep];
+      for (let i = 0; i < queue.length; i++) {
+        const at = queue[i];
+        for (const e of within.get(at) || []) {
+          // `taken` of `from` are `given` of `to`, so one `from` is worth
+          // `given / taken` of `to` -- and the other way round inverts it.
+          const [near, far, times] = e.from === at
+            ? [e.from, e.to, rat(e.taken, BigInt(e.given))]
+            : [e.to, e.from, rat(e.given, BigInt(e.taken))];
+          if (scale.has(far)) continue;
+          scale.set(far, rmul(scale.get(near), times));
+          queue.push(far);
+        }
+      }
+      // Every crossing has to agree with the scales, or the family is unsound.
+      let sound = members.every((m) => scale.has(m));
+      for (const m of members) {
+        for (const e of within.get(m) || []) {
+          if (!scale.has(e.from) || !scale.has(e.to)) { sound = false; continue; }
+          if (rcmp(rmul(scale.get(e.from), rat(e.taken)),
+                   rmul(scale.get(e.to), rat(e.given))) !== 0) sound = false;
+        }
+      }
+      if (sound) continue;
+      for (const m of members) { repOf.delete(m); scale.delete(m); }
+      family.delete(rep);
+    }
+  }
   const stands = (n) => repOf.get(n) ?? n;
+  /** What one unit of it is worth on its family's row. One, where it has none. */
+  const worth = (n) => scale.get(n) ?? rat(1);
   /**
    * How to get from one member of a family to another, as steps.
    *
-   * Inside a family every crossing is one for one in both directions, so the
-   * journey neither gains nor loses anything and the count carries through
-   * unchanged however many hops it takes. It stays inside the family on
-   * purpose: `evap:Sand` is a one-for-one crossing too and it does not come
-   * back, so following it would have the plan freezing molten silica into sand.
+   * The journey neither gains nor loses anything -- that is what being a
+   * family means -- though the count may change along the way where a member
+   * packs several units into one. It stays inside the family on purpose:
+   * `evap:Sand` is a crossing that does not come back, so following it would
+   * have the plan freezing molten silica into sand.
    */
   const route = (from, to) => {
     if (from === to) return [];
@@ -1618,7 +1738,7 @@ export function phaseFamilies(graph, merge = null) {
     }
     return null;
   };
-  found = { repOf, family, stands, route };
+  found = { repOf, family, stands, route, worth };
   store.set(key, found);
   return found;
 }
@@ -1641,6 +1761,10 @@ export function model(graph, spec, procs, materials, collapse = true) {
    */
   const whole = phaseFamilies(graph, spec.mergeStates);
   const stands = collapse ? whole.stands : ((n) => n);
+  // What one unit of a material is worth on its family's row: four, for a
+  // Liquid Oxygen counted in Oxygen Gas. One for everything with a row to
+  // itself, which is everything at all when the states are kept apart.
+  const worth = collapse ? whole.worth : (() => rat(1));
   const family = collapse ? whole.family : new Map();
   /**
    * And the steps whose whole effect was to move between those rows go.
@@ -1658,10 +1782,13 @@ export function model(graph, spec, procs, materials, collapse = true) {
    */
   const nulled = (p) => {
     const net = new Map();
-    const bump = (name, v) => net.set(stands(name), (net.get(stands(name)) || 0) + v);
-    for (const o of p.produces) bump(o.name, o.count);
-    for (const c of inputsOf(p)) bump(c.name, -c.count);
-    for (const v of net.values()) if (v !== 0) return false;
+    const bump = (name, v) => {
+      const key = stands(name);
+      net.set(key, radd(net.get(key) || R0, rmul(v, worth(name))));
+    };
+    for (const o of p.produces) bump(o.name, rat(o.count));
+    for (const c of inputsOf(p)) bump(c.name, rsub(R0, rat(c.count)));
+    for (const v of net.values()) if (!rzero(v)) return false;
     return true;
   };
   procs = procs.filter((p) => !nulled(p));
@@ -1715,8 +1842,10 @@ export function model(graph, spec, procs, materials, collapse = true) {
   };
   for (const p of procs) {
     const i = index.get(p.id);
-    for (const o of p.produces) put(stands(o.name), i, rat(o.count));
-    for (const c of inputsOf(p)) put(stands(c.name), i, rsub(R0, rat(c.count)));
+    for (const o of p.produces) put(stands(o.name), i, rmul(rat(o.count), worth(o.name)));
+    for (const c of inputsOf(p)) {
+      put(stands(c.name), i, rsub(R0, rmul(rat(c.count), worth(c.name))));
+    }
   }
   /**
    * A column to buy each member, all paying into the one row.
@@ -1727,12 +1856,12 @@ export function model(graph, spec, procs, materials, collapse = true) {
    * something you could actually go and get, and the balance it answers is the
    * family's.
    */
-  for (const [name, i] of supply) put(stands(name), i, rat(1));
+  for (const [name, i] of supply) put(stands(name), i, worth(name));
 
   const demand = new Map();
   for (const t of spec.targets) {
     const key = stands(t.name);
-    demand.set(key, radd(demand.get(key) || R0, rat(t.amount)));
+    demand.set(key, radd(demand.get(key) || R0, rmul(rat(t.amount), worth(t.name))));
   }
   const rows = [];
   const constrained = new Set();
@@ -2229,6 +2358,30 @@ function freeLunch(graph, spec, plan) {
    */
   const chewed = (name) => procs.some((p) => inputsOf(p).some((i) => i.name === name));
   const asked = [...spun].filter(chewed).concat([...spun].filter((n) => !chewed(n)));
+  /**
+   * Whether there is a wheel at all, before asking which material it turns on.
+   *
+   * Every row already says that material comes out even or ahead, so if any of
+   * them can come out ahead their sum can, and if their sum cannot then none of
+   * them can. One solve answers that, where finding the culprit takes one per
+   * material -- and almost every plan is honest, so almost every plan pays only
+   * for the one.
+   *
+   * It matters because this runs on every plan and every round. Asking per
+   * material cost a fifth of the wall clock across the corpus, spread evenly:
+   * a seventh on the quick questions and a fifth on the slow ones.
+   */
+  {
+    const cost = new Map();
+    for (const [, coeffs] of net) {
+      for (const [i, v] of coeffs) if (v !== 0) cost.set(i, (cost.get(i) || 0) - v);
+    }
+    const any = solveLPFloat({ vars: procs.length, rows, cost });
+    if (!any.ok) return null;
+    let total = 0;
+    for (const [, coeffs] of net) for (const [i, v] of coeffs) total += v * any.x[i];
+    if (total <= 1e-6) return null;
+  }
   for (const name of asked) {
     const coeffs = net.get(name);
     if (!coeffs) continue;
@@ -3551,7 +3704,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
     const v = x[index.get(p.id)];
     if (!rzero(v)) mul = lcm(mul, v.d);
   }
-  const scale = rat(mul);
+  let scale = rat(mul);
   const runs = new Map();
   for (const p of procs) {
     const v = rmul(x[index.get(p.id)], scale);
@@ -3597,20 +3750,36 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
    * settled by the solve.
    */
   {
-    const { family, stands, route } = phaseFamilies(graph, spec.mergeStates);
+    const { family, stands, route, worth } = phaseFamilies(graph, spec.mergeStates);
     const prices = fetchPrices(graph, spec.kinds);
     const netOf = (name) =>
       rsub(made.get(name) || R0, radd(used.get(name) || R0, asked.get(name) || R0));
     const crossed = [];
-    const cross = (path, n) => {
-      for (const id of path) runs.set(id, radd(runs.get(id) || R0, n));
+    /**
+     * Counted in the family's own units, not in anybody's.
+     *
+     * A member may pack several units into one -- a Liquid Oxygen is four
+     * Oxygen Gas -- so a shortfall of two Liquid Oxygen and a surplus of two
+     * Oxygen Gas are not the same quantity and cannot be netted against each
+     * other as written. Everything below is in units of the material that
+     * stands for the family, which is what the row was counting all along, and
+     * each crossing is run as many times as it takes to move that much: the
+     * step gives `count` of its output, and each of those is `worth` of them.
+     */
+    const cross = (path, units) => {
+      for (const id of path) {
+        const q = graph.byId.get(id);
+        const out = q.produces[0];
+        const each = rmul(rat(out.count), worth(out.name));
+        runs.set(id, radd(runs.get(id) || R0, rdiv(units, each)));
+      }
       crossed.push(...path);
     };
     for (const [, members] of family) {
       const short = [];
       const over = [];
       for (const m of members) {
-        const n = netOf(m);
+        const n = rmul(netOf(m), worth(m));
         if (rcmp(n, R0) < 0) short.push([m, rsub(R0, n)]);
         else if (rcmp(n, R0) > 0) over.push([m, n]);
       }
@@ -3648,7 +3817,26 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
         if (path && path.length) cross(path, want[1]);
       }
     }
-    if (crossed.length) {
+    /**
+     * And the batch grows to whatever makes the crossings whole too.
+     *
+     * Four Oxygen Gas go into a Liquid Oxygen, so a plan short of one Liquid
+     * Oxygen condenses once and a plan short of one Oxygen Gas condenses a
+     * quarter of a time, which is no more a thing you can do than running a
+     * reactor four sevenths of a time. The same answer serves: multiply up
+     * until every count is whole. It costs nothing where every crossing
+     * already divides, which is every family but the eight that pack.
+     */
+    let more = 1n;
+    for (const v of runs.values()) if (!rzero(v)) more = lcm(more, v.d);
+    if (more !== 1n) {
+      mul *= more;
+      scale = rat(mul);
+      const by = rat(more);
+      for (const [id, v] of runs) runs.set(id, rmul(v, by));
+      for (const [name, v] of asked) asked.set(name, rmul(v, by));
+    }
+    if (crossed.length || more !== 1n) {
       ({ made, used } = tally());
       if (notes) notes.push(`phase: put back ${[...new Set(crossed)].sort().join(', ')}`);
     }

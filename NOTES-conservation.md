@@ -184,18 +184,96 @@ formula parses **and no material in them is an aqueous or mixture form** would
 be a short list somebody could read, and the filter in bold is the judgement
 call -- which materials the formulas can be trusted about. Not built here.
 
-## Still open: the 4:1 families
+## The 4:1 families, built
 
 Sparr: the 4:1 ratio can share a row if the coefficients are scaled by four
 going in and quartered coming back out. Quite right, and the reason given
 earlier for leaving Oxygen Gas and Liquid Oxygen apart -- that the arithmetic
-forbids it -- was wrong. A family needs the round trip to compose to identity,
-not to be one for one; the row can be denominated in one member's units with a
-scale per member, and `stands()` would return a factor alongside a name. The
-crossings stay droppable, `assemble` divides back at hydration, and the
-packing chains come in with it.
+forbids it -- was wrong.
 
-What it would want watching: `perAtom` weighs a row's leftovers by `matter`,
-which already accounts for packing, so the two would have to agree; and the
-supply columns are per member, so a scaled row means a scaled supply
-coefficient too. Not attempted.
+A family now needs the round trip to *close*, not to be one for one: the two
+ratios must be reciprocal. Four gas into one liquid and one liquid into four
+gas closes, and is a packing ratio.
+
+**Nothing currently fails that test**, and it is worth saying so rather than
+implying otherwise. Of 946 one-in one-out phase steps, 204 pairs have a return
+trip and every one of them closes; the other 538 are one way only -- the
+cracking steps, which have no partner and are excluded by the older rule that
+the trip has to come back at all. What the check actually guards is the claim
+in `plan-graph.js` that a pair's two `Amount` fields are the same ratio stated
+twice: `evap:A` reads A's `Evaporation.Amount` and `cond:B` reads B's
+`Condensation.Amount`, which are different fields on different materials and
+are only equal because the game writes them that way. If a future data drop
+ever disagreed, this is what would notice.
+
+An earlier draft of this note cited "one vapour into two oil against one oil
+into two vapour" as a live example of a pair the test rejects. It is not one:
+that is the shape of the *old* reading bug, from before `Condensation.Amount`
+was understood as an input count, and it has not existed in the graph since
+that was fixed.
+
+`phaseFamilies` walks a scale out from the representative over the crossings
+that closed and then checks it against every crossing in the family, dropping
+any family whose scales disagree with one of its own -- because a family like
+that has a route round it that gains, and collapsing it would bake the gain in.
+
+`worth(name)` is what one unit is worth on its family's row. Coefficients,
+supply columns and demand all go in multiplied by it, `nulled` nets with it so
+a 4:1 crossing still reads as the no-op it is, and `assemble` nets the family
+in row units and runs each crossing as many times as it takes to move that
+much. A crossing that does not divide evenly grows the batch, the same way a
+reaction that does not divide evenly always has.
+
+Eight families gained a packing ratio: Liquid Oxygen and Liquid Hydrogen at
+four to one, and the five petroleum vapours plus ethanol at one to two.
+
+Asked for Liquid Oxygen, the plan is now the Oxygen Gas plan and a condense --
+the same four reactors, the same two Osmium Arsenosulfide, four gas to the
+litre -- which is what it should always have been. Over the corpus the change
+moves no plan at all: 194 identical, none lost, none gained.
+
+
+## Barring a minting recipe only where it would be used
+
+Sparr: ban it for plans trying to output that element, and not otherwise.
+
+`MINTS_INTO_WANT` is a hand-curated list of recipes that gain an element, and
+the candidate walk drops one only when some target is made of what it mints. A
+recipe that hands back a chlorine it was not given is load-bearing only where
+chlorine is wanted; elsewhere it is a step nobody takes, and barring it there
+would cost routes for nothing.
+
+One entry so far, the one traced above:
+
+```
+rx:Hydrochloric Acid Dissolves Steel   mints Cl, H
+```
+
+Over the corpus: **187 of 194 identical, seven moved, none lost, none gained**,
+and slightly faster. The seven are the ones it was aimed at:
+
+```
+Ammonium Chloride        Cl H    ->  nothing
+Hydrogen Bromide         Br Cl H ->  nothing        now buys bromine and hydrogen
+Molten Ammonium Nitrate  C H     ->  nothing
+Aqueous Lye              Cl H O  ->  O
+Lye                      Cl H O  ->  O
+Hypochlorous Acid        Cl H O  ->  H O
+Methane                  nothing ->  nothing
+```
+
+The residue of plans that hand back something other than hydrogen, oxygen or a
+transmutation product goes from seven to **two**.
+
+### On "definitely does not contain enough"
+
+Sparr's other suggestion, and it is sound. `mintsElement` gives up the moment a
+formula will not parse -- "cannot say, so do not claim" -- because it is asking
+for an exact count. The one-sided question does not need one: a material's
+`matter` is its total atoms, so it is an upper bound on how much of any single
+element it can hold. Where a recipe's outputs carry provably more of an element
+than its inputs can possibly hold, it mints, formula or no formula.
+
+It is weaker than counting and never wrong, which is the right trade for
+arming an exclusion. Not built: it only pays where a recipe has an
+unparseable material in it, and the one entry above has none.
