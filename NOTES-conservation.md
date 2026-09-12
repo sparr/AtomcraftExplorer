@@ -277,3 +277,56 @@ than its inputs can possibly hold, it mints, formula or no formula.
 It is weaker than counting and never wrong, which is the right trade for
 arming an exclusion. Not built: it only pays where a recipe has an
 unparseable material in it, and the one entry above has none.
+
+
+## The last two, traced
+
+### Silica: two recipes, both a coefficient short
+
+Counted step by step over its batch of twelve:
+
+```
+Cl  +24   24x rx:Hydrochloric Acid Dissolves Steel
+          1 Hydrochloric Acid + 1 Steel -> 1 Iron(II) Chloride + 1 Hydrogen Gas
+S    +6    6x rx:Sulfuric Acid + Granite Gravel
+          1 Granite Gravel + 3 Sulfuric Acid + 3 Water
+             -> 1 Aluminum Sulfate + 1 Calcium Sulfate + 2 Orthosilicic Acid
+```
+
+The first is the recipe already curated. It is not barred here and that is the
+rule working as written: Silica is made of silicon and oxygen, the recipe gains
+chlorine and hydrogen, and the chlorine it gains leaves as twelve Chlorine Gas
+on the floor rather than going into the answer. Barring a minting recipe where
+the mint is not wanted would cost the route for nothing.
+
+The second is new and the same fault. Three sulfate go in and four come out:
+`Al2(SO4)3` carries three and `CaSO4` one. The anorthite in the gravel wants
+four sulfuric acid and no water at all, and then it balances exactly -- every
+other element already does, calcium one to one, aluminium two to two, silicon
+two to two.
+
+It is listed for its sulfur and **not** for its oxygen, though it gains one of
+each. Tried both ways: with oxygen in the entry, Silica loses its only plan and
+gets nothing back, because oxygen is in almost everything anybody asks for and
+the gain here is one atom in twenty-four with the rest bought in the gravel.
+That is the same reason the buy-and-vent pass leaves oxygen alone. With sulfur
+alone the corpus is unchanged -- 194 identical, none lost -- which is the right
+shape for a curated record of a bug nobody is currently standing on.
+
+### Tellurium: not a conservation failure at all
+
+The bench flagged it as handing back hydrogen, oxygen and sulfur. Counted, it
+does not: hydrogen nets **-2** over the batch, oxygen **0**, sulfur **0**, with
+two steps that cannot be counted because `Sulfurous Acid (Diluted)` and
+`Sodium Tellurite` have no composition at all.
+
+What it actually bought was `Aqueous Sodium Tellurite`, whose composition reads
+`Te, Na` -- no oxygen, though sodium tellurite is `Na2TeO3`. So the oxygen that
+comes out was bought, and the presence test could not see it go in.
+
+Which is worth recording as a caveat on the bench: **`mints` over-reports.** It
+compares which elements appear, and an incomplete formula on a purchased
+material reads as minting everything that material really contained. The seven
+that survived the nuclear and hydrogen-oxygen buckets were never seven real
+failures; Tellurium is one false positive found by looking, and the others were
+only confirmed by tracing the chlorine.

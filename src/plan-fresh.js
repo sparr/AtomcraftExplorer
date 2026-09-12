@@ -582,6 +582,21 @@ const inputsOf = (p) => [...p.consumes, ...p.requires];
  */
 const MINTS_INTO_WANT = [
   { drop: 'rx:Hydrochloric Acid Dissolves Steel', mints: ['Cl', 'H'] },
+  /**
+   * `1 Granite Gravel + 3 Sulfuric Acid + 3 Water -> 1 Aluminum Sulfate +
+   * 1 Calcium Sulfate + 2 Orthosilicic Acid`. Three sulfate go in and four
+   * come out, and an oxygen with them. The anorthite in the gravel wants four
+   * sulfuric acid and no water at all, at which point it balances exactly --
+   * so this is the same fault as the steel dissolve, a coefficient short.
+   *
+   * Listed for its sulfur and not for its oxygen, though it gains both.
+   * Oxygen is in almost everything anybody asks for, so gating on it bars the
+   * recipe from nearly every question -- and this one gains a single oxygen in
+   * twenty-four, with the rest of the silica's oxygen coming from the gravel
+   * that was paid for. Tried: Silica loses its only plan and gets nothing
+   * back. It is the same reason the buy-and-vent pass leaves oxygen alone.
+   */
+  { drop: 'rx:Sulfuric Acid + Granite Gravel', mints: ['S'] },
 ];
 
 /** The barred-where-it-would-be-used list, as the candidate walk asks it. */
