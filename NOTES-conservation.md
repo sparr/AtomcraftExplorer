@@ -611,3 +611,53 @@ So the weighing is right and the cap is where the question now lives: six ores
 of twenty, with the ore that works honestly among the heaviest. Raising the
 default from six is a product decision, not a measurement; the "Try 12" path
 finds it and finds it better than before.
+
+
+## Which materials are worth buying at all
+
+Sparr, on the ore cap: a material that appears in no reaction should not be a
+candidate in any effort; where it is part of a phase group the group's
+representative can stand in for it. And the cap should be an option in the UI
+that moves the planner and the scoreboard together, not an axis the scoreboard
+sweeps -- with an indicator when a plan was capped and more might do better.
+
+**Two filters on `oreCandidates`.** A phase change no longer counts as a use,
+so a material nothing can do anything with but reheat is not offered: Rhyolite
+and Flint both go, having been taking a slot each on every question that wanted
+silicon. And one slot per substance rather than one per state, since Glass and
+Molten Silica are the same thing at two temperatures and trying both spent two
+of the six on one answer. Choosing an ore now opens the door to every state of
+it -- `oreAsFamily` -- and which one lands on the shopping list is the model's
+choice, it having a supply column and a price for each.
+
+Silica went from twenty candidates to eighteen worth buying to fifteen distinct
+substances, which put Sodium Silicate inside the six: **six reactors on two
+Sodium Silicate**, where the plan it lost took twenty-six reactors and fourteen
+units.
+
+```
+corpus   188 identical, 4 moved, 0 lost, 2 gained
+gained   Silica, Molten Lithium Oxide
+```
+
+And the failure mode is gone from the sample altogether: **no capped question
+that answers at thirty-two ores fails at six any more.** That is what freed the
+slots -- not a bigger budget.
+
+**The cap was already an option** -- `#plan-ores` in the Options panel, `ot` in
+the URL -- and already moves the scoreboard with the planner, the sweep
+carrying `oreTries` in the question it keys on. It is not a sweep axis and is
+not being made one.
+
+**The indicator is new.** `plan.oreCap` records `{tried, of}` whenever the cap
+was in the way of an answer that came back anyway, and the step header says so
+beside the batch note, with a button to spend more. That is the harder case:
+the no-plan path has said this for a while, but an answer that came back looks
+like any other answer, and asked for Lithium Oxide the six cheapest ores give
+twenty-three steps while the eleventh gives something better -- with nothing to
+suggest looking.
+
+One test was rewritten rather than repaired. It asked that Lithium Oxide find
+nothing at six ores and that the page say why; it finds something now, and so
+does every other capped question in the corpus, so there was no target left to
+make the old assertion with. It now checks the case that does happen.

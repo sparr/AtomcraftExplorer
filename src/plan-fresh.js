@@ -2876,16 +2876,33 @@ export function oreReach(graph, rawSpec) {
 
 export function oreCandidates(graph, spec) {
   const targetPhases = new Set(spec.targets.map((t) => phaseGroup(graph, t.name)));
+  const { stands, family } = phaseFamilies(graph, spec.mergeStates);
+  /**
+   * Something has to be able to do more with it than change its temperature.
+   *
+   * Sparr: a material that appears in no reaction should not be a candidate.
+   * Rhyolite is the case -- nothing in the game consumes it but `evap:Rhyolite`
+   * and nothing consumes the lava that makes, so buying it starts nothing, and
+   * it was taking one of the six slots on every question that wanted silicon.
+   * Flint is the same. Counting a phase change as a use is what let them in.
+   *
+   * And where it is one state of a substance, the substance answers for it:
+   * if any member of the family is eaten, the family is worth buying, and
+   * which member goes on the shopping list is settled below.
+   */
   const eaten = new Set();
   for (const p of graph.processes) {
+    if (p.kind === 'phase') continue;
     if (!spec.kinds.has(p.kind)) continue;
     for (const i of inputsOf(p)) eaten.add(i.name);
   }
+  const useful = (name) => eaten.has(name) ||
+    (family.get(stands(name)) || []).some((m) => eaten.has(m));
   const prices = fetchPrices(graph, spec.kinds);
   const out = [];
   for (const m of graph.db.materials) {
     const name = m.name;
-    if (!eaten.has(name)) continue;
+    if (!useful(name)) continue;
     if (targetPhases.has(phaseGroup(graph, name))) continue;
     if (!holdsATarget(graph, name, spec.wanted)) continue;
     if (alreadyInHand(graph, name, spec.held)) continue;
@@ -2910,9 +2927,36 @@ export function oreCandidates(graph, spec) {
    * one thing to make -- so a single-target question is sorted exactly as it
    * was, and only the questions that were losing by this gain.
    */
-  return out
+  /**
+   * One slot per substance, not one per state of it.
+   *
+   * Glass and Molten Silica are the same thing at two temperatures, so trying
+   * both spends two of the six on one answer. The better-placed member keeps
+   * the slot and choosing it lets the whole family be bought -- see the ore
+   * loop in `solveFresh`, which opens the door to every state of whatever it
+   * picks. Silica had twenty candidates, of which eighteen are good for
+   * anything and fifteen are distinct substances.
+   */
+  const ranked = out
     .sort((a, b) => b[1] - a[1] || a[2] - b[2] || a[0].localeCompare(b[0]))
     .map(([name]) => name);
+  const seen = new Set();
+  return ranked.filter((name) => {
+    const rep = stands(name);
+    if (seen.has(rep)) return false;
+    seen.add(rep);
+    return true;
+  });
+}
+
+/**
+ * Every state of the substance an ore belongs to, so that permitting one
+ * permits the lot. Which of them ends up on the shopping list is the model's
+ * choice, it having a supply column per state and a price for each.
+ */
+export function oreAsFamily(graph, spec, ore) {
+  const { stands, family } = phaseFamilies(graph, spec.mergeStates);
+  return family.get(stands(ore)) ?? [ore];
 }
 
 /**
@@ -3029,7 +3073,8 @@ export function solveFresh(graph, rawSpec) {
       let best = null;
       let bestCost = null;
       for (const ore of tried) {
-        const plan = solveFresh(graph, { ...rawSpec, oreAllowed: [ore], notes: undefined });
+        const plan = solveFresh(graph, { ...rawSpec, notes: undefined,
+                                         oreAllowed: oreAsFamily(graph, spec, ore) });
         if (!plan || plan.shortfall) continue;
         const cost = weighPlan(graph, plan, rawSpec.weigh);
         if (cost && (!best || cheaperThan(cost, bestCost))) { best = plan; bestCost = cost; }
@@ -3037,6 +3082,17 @@ export function solveFresh(graph, rawSpec) {
       if (best && rawSpec.notes) {
         rawSpec.notes.push(`nothing held carries what was asked for, so one ore was ` +
                            `bought: ${[...best.spec.oreAllowed].join(' or ')}`);
+      }
+      /**
+       * And say when the cap was in the way, whether or not an answer came.
+       *
+       * Sparr: there should be an indicator when a plan was affected by the
+       * cap and increasing it might improve the result. The note above says it
+       * in prose for whoever is reading notes; this is on the plan, where the
+       * page can find it.
+       */
+      if (best && all.length > tried.length) {
+        best.oreCap = { tried: tried.length, of: all.length };
       }
       if (best) return best;
       // Nothing worked with an ore either; fall through and fail the usual way.

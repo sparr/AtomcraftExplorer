@@ -478,6 +478,34 @@ function renderSteps() {
       `${rstr(solved.scale)}.`;
     head.append(note);
   }
+  /**
+   * Say when the cap was in the way of a plan that came back anyway.
+   *
+   * Sparr: there should be an indicator when a plan was affected by the cap and
+   * increasing it might improve the result. The no-plan path has said this for
+   * a while; an answer that came back is the harder case, because nothing about
+   * it looks wrong. Asked for Silica the six cheapest ores give one answer and
+   * the seventh gives a better one, and until this there was nothing to
+   * suggest looking.
+   *
+   * "Might" is the whole of the claim. Spending more is another whole solve
+   * each and may turn up nothing, which is why it is offered rather than done.
+   */
+  if (solved.oreCap) {
+    const next = Math.min(plan.oreTries * 2, ORE_TRIES_MAX, solved.oreCap.of);
+    const capped = el('span', 'muted plan-capped');
+    capped.append(`one of the ${solved.oreCap.tried} cheapest ores of ` +
+                  `${solved.oreCap.of}; another may do better `);
+    if (next > plan.oreTries) {
+      capped.append(button('ghost small', `Try ${next}`,
+        `Each one is another whole solve, so this will take longer`,
+        () => edit(setPlanOption, 'oreTries', next)));
+    }
+    capped.title = `With nothing in hand the plan buys one material carrying ` +
+      `what you asked for, and the cheapest ${solved.oreCap.tried} of ` +
+      `${solved.oreCap.of} were tried. The rest were not looked at.`;
+    head.append(capped);
+  }
   box.append(head);
 
   /**
