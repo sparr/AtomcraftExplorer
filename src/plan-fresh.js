@@ -22,6 +22,7 @@ import { listed } from './prose.js';
 import { composition, elementsOf } from './composition.js';
 import { heatingNeed, coolingNeed } from './units.js';
 import { solveLP } from './simplex.js';
+import { measure, SCORES } from './plan-menu.js';
 import { solveLPFloat } from './simplex-float.js';
 import { MINTING_PAIRS } from './wheels.js';
 import { atomsIn, mintsElement } from './minting.js';
@@ -1240,6 +1241,12 @@ export function normalizeFresh(spec) {
      * Empty unless the scoreboard is asking; see `mergeableStates`.
      */
     mergeStates: new Set(spec.mergeStates || []),
+    /**
+     * Which of the scoreboard's costs to weigh first when choosing between two
+     * finished plans, in order. Empty means atoms, then items, then reactors,
+     * which is what it always did. See `weighPlan`.
+     */
+    weigh: [...(spec.weigh || [])].filter((id) => WEIGH_BY.includes(id)),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /** Things the reader will not buy, though the plan may still make them. */
@@ -2890,17 +2897,45 @@ export function oreCandidates(graph, spec) {
     .map(([name]) => name);
 }
 
-/** What a finished plan costs, for choosing between them. Lower is better. */
-function weighPlan(graph, plan) {
-  const per = plan.spec.targets[0]?.amount || 1;
-  let atoms = 0;
-  let units = 0;
-  for (const f of plan.frontier) {
-    const n = rnum(f.amount);
-    units += n;
-    atoms += n * (graph.db.byName.get(f.name)?.matter ?? 1);
-  }
-  return [atoms / per, units / per, reactorsIn(plan.steps)];
+/**
+ * What a finished plan costs, for choosing between them. Lower is better.
+ *
+ * Measured by the scoreboard's own `measure`, so the two rankings speak one
+ * language. They did not: this counted atoms, then items, then reactors, in
+ * its own arithmetic, while the menu scored eight things in `plan-menu.js` and
+ * the reader could see every one of them. Anything the reader can be shown a
+ * column of is something they can reasonably ask to be optimised for.
+ *
+ * The order is the whole of the judgement and it was hard-coded. Read strictly
+ * -- atoms first, absolutely -- it will pay twenty-five reactors to save one
+ * atom, and on Copper Oxide it buys *more items* to get fewer atoms, because
+ * atoms decide before items are ever consulted. Sparr: it should be
+ * configurable and exposed to the scoreboard for optimisation. So `spec.weigh`
+ * names the scores in the order they matter, and the sweep asks the question
+ * once per order worth asking it in.
+ */
+const WEIGH_DEFAULT = ['atoms', 'units', 'reactors'];
+/** The orders the scoreboard offers, one question each. */
+export const WEIGH_BY = SCORES.filter((s) => !s.tiebreak).map((s) => s.id);
+
+function weighPlan(graph, plan, weigh) {
+  const row = measure(plan, { matter: (n) => graph.db.byName.get(n)?.matter ?? 1,
+                              toNumber: rnum });
+  if (!row) return null;
+  const asked = (weigh || []).filter((id) => id in row);
+  if (!asked.length) return WEIGH_DEFAULT.map((id) => row[id]);
+  /**
+   * Only when an order was asked for does the rest of the board break ties.
+   *
+   * Left to itself this weighs exactly what it always weighed, in exactly the
+   * order it weighed it, so no answer moves for having made this
+   * configurable. Say "fewest reactors" and reactors decide, but two plans
+   * level on reactors would otherwise be separated by nothing at all and the
+   * winner would be whichever ore came up first -- so the remaining costs
+   * follow, in the order the menu lists them.
+   */
+  const rest = WEIGH_BY.filter((id) => !asked.includes(id));
+  return [...asked, ...rest].map((id) => row[id]);
 }
 
 const cheaperThan = (a, b) => {
@@ -2940,6 +2975,9 @@ export function questionShape(graph, rawSpec) {
   const built = model(graph, spec, sub.processes, sub.materials);
   if (!built) return null;
   return [
+    // Not part of the walk, but two questions weighed differently can pick
+    // different ores and so are not the same question.
+    (spec.weigh || []).join('~'),
     [...spec.mergeStates].sort().join('~'),
     sub.processes.map((p) => p.id).sort().join('|'),
     [...built.supply.keys()].sort().join('|'),
@@ -2975,8 +3013,8 @@ export function solveFresh(graph, rawSpec) {
       for (const ore of tried) {
         const plan = solveFresh(graph, { ...rawSpec, oreAllowed: [ore], notes: undefined });
         if (!plan || plan.shortfall) continue;
-        const cost = weighPlan(graph, plan);
-        if (!best || cheaperThan(cost, bestCost)) { best = plan; bestCost = cost; }
+        const cost = weighPlan(graph, plan, rawSpec.weigh);
+        if (cost && (!best || cheaperThan(cost, bestCost))) { best = plan; bestCost = cost; }
       }
       if (best && rawSpec.notes) {
         rawSpec.notes.push(`nothing held carries what was asked for, so one ore was ` +

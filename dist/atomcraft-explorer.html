@@ -5422,6 +5422,289 @@ function solveLP({ vars, rows, cost, lo = new Map(), steep = false }) {
 return { solveLP };
 })();
 
+const __mod_plan_menu = (() => {
+/**
+ * The same question asked several ways, and the answers worth keeping.
+ *
+ * A plan is not one thing. Told it may buy manufactured goods, the Columbite
+ * question comes back with sixteen atoms and thirteen reactors; told it may
+ * only mine, it comes back with forty-four atoms in a single purchase -- twelve
+ * Lepidolite and nothing else to carry. Neither is the right answer. One is for
+ * a player who wants a short shopping list and the other is for a player who
+ * wants to move less rock, and the planner has no way of knowing which.
+ *
+ * So it answers all of them, and this works out which answers are worth
+ * showing. Two rules do nearly all of it:
+ *
+ *   Dedupe by *outcome*, not by the options that produced it. Twelve of the
+ *   thirty-one source sets give the identical Lepidolite plan. Listing twelve
+ *   rows would bury the two real choices.
+ *
+ *   Then keep only what nothing else beats. "Minimal on some score" is the
+ *   obvious rule and it is too loose: on Lepidolite five plans tie at half an
+ *   atom, so all five are minimal on atoms and all five make the list, even
+ *   though one of them is better on reactors and steps with every other column
+ *   equal. Pareto -- drop a row if another is at least as good everywhere and
+ *   better somewhere -- cuts those five to one and leaves genuine trade-offs
+ *   alone.
+ *
+ * Nothing here solves anything. The caller does the solving, one option set at
+ * a time, because in the page that has to happen without locking the tab up.
+ */
+
+const {reactorsIn} = __mod_plan_graph;
+
+/** Scores, and which way is better. Everything is per unit of what was asked. */
+const SCORES = [
+  { id: 'atoms', short: 'atoms', label: 'atoms fetched', dir: 1,
+    hint: 'How much matter you have to go and get' },
+  { id: 'units', short: 'items', label: 'things bought', dir: 1,
+    hint: 'How many items, whatever their size' },
+  { id: 'shop', short: 'list', label: 'shopping list', dir: 1,
+    hint: 'How many different materials to source' },
+  { id: 'reactors', short: 'react', label: 'reactors', dir: 1,
+    hint: 'Machines to build; a step run twice still costs one, and a phase ' +
+          'change costs none -- it happens in the open air or inside the ' +
+          'reactor that wanted the hot form' },
+  /**
+   * How much running it takes, which is not how much building it takes.
+   *
+   * Sparr: one reactor run four times is four steps. So this counts runs where
+   * `reactors` counts vessels, and the two answer different questions -- one
+   * reactor turned forty times and four reactors turned ten times each are the
+   * same forty steps and not the same factory.
+   *
+   * It used to be `plan.steps.length`, hinted as "reactors plus the phase
+   * changes, which are free", which counted neither: a step run forty times
+   * was one, and a condenser that costs nothing to own was one as well. That
+   * decided the comparison this whole column exists for -- of two Lepidolite
+   * plans alike in ore, purchases, reactors and leavings, the one that
+   * condenses its steam rather than venting it scored a step worse for owning
+   * the condenser, and the menu threw away the plan that needed no charge. A
+   * phase change is still not counted, being free in the same sense it is free
+   * of a reactor. The running is.
+   *
+   * Per unit, like everything else that scales: a plan quoted at four times
+   * the size turns its steps four times as often, and that is the batch
+   * talking rather than the plan.
+   */
+  { id: 'steps', short: 'steps', label: 'steps', dir: 1,
+    hint: 'How many times something has to be run; one reactor run four ' +
+          'times is four steps, and a phase change is none' },
+  /**
+   * What has to be found before the plant will turn at all.
+   *
+   * Not the shopping list. A charge is matter that has to be in the pipes
+   * before the first batch, and `priming` is the part of it the plant never
+   * pays back -- nothing outside the wheel it seeds will ever fill it, so no
+   * amount of running helps. That is a different kind of cost from a thing you
+   * buy each batch, and nothing here was measuring it: two plans identical in
+   * ore, purchases, reactors and leavings, one of which needs two Hydrogen Gas
+   * laid in and one of which does not, scored the same.
+   *
+   * Absolute, not per unit. Measured, rather than assumed: the Lepidolite plan
+   * asks for one Chlorine Gas and two Hydrogen Gas whether it is making two of
+   * each product or six. A charge is laid in once however long the plant runs,
+   * so dividing it through would say a bigger order needs less of it.
+   */
+  { id: 'charge', short: 'charge', label: 'to lay in', dir: 1,
+    hint: 'Matter that must be in the pipes before the first batch, and that ' +
+          'the plant never pays back' },
+  /**
+   * How many it makes when you asked for one.
+   *
+   * A run is a whole thing, so the plan multiplies up by the common
+   * denominator of whatever the steps landed on, and the reader who wanted one
+   * Aluminum is told to make eight. Everything else here is divided by that
+   * number precisely so the rows mean the same thing; this is the number
+   * itself, which is a real difference between two answers and was the one
+   * thing no column could say.
+   */
+  { id: 'batch', short: 'batch', label: 'batch size', dir: 1,
+    hint: 'How many it makes at once; asking for one can make four' },
+  /**
+   * Leftovers: lowest priority, and which way is a preference.
+   *
+   * Sparr, twice. First: more leftover atoms from the same inputs is just
+   * conservation errors in play, so do not incentivise it -- fewer leavings is
+   * the sign of not having fetched what you did not need. Then: make it an
+   * option either way, but keep it one of the lowest priorities regardless.
+   *
+   * So it is a tie-break and never a reason to prefer one answer to another.
+   * Ranked alongside the rest it credited the Columbite plan that fetched
+   * sixty-six atoms and left thirty-six of them lying about as the best of the
+   * five at leftovers, which is the opposite of what that number means.
+   * `dir` here is only the default; `digest` takes the reader's choice.
+   */
+  { id: 'left', short: 'left', label: 'leftovers', dir: 1, tiebreak: true,
+    hint: 'Matter left on the floor. Broken ties only -- never a reason to ' +
+          'prefer one plan to another' },
+];
+
+/** Every non-empty combination of the categories, smallest first. */
+function optionSets(categories) {
+  const out = [];
+  for (let mask = 1; mask < (1 << categories.length); mask++) {
+    out.push(categories.filter((_, i) => mask & (1 << i)));
+  }
+  return out.sort((a, b) => a.length - b.length);
+}
+
+/**
+ * One solved plan, scored.
+ *
+ * Per unit of target, because the batch size is not a choice anyone made: it
+ * is the lowest common multiple of whatever denominators the steps landed on,
+ * so one answer is quoted for four tantalum and the next for six. Dividing
+ * through is the only way two rows mean the same thing.
+ */
+function measure(plan, { matter, toNumber }) {
+  if (!plan || !plan.steps || !plan.steps.length) return null;
+  const batch = (plan.spec && plan.spec.targets && plan.spec.targets[0] &&
+                 plan.spec.targets[0].amount) || 1;
+  let units = 0;
+  let atoms = 0;
+  for (const f of plan.frontier) {
+    const n = toNumber(f.amount);
+    units += n;
+    atoms += n * matter(f.name);
+  }
+  let left = 0;
+  for (const b of plan.byproducts) left += toNumber(b.amount) * matter(b.name);
+  let charge = 0;
+  for (const c of plan.priming || []) charge += toNumber(c.amount) * matter(c.name);
+  let runs = 0;
+  for (const step of plan.steps) {
+    if ((step.process ? step.process.kind : step.kind) === 'phase') continue;
+    // A step that does not say how often it runs has run once.
+    runs += step.runs === undefined ? 1 : toNumber(step.runs);
+  }
+  return {
+    atoms: atoms / batch,
+    units: units / batch,
+    shop: plan.frontier.length,
+    reactors: reactorsIn(plan.steps),
+    steps: runs / batch,
+    // Laid in once however long the plant runs, so it is not divided through.
+    charge,
+    batch,
+    left: left / batch,
+  };
+}
+
+const SAME = 1e-9;
+const signature = (row) => SCORES.map((s) => row[s.id].toFixed(6)).join('|');
+
+/** The scores a plan is judged on, and the one that only settles draws. */
+const COSTS = SCORES.filter((s) => !s.tiebreak);
+const TIES = SCORES.filter((s) => s.tiebreak);
+
+/**
+ * At least as good everywhere that counts, and better somewhere -- or level
+ * all through and ahead on a tie-break.
+ *
+ * `want` is +1 to keep the leavings down and -1 to pile them up.
+ */
+function beats(a, b, want) {
+  let strictly = false;
+  for (const s of COSTS) {
+    const mine = s.dir * a[s.id];
+    const theirs = s.dir * b[s.id];
+    if (mine > theirs + SAME) return false;
+    if (mine < theirs - SAME) strictly = true;
+  }
+  if (strictly) return true;
+  return TIES.some((s) => want * a[s.id] < want * b[s.id] - SAME);
+}
+
+/**
+ * The menu: distinct outcomes that nothing else beats, each labelled with what
+ * it is best at.
+ *
+ * `entries` are `{ options, plan }`, where a null plan means that combination
+ * could not answer -- kept and returned separately, because "farming alone
+ * cannot make tantalum" is worth saying rather than quietly dropping.
+ */
+function digest(entries, tools, { keepLeftovers = false } = {}) {
+  const want = keepLeftovers ? -1 : 1;
+  const scored = [];
+  const barren = [];
+  for (const e of entries) {
+    const row = e.plan ? measure(e.plan, tools) : null;
+    if (row) scored.push({ ...row, options: e.options, ore: e.ore, merge: e.merge,
+                           weigh: e.weigh, plan: e.plan });
+    else barren.push(e.options);
+  }
+
+  const byOutcome = new Map();
+  for (const row of scored) {
+    /**
+     * The ore is part of which row this is, not of how good it is: two plans
+     * that score alike but buy different ores are two answers, not one. So is
+     * which states the question was willing to treat as one substance.
+     *
+     * The weighing order is not. It is not a property of the plan, it is a
+     * question somebody asked -- and four of them reaching the same one-reactor
+     * Carbon plan is one answer offered four ways, not four answers. So it
+     * stays out of the key and merges on score like the sources do; whichever
+     * order reached the row first is the one it is named for.
+     */
+    const key = `${signature(row)}|${row.ore ?? ''}|${row.merge ?? ''}`;
+    if (!byOutcome.has(key)) byOutcome.set(key, { ...row, via: [] });
+    byOutcome.get(key).via.push(row.options);
+  }
+  /**
+   * The ore the solver would have chosen anyway is not a second answer.
+   *
+   * Every ore is asked about, including the one the plan already buys, so the
+   * winner comes back twice -- once as the row the reader is on and once as
+   * "buy Borax", scoring identically. Offering both invites a choice between a
+   * thing and itself. The named row goes and the plain one stays, because the
+   * plain one is where the reader already is.
+   */
+  /**
+   * And a merge that changes nothing is not a second answer either.
+   *
+   * Asked whether Hydrofluoric Acid and its gas may be one substance, the
+   * Lepidolite plan comes back identical -- same ore, same purchases, same
+   * charge, same batch. Offering it would be offering a choice between a thing
+   * and itself.
+   */
+  for (const [key, row] of [...byOutcome]) {
+    if (!row.ore && !row.merge) continue;
+    if (byOutcome.has(`${signature(row)}||`)) byOutcome.delete(key);
+  }
+  const distinct = [...byOutcome.values()];
+  /**
+   * The shortest option set first, so a row is offered by the least the player
+   * has to switch on to reach it -- and each set once, because a row reached by
+   * four weighings of the same sources is not reached four ways.
+   */
+  for (const row of distinct) {
+    const seen = new Set();
+    row.via = row.via.filter((v) => {
+      const key = [...v].sort().join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort((a, b) => a.length - b.length);
+  }
+
+  const menu = distinct.filter((row) =>
+    !distinct.some((other) => other !== row && beats(other, row, want)));
+  for (const row of menu) {
+    row.best = COSTS.filter((s) => {
+      const mine = s.dir * row[s.id];
+      return !menu.some((other) => s.dir * other[s.id] < mine - SAME);
+    }).map((s) => s.id);
+  }
+  menu.sort((a, b) => a.atoms - b.atoms || a.reactors - b.reactors || a.units - b.units);
+  return { menu, distinct: distinct.length, scored: scored.length, barren };
+}
+
+return { SCORES, optionSets, measure, digest };
+})();
+
 const __mod_simplex_float = (() => {
 /**
  * The same tableau in doubles, for finding out *which* steps a plan uses.
@@ -6415,6 +6698,7 @@ const {listed} = __mod_prose;
 const {composition, elementsOf} = __mod_composition;
 const {heatingNeed, coolingNeed} = __mod_units;
 const {solveLP} = __mod_simplex;
+const {measure, SCORES} = __mod_plan_menu;
 const {solveLPFloat} = __mod_simplex_float;
 const {MINTING_PAIRS} = __mod_wheels;
 const {atomsIn, mintsElement} = __mod_minting;
@@ -7632,6 +7916,12 @@ function normalizeFresh(spec) {
      * Empty unless the scoreboard is asking; see `mergeableStates`.
      */
     mergeStates: new Set(spec.mergeStates || []),
+    /**
+     * Which of the scoreboard's costs to weigh first when choosing between two
+     * finished plans, in order. Empty means atoms, then items, then reactors,
+     * which is what it always did. See `weighPlan`.
+     */
+    weigh: [...(spec.weigh || [])].filter((id) => WEIGH_BY.includes(id)),
     excludeProcesses: new Set(spec.excludeProcesses || []),
     excludeMaterials: new Set(spec.excludeMaterials || []),
     /** Things the reader will not buy, though the plan may still make them. */
@@ -9282,17 +9572,45 @@ function oreCandidates(graph, spec) {
     .map(([name]) => name);
 }
 
-/** What a finished plan costs, for choosing between them. Lower is better. */
-function weighPlan(graph, plan) {
-  const per = plan.spec.targets[0]?.amount || 1;
-  let atoms = 0;
-  let units = 0;
-  for (const f of plan.frontier) {
-    const n = rnum(f.amount);
-    units += n;
-    atoms += n * (graph.db.byName.get(f.name)?.matter ?? 1);
-  }
-  return [atoms / per, units / per, reactorsIn(plan.steps)];
+/**
+ * What a finished plan costs, for choosing between them. Lower is better.
+ *
+ * Measured by the scoreboard's own `measure`, so the two rankings speak one
+ * language. They did not: this counted atoms, then items, then reactors, in
+ * its own arithmetic, while the menu scored eight things in `plan-menu.js` and
+ * the reader could see every one of them. Anything the reader can be shown a
+ * column of is something they can reasonably ask to be optimised for.
+ *
+ * The order is the whole of the judgement and it was hard-coded. Read strictly
+ * -- atoms first, absolutely -- it will pay twenty-five reactors to save one
+ * atom, and on Copper Oxide it buys *more items* to get fewer atoms, because
+ * atoms decide before items are ever consulted. Sparr: it should be
+ * configurable and exposed to the scoreboard for optimisation. So `spec.weigh`
+ * names the scores in the order they matter, and the sweep asks the question
+ * once per order worth asking it in.
+ */
+const WEIGH_DEFAULT = ['atoms', 'units', 'reactors'];
+/** The orders the scoreboard offers, one question each. */
+const WEIGH_BY = SCORES.filter((s) => !s.tiebreak).map((s) => s.id);
+
+function weighPlan(graph, plan, weigh) {
+  const row = measure(plan, { matter: (n) => graph.db.byName.get(n)?.matter ?? 1,
+                              toNumber: rnum });
+  if (!row) return null;
+  const asked = (weigh || []).filter((id) => id in row);
+  if (!asked.length) return WEIGH_DEFAULT.map((id) => row[id]);
+  /**
+   * Only when an order was asked for does the rest of the board break ties.
+   *
+   * Left to itself this weighs exactly what it always weighed, in exactly the
+   * order it weighed it, so no answer moves for having made this
+   * configurable. Say "fewest reactors" and reactors decide, but two plans
+   * level on reactors would otherwise be separated by nothing at all and the
+   * winner would be whichever ore came up first -- so the remaining costs
+   * follow, in the order the menu lists them.
+   */
+  const rest = WEIGH_BY.filter((id) => !asked.includes(id));
+  return [...asked, ...rest].map((id) => row[id]);
 }
 
 const cheaperThan = (a, b) => {
@@ -9332,6 +9650,9 @@ function questionShape(graph, rawSpec) {
   const built = model(graph, spec, sub.processes, sub.materials);
   if (!built) return null;
   return [
+    // Not part of the walk, but two questions weighed differently can pick
+    // different ores and so are not the same question.
+    (spec.weigh || []).join('~'),
     [...spec.mergeStates].sort().join('~'),
     sub.processes.map((p) => p.id).sort().join('|'),
     [...built.supply.keys()].sort().join('|'),
@@ -9367,8 +9688,8 @@ function solveFresh(graph, rawSpec) {
       for (const ore of tried) {
         const plan = solveFresh(graph, { ...rawSpec, oreAllowed: [ore], notes: undefined });
         if (!plan || plan.shortfall) continue;
-        const cost = weighPlan(graph, plan);
-        if (!best || cheaperThan(cost, bestCost)) { best = plan; bestCost = cost; }
+        const cost = weighPlan(graph, plan, rawSpec.weigh);
+        if (cost && (!best || cheaperThan(cost, bestCost))) { best = plan; bestCost = cost; }
       }
       if (best && rawSpec.notes) {
         rawSpec.notes.push(`nothing held carries what was asked for, so one ore was ` +
@@ -11227,7 +11548,7 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   return plan;
 }
 
-return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, mergeableStates, phaseFamilies, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreReach, oreCandidates, questionShape, solveFresh };
+return { SOURCES, SOURCE_KINDS, DEFAULT_SOURCES, sourceOf, fetchable, unprovenBugs, subgraph, FRESH_DEFAULTS, normalizeFresh, rivalGroups, chamberShares, rivalsOf, mergeableStates, phaseFamilies, model, shortlist, phaseGroup, fetchPrices, withElements, blankFresh, oreReach, oreCandidates, WEIGH_BY, questionShape, solveFresh };
 })();
 
 const __mod_plan_state = (() => {
@@ -11365,6 +11686,17 @@ function emptyPlan() {
      */
     mergeStates: [],
     /**
+     * Which of the scoreboard's costs to weigh first when the solver is
+     * choosing between two finished plans, in order.
+     *
+     * Empty means atoms, then items, then reactors, which is what it always
+     * did. It decides which ore a plan starting from nothing buys, and that is
+     * a real fork: asked for Carbon it is five reactors and a third of an atom
+     * a unit, or one reactor and a whole one. A row of the menu having been
+     * pressed is what puts something here.
+     */
+    weigh: [],
+    /**
      * Which material is being inspected. Not part of the question -- it is
      * where you are looking -- but it rides along in the URL for the same
      * reason the explorer's selection does: so a link points at the thing you
@@ -11422,6 +11754,8 @@ function readPlan(params) {
   if (ore) plan.oreAllowed = list(ore);
   const merge = params.get('ms');
   if (merge) plan.mergeStates = list(merge);
+  const weigh = params.get('wg');
+  if (weigh) plan.weigh = list(weigh);
   plan.selected = params.get('pm') || null;
   return plan;
 }
@@ -11453,6 +11787,7 @@ function writePlan(plan, params) {
   if (!plan.balance) params.set('b', '0');
   if (plan.oreAllowed.length) params.set('or', plan.oreAllowed.join(SEP));
   if (plan.mergeStates.length) params.set('ms', plan.mergeStates.join(SEP));
+  if (plan.weigh.length) params.set('wg', plan.weigh.join(SEP));
   put('pm', plan.selected);
 }
 
@@ -13261,269 +13596,6 @@ function drawPlan(host, plan, { onPick, across = false, materials = false } = {}
 return { drawPlan };
 })();
 
-const __mod_plan_menu = (() => {
-/**
- * The same question asked several ways, and the answers worth keeping.
- *
- * A plan is not one thing. Told it may buy manufactured goods, the Columbite
- * question comes back with sixteen atoms and thirteen reactors; told it may
- * only mine, it comes back with forty-four atoms in a single purchase -- twelve
- * Lepidolite and nothing else to carry. Neither is the right answer. One is for
- * a player who wants a short shopping list and the other is for a player who
- * wants to move less rock, and the planner has no way of knowing which.
- *
- * So it answers all of them, and this works out which answers are worth
- * showing. Two rules do nearly all of it:
- *
- *   Dedupe by *outcome*, not by the options that produced it. Twelve of the
- *   thirty-one source sets give the identical Lepidolite plan. Listing twelve
- *   rows would bury the two real choices.
- *
- *   Then keep only what nothing else beats. "Minimal on some score" is the
- *   obvious rule and it is too loose: on Lepidolite five plans tie at half an
- *   atom, so all five are minimal on atoms and all five make the list, even
- *   though one of them is better on reactors and steps with every other column
- *   equal. Pareto -- drop a row if another is at least as good everywhere and
- *   better somewhere -- cuts those five to one and leaves genuine trade-offs
- *   alone.
- *
- * Nothing here solves anything. The caller does the solving, one option set at
- * a time, because in the page that has to happen without locking the tab up.
- */
-
-const {reactorsIn} = __mod_plan_graph;
-
-/** Scores, and which way is better. Everything is per unit of what was asked. */
-const SCORES = [
-  { id: 'atoms', short: 'atoms', label: 'atoms fetched', dir: 1,
-    hint: 'How much matter you have to go and get' },
-  { id: 'units', short: 'items', label: 'things bought', dir: 1,
-    hint: 'How many items, whatever their size' },
-  { id: 'shop', short: 'list', label: 'shopping list', dir: 1,
-    hint: 'How many different materials to source' },
-  { id: 'reactors', short: 'react', label: 'reactors', dir: 1,
-    hint: 'Machines to build; a step run twice still costs one, and a phase ' +
-          'change costs none -- it happens in the open air or inside the ' +
-          'reactor that wanted the hot form' },
-  /**
-   * How much running it takes, which is not how much building it takes.
-   *
-   * Sparr: one reactor run four times is four steps. So this counts runs where
-   * `reactors` counts vessels, and the two answer different questions -- one
-   * reactor turned forty times and four reactors turned ten times each are the
-   * same forty steps and not the same factory.
-   *
-   * It used to be `plan.steps.length`, hinted as "reactors plus the phase
-   * changes, which are free", which counted neither: a step run forty times
-   * was one, and a condenser that costs nothing to own was one as well. That
-   * decided the comparison this whole column exists for -- of two Lepidolite
-   * plans alike in ore, purchases, reactors and leavings, the one that
-   * condenses its steam rather than venting it scored a step worse for owning
-   * the condenser, and the menu threw away the plan that needed no charge. A
-   * phase change is still not counted, being free in the same sense it is free
-   * of a reactor. The running is.
-   *
-   * Per unit, like everything else that scales: a plan quoted at four times
-   * the size turns its steps four times as often, and that is the batch
-   * talking rather than the plan.
-   */
-  { id: 'steps', short: 'steps', label: 'steps', dir: 1,
-    hint: 'How many times something has to be run; one reactor run four ' +
-          'times is four steps, and a phase change is none' },
-  /**
-   * What has to be found before the plant will turn at all.
-   *
-   * Not the shopping list. A charge is matter that has to be in the pipes
-   * before the first batch, and `priming` is the part of it the plant never
-   * pays back -- nothing outside the wheel it seeds will ever fill it, so no
-   * amount of running helps. That is a different kind of cost from a thing you
-   * buy each batch, and nothing here was measuring it: two plans identical in
-   * ore, purchases, reactors and leavings, one of which needs two Hydrogen Gas
-   * laid in and one of which does not, scored the same.
-   *
-   * Absolute, not per unit. Measured, rather than assumed: the Lepidolite plan
-   * asks for one Chlorine Gas and two Hydrogen Gas whether it is making two of
-   * each product or six. A charge is laid in once however long the plant runs,
-   * so dividing it through would say a bigger order needs less of it.
-   */
-  { id: 'charge', short: 'charge', label: 'to lay in', dir: 1,
-    hint: 'Matter that must be in the pipes before the first batch, and that ' +
-          'the plant never pays back' },
-  /**
-   * How many it makes when you asked for one.
-   *
-   * A run is a whole thing, so the plan multiplies up by the common
-   * denominator of whatever the steps landed on, and the reader who wanted one
-   * Aluminum is told to make eight. Everything else here is divided by that
-   * number precisely so the rows mean the same thing; this is the number
-   * itself, which is a real difference between two answers and was the one
-   * thing no column could say.
-   */
-  { id: 'batch', short: 'batch', label: 'batch size', dir: 1,
-    hint: 'How many it makes at once; asking for one can make four' },
-  /**
-   * Leftovers: lowest priority, and which way is a preference.
-   *
-   * Sparr, twice. First: more leftover atoms from the same inputs is just
-   * conservation errors in play, so do not incentivise it -- fewer leavings is
-   * the sign of not having fetched what you did not need. Then: make it an
-   * option either way, but keep it one of the lowest priorities regardless.
-   *
-   * So it is a tie-break and never a reason to prefer one answer to another.
-   * Ranked alongside the rest it credited the Columbite plan that fetched
-   * sixty-six atoms and left thirty-six of them lying about as the best of the
-   * five at leftovers, which is the opposite of what that number means.
-   * `dir` here is only the default; `digest` takes the reader's choice.
-   */
-  { id: 'left', short: 'left', label: 'leftovers', dir: 1, tiebreak: true,
-    hint: 'Matter left on the floor. Broken ties only -- never a reason to ' +
-          'prefer one plan to another' },
-];
-
-/** Every non-empty combination of the categories, smallest first. */
-function optionSets(categories) {
-  const out = [];
-  for (let mask = 1; mask < (1 << categories.length); mask++) {
-    out.push(categories.filter((_, i) => mask & (1 << i)));
-  }
-  return out.sort((a, b) => a.length - b.length);
-}
-
-/**
- * One solved plan, scored.
- *
- * Per unit of target, because the batch size is not a choice anyone made: it
- * is the lowest common multiple of whatever denominators the steps landed on,
- * so one answer is quoted for four tantalum and the next for six. Dividing
- * through is the only way two rows mean the same thing.
- */
-function measure(plan, { matter, toNumber }) {
-  if (!plan || !plan.steps || !plan.steps.length) return null;
-  const batch = (plan.spec && plan.spec.targets && plan.spec.targets[0] &&
-                 plan.spec.targets[0].amount) || 1;
-  let units = 0;
-  let atoms = 0;
-  for (const f of plan.frontier) {
-    const n = toNumber(f.amount);
-    units += n;
-    atoms += n * matter(f.name);
-  }
-  let left = 0;
-  for (const b of plan.byproducts) left += toNumber(b.amount) * matter(b.name);
-  let charge = 0;
-  for (const c of plan.priming || []) charge += toNumber(c.amount) * matter(c.name);
-  let runs = 0;
-  for (const step of plan.steps) {
-    if ((step.process ? step.process.kind : step.kind) === 'phase') continue;
-    // A step that does not say how often it runs has run once.
-    runs += step.runs === undefined ? 1 : toNumber(step.runs);
-  }
-  return {
-    atoms: atoms / batch,
-    units: units / batch,
-    shop: plan.frontier.length,
-    reactors: reactorsIn(plan.steps),
-    steps: runs / batch,
-    // Laid in once however long the plant runs, so it is not divided through.
-    charge,
-    batch,
-    left: left / batch,
-  };
-}
-
-const SAME = 1e-9;
-const signature = (row) => SCORES.map((s) => row[s.id].toFixed(6)).join('|');
-
-/** The scores a plan is judged on, and the one that only settles draws. */
-const COSTS = SCORES.filter((s) => !s.tiebreak);
-const TIES = SCORES.filter((s) => s.tiebreak);
-
-/**
- * At least as good everywhere that counts, and better somewhere -- or level
- * all through and ahead on a tie-break.
- *
- * `want` is +1 to keep the leavings down and -1 to pile them up.
- */
-function beats(a, b, want) {
-  let strictly = false;
-  for (const s of COSTS) {
-    const mine = s.dir * a[s.id];
-    const theirs = s.dir * b[s.id];
-    if (mine > theirs + SAME) return false;
-    if (mine < theirs - SAME) strictly = true;
-  }
-  if (strictly) return true;
-  return TIES.some((s) => want * a[s.id] < want * b[s.id] - SAME);
-}
-
-/**
- * The menu: distinct outcomes that nothing else beats, each labelled with what
- * it is best at.
- *
- * `entries` are `{ options, plan }`, where a null plan means that combination
- * could not answer -- kept and returned separately, because "farming alone
- * cannot make tantalum" is worth saying rather than quietly dropping.
- */
-function digest(entries, tools, { keepLeftovers = false } = {}) {
-  const want = keepLeftovers ? -1 : 1;
-  const scored = [];
-  const barren = [];
-  for (const e of entries) {
-    const row = e.plan ? measure(e.plan, tools) : null;
-    if (row) scored.push({ ...row, options: e.options, ore: e.ore, merge: e.merge, plan: e.plan });
-    else barren.push(e.options);
-  }
-
-  const byOutcome = new Map();
-  for (const row of scored) {
-    // The ore is part of which row this is, not of how good it is: two plans
-    // that score alike but buy different ores are two answers, not one. So is
-    // which states the question was willing to treat as one substance.
-    const key = `${signature(row)}|${row.ore ?? ''}|${row.merge ?? ''}`;
-    if (!byOutcome.has(key)) byOutcome.set(key, { ...row, via: [] });
-    byOutcome.get(key).via.push(row.options);
-  }
-  /**
-   * The ore the solver would have chosen anyway is not a second answer.
-   *
-   * Every ore is asked about, including the one the plan already buys, so the
-   * winner comes back twice -- once as the row the reader is on and once as
-   * "buy Borax", scoring identically. Offering both invites a choice between a
-   * thing and itself. The named row goes and the plain one stays, because the
-   * plain one is where the reader already is.
-   */
-  /**
-   * And a merge that changes nothing is not a second answer either.
-   *
-   * Asked whether Hydrofluoric Acid and its gas may be one substance, the
-   * Lepidolite plan comes back identical -- same ore, same purchases, same
-   * charge, same batch. Offering it would be offering a choice between a thing
-   * and itself.
-   */
-  for (const [key, row] of [...byOutcome]) {
-    if (!row.ore && !row.merge) continue;
-    if (byOutcome.has(`${signature(row)}||`)) byOutcome.delete(key);
-  }
-  const distinct = [...byOutcome.values()];
-  // The shortest option set first, so a row is offered by the least the player
-  // has to switch on to reach it.
-  for (const row of distinct) row.via.sort((a, b) => a.length - b.length);
-
-  const menu = distinct.filter((row) =>
-    !distinct.some((other) => other !== row && beats(other, row, want)));
-  for (const row of menu) {
-    row.best = COSTS.filter((s) => {
-      const mine = s.dir * row[s.id];
-      return !menu.some((other) => s.dir * other[s.id] < mine - SAME);
-    }).map((s) => s.id);
-  }
-  menu.sort((a, b) => a.atoms - b.atoms || a.reactors - b.reactors || a.units - b.units);
-  return { menu, distinct: distinct.length, scored: scored.length, barren };
-}
-
-return { SCORES, optionSets, measure, digest };
-})();
-
 const __mod_plan_view = (() => {
 /**
  * The plan mode's pane: goals at the top, the steps as a table, and everything
@@ -13545,7 +13617,7 @@ const {balanceTargets} = __mod_balance;
 const {routesFor} = __mod_routes;
 const {drawPlan} = __mod_plan_picture;
 const {rat, rmul, rsub, rdiv, rstr, rcmp, R0} = __mod_rational;
-const {solveFresh, blankFresh, questionShape, oreReach, oreCandidates, withElements, normalizeFresh, mergeableStates, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
+const {solveFresh, blankFresh, questionShape, oreReach, oreCandidates, withElements, normalizeFresh, mergeableStates, WEIGH_BY, SOURCE_KINDS, SOURCES} = __mod_plan_fresh;
 const {SCORES, optionSets, digest} = __mod_plan_menu;
 const {rnum} = __mod_rational;
 const {KIND, PROCESS_KINDS} = __mod_plan_graph;
@@ -15001,6 +15073,24 @@ function sweepQueue(ask) {
   for (const { rep } of mergeableStates(ctx.graph)) {
     queue.push({ options: [...ask.sources], merge: rep });
   }
+  /**
+   * And one more per thing the menu has a column for.
+   *
+   * Which ore a plan starting from nothing buys is settled by weighing the
+   * finished answers, and the order that weighing goes in was fixed: atoms,
+   * then items, then reactors. Read strictly that pays twenty-five reactors to
+   * save an atom, and anything the reader can be shown a column of is
+   * something they can reasonably ask to be optimised for instead. Asked for
+   * Carbon it is five reactors and a third of an atom a unit, or one reactor
+   * and a whole one -- and nothing could offer the second.
+   *
+   * Against the sources the plan is already using, like the ore and the states,
+   * because the answer to "which of these do I care about" does not usually
+   * turn on which categories are switched on.
+   */
+  for (const id of WEIGH_BY) {
+    queue.push({ options: [...ask.sources], weigh: id });
+  }
   return queue;
 }
 
@@ -15013,7 +15103,7 @@ function startSweep(ask) {
     if (!sweep || sweep.token !== token) return;      // a newer question won
     const step = sweep.queue.shift();
     if (!step) { sweep.queue = null; renderMenu(); return; }
-    const { options, ore, merge } = step;
+    const { options, ore, merge, weigh } = step;
     /**
      * Two source sets can be the same question wearing different clothes.
      *
@@ -15032,6 +15122,7 @@ function startSweep(ask) {
      * the choice reversible from the menu that offered it.
      */
     const asked = { ...ask, sources: options, mergeStates: merge ? [merge] : [],
+                    weigh: weigh ? [weigh] : [],
                     ...(ore ? { oreAllowed: [ore] } : {}) };
     // The shape says two source sets are the same question. It knows nothing
     // about which ore may be bought, so an ore question is never served from it.
@@ -15044,7 +15135,7 @@ function startSweep(ask) {
       } catch { answer = null; }                      // a combination that cannot: a row of its own
       if (shape !== null) sweep.shapes.set(shape, answer);
     }
-    sweep.entries.push({ options, ore, merge, plan: answer });
+    sweep.entries.push({ options, ore, merge, weigh, plan: answer });
     renderMenu();
     setTimeout(turn, 0);
   };
@@ -15060,7 +15151,10 @@ function menuRow(row, table) {
   const mergeNow = row.merge
     ? plan.mergeStates.length === 1 && plan.mergeStates[0] === row.merge
     : !plan.mergeStates.length;
-  if (sameSources(row.via[0], plan.sources) && mergeNow &&
+  const weighNow = row.weigh
+    ? plan.weigh.length === 1 && plan.weigh[0] === row.weigh
+    : !plan.weigh.length;
+  if (sameSources(row.via[0], plan.sources) && mergeNow && weighNow &&
       (isOre ? oreNow : !plan.oreAllowed.length)) {
     tr.classList.add('is-current');
   }
@@ -15094,12 +15188,15 @@ function menuRow(row, table) {
     ? `buy ${ctx.db.byName.get(row.ore)?.display ?? row.ore}`
     : row.merge
       ? mergeLabel(row.merge)
-      : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+      : row.weigh
+        ? `${SCORES.find((s) => s.id === row.weigh)?.label ?? row.weigh} first`
+        : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
   const pick = button('link', label, `Switch the plan to ${label}`,
                       () => setPlan({ ...plan,
                                       sources: [...row.via[0]],
                                       oreAllowed: row.ore ? [row.ore] : [],
-                                      mergeStates: row.merge ? [row.merge] : [] }));
+                                      mergeStates: row.merge ? [row.merge] : [],
+                                      weigh: row.weigh ? [row.weigh] : [] }));
   via.append(pick);
   if (row.via.length > 1) {
     via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
@@ -15208,6 +15305,7 @@ function render() {
     // having been pressed is what puts one here.
     ...(plan.oreAllowed.length ? { oreAllowed: plan.oreAllowed } : {}),
     ...(plan.mergeStates.length ? { mergeStates: plan.mergeStates } : {}),
+    ...(plan.weigh.length ? { weigh: plan.weigh } : {}),
   };
   shownTargets = targetsFor(question);
 

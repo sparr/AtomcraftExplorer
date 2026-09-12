@@ -19,7 +19,7 @@ import { routesFor } from './routes.js';
 import { drawPlan } from './plan-picture.js';
 import { rat, rmul, rsub, rdiv, rstr, rcmp, R0 } from './rational.js';
 import { solveFresh, blankFresh, questionShape, oreReach, oreCandidates,
-         withElements, normalizeFresh, mergeableStates,
+         withElements, normalizeFresh, mergeableStates, WEIGH_BY,
          SOURCE_KINDS, SOURCES } from './plan-fresh.js';
 import { SCORES, optionSets, digest } from './plan-menu.js';
 import { rnum } from './rational.js';
@@ -1480,6 +1480,24 @@ function sweepQueue(ask) {
   for (const { rep } of mergeableStates(ctx.graph)) {
     queue.push({ options: [...ask.sources], merge: rep });
   }
+  /**
+   * And one more per thing the menu has a column for.
+   *
+   * Which ore a plan starting from nothing buys is settled by weighing the
+   * finished answers, and the order that weighing goes in was fixed: atoms,
+   * then items, then reactors. Read strictly that pays twenty-five reactors to
+   * save an atom, and anything the reader can be shown a column of is
+   * something they can reasonably ask to be optimised for instead. Asked for
+   * Carbon it is five reactors and a third of an atom a unit, or one reactor
+   * and a whole one -- and nothing could offer the second.
+   *
+   * Against the sources the plan is already using, like the ore and the states,
+   * because the answer to "which of these do I care about" does not usually
+   * turn on which categories are switched on.
+   */
+  for (const id of WEIGH_BY) {
+    queue.push({ options: [...ask.sources], weigh: id });
+  }
   return queue;
 }
 
@@ -1492,7 +1510,7 @@ function startSweep(ask) {
     if (!sweep || sweep.token !== token) return;      // a newer question won
     const step = sweep.queue.shift();
     if (!step) { sweep.queue = null; renderMenu(); return; }
-    const { options, ore, merge } = step;
+    const { options, ore, merge, weigh } = step;
     /**
      * Two source sets can be the same question wearing different clothes.
      *
@@ -1511,6 +1529,7 @@ function startSweep(ask) {
      * the choice reversible from the menu that offered it.
      */
     const asked = { ...ask, sources: options, mergeStates: merge ? [merge] : [],
+                    weigh: weigh ? [weigh] : [],
                     ...(ore ? { oreAllowed: [ore] } : {}) };
     // The shape says two source sets are the same question. It knows nothing
     // about which ore may be bought, so an ore question is never served from it.
@@ -1523,7 +1542,7 @@ function startSweep(ask) {
       } catch { answer = null; }                      // a combination that cannot: a row of its own
       if (shape !== null) sweep.shapes.set(shape, answer);
     }
-    sweep.entries.push({ options, ore, merge, plan: answer });
+    sweep.entries.push({ options, ore, merge, weigh, plan: answer });
     renderMenu();
     setTimeout(turn, 0);
   };
@@ -1539,7 +1558,10 @@ function menuRow(row, table) {
   const mergeNow = row.merge
     ? plan.mergeStates.length === 1 && plan.mergeStates[0] === row.merge
     : !plan.mergeStates.length;
-  if (sameSources(row.via[0], plan.sources) && mergeNow &&
+  const weighNow = row.weigh
+    ? plan.weigh.length === 1 && plan.weigh[0] === row.weigh
+    : !plan.weigh.length;
+  if (sameSources(row.via[0], plan.sources) && mergeNow && weighNow &&
       (isOre ? oreNow : !plan.oreAllowed.length)) {
     tr.classList.add('is-current');
   }
@@ -1573,12 +1595,15 @@ function menuRow(row, table) {
     ? `buy ${ctx.db.byName.get(row.ore)?.display ?? row.ore}`
     : row.merge
       ? mergeLabel(row.merge)
-      : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
+      : row.weigh
+        ? `${SCORES.find((s) => s.id === row.weigh)?.label ?? row.weigh} first`
+        : row.via[0].map((id) => SOURCE_KINDS.find((k) => k.id === id)?.label ?? id).join(' + ');
   const pick = button('link', label, `Switch the plan to ${label}`,
                       () => setPlan({ ...plan,
                                       sources: [...row.via[0]],
                                       oreAllowed: row.ore ? [row.ore] : [],
-                                      mergeStates: row.merge ? [row.merge] : [] }));
+                                      mergeStates: row.merge ? [row.merge] : [],
+                                      weigh: row.weigh ? [row.weigh] : [] }));
   via.append(pick);
   if (row.via.length > 1) {
     via.append(el('span', 'menu-also', ` and ${row.via.length - 1} other way${row.via.length > 2 ? 's' : ''}`));
@@ -1687,6 +1712,7 @@ export function render() {
     // having been pressed is what puts one here.
     ...(plan.oreAllowed.length ? { oreAllowed: plan.oreAllowed } : {}),
     ...(plan.mergeStates.length ? { mergeStates: plan.mergeStates } : {}),
+    ...(plan.weigh.length ? { weigh: plan.weigh } : {}),
   };
   shownTargets = targetsFor(question);
 

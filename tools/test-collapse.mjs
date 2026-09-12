@@ -20,7 +20,8 @@ import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
 import { phaseFamilies, mergeableStates, model, subgraph, withElements,
-         normalizeFresh, solveFresh, unprovenBugs } from '../src/plan-fresh.js';
+         normalizeFresh, solveFresh, unprovenBugs, WEIGH_BY } from '../src/plan-fresh.js';
+import { SCORES } from '../src/plan-menu.js';
 import { rnum, rzero } from '../src/rational.js';
 
 globalThis.fetch = async () => ({
@@ -226,6 +227,37 @@ console.log('\n--- the pair gate proves them either way round ---');
  */
 check(unprovenBugs(graph).length === 0,
       `every known minting pair is proven${unprovenBugs(graph).length ? `: ${unprovenBugs(graph).map((u) => u.drop).join(', ')}` : ''}`);
+
+console.log('\n--- which cost is weighed first ---');
+/**
+ * `weighPlan` settles which ore a plan starting from nothing buys, and it read
+ * atoms, then items, then reactors, in that order and no other. Read strictly
+ * that pays twenty-five reactors to save an atom. Carbon is the plainest case:
+ * a third of an atom a unit across five reactors, or a whole atom in one.
+ *
+ * The default must not have moved -- it is the same three in the same order --
+ * so the check is that asking for something else answers differently and in
+ * the direction asked for.
+ */
+check(WEIGH_BY.join() === SCORES.filter((s) => !s.tiebreak).map((s) => s.id).join(),
+      'every cost the menu scores can be weighed first, and only those');
+{
+  const ask = (weigh) => {
+    try { return solveFresh(graph, { targets: [{ name: 'Carbon', amount: 1 }], weigh }); }
+    catch { return null; }
+  };
+  const usual = ask([]);
+  const lean = ask(['reactors']);
+  check(usual && usual.steps.length && lean && lean.steps.length,
+        'Carbon answers both ways');
+  check(lean.realSteps < usual.realSteps,
+        `asked for fewest reactors it uses fewer: ${usual.realSteps} -> ${lean.realSteps}`);
+  check(rnum(usual.madeOf('Carbon')) >= usual.spec.targets[0].amount &&
+        rnum(lean.madeOf('Carbon')) >= lean.spec.targets[0].amount,
+        'and both still make the carbon they promise');
+  check(ask(['nonsense']).steps.length === usual.steps.length,
+        'a name that is not a cost is ignored rather than obeyed');
+}
 
 console.log(fail ? `\n${fail} FAILURES` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

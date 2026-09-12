@@ -132,6 +132,17 @@ export function emptyPlan() {
      */
     mergeStates: [],
     /**
+     * Which of the scoreboard's costs to weigh first when the solver is
+     * choosing between two finished plans, in order.
+     *
+     * Empty means atoms, then items, then reactors, which is what it always
+     * did. It decides which ore a plan starting from nothing buys, and that is
+     * a real fork: asked for Carbon it is five reactors and a third of an atom
+     * a unit, or one reactor and a whole one. A row of the menu having been
+     * pressed is what puts something here.
+     */
+    weigh: [],
+    /**
      * Which material is being inspected. Not part of the question -- it is
      * where you are looking -- but it rides along in the URL for the same
      * reason the explorer's selection does: so a link points at the thing you
@@ -189,6 +200,8 @@ export function readPlan(params) {
   if (ore) plan.oreAllowed = list(ore);
   const merge = params.get('ms');
   if (merge) plan.mergeStates = list(merge);
+  const weigh = params.get('wg');
+  if (weigh) plan.weigh = list(weigh);
   plan.selected = params.get('pm') || null;
   return plan;
 }
@@ -220,6 +233,7 @@ export function writePlan(plan, params) {
   if (!plan.balance) params.set('b', '0');
   if (plan.oreAllowed.length) params.set('or', plan.oreAllowed.join(SEP));
   if (plan.mergeStates.length) params.set('ms', plan.mergeStates.join(SEP));
+  if (plan.weigh.length) params.set('wg', plan.weigh.join(SEP));
   put('pm', plan.selected);
 }
 

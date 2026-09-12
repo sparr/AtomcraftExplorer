@@ -206,15 +206,24 @@ export function digest(entries, tools, { keepLeftovers = false } = {}) {
   const barren = [];
   for (const e of entries) {
     const row = e.plan ? measure(e.plan, tools) : null;
-    if (row) scored.push({ ...row, options: e.options, ore: e.ore, merge: e.merge, plan: e.plan });
+    if (row) scored.push({ ...row, options: e.options, ore: e.ore, merge: e.merge,
+                           weigh: e.weigh, plan: e.plan });
     else barren.push(e.options);
   }
 
   const byOutcome = new Map();
   for (const row of scored) {
-    // The ore is part of which row this is, not of how good it is: two plans
-    // that score alike but buy different ores are two answers, not one. So is
-    // which states the question was willing to treat as one substance.
+    /**
+     * The ore is part of which row this is, not of how good it is: two plans
+     * that score alike but buy different ores are two answers, not one. So is
+     * which states the question was willing to treat as one substance.
+     *
+     * The weighing order is not. It is not a property of the plan, it is a
+     * question somebody asked -- and four of them reaching the same one-reactor
+     * Carbon plan is one answer offered four ways, not four answers. So it
+     * stays out of the key and merges on score like the sources do; whichever
+     * order reached the row first is the one it is named for.
+     */
     const key = `${signature(row)}|${row.ore ?? ''}|${row.merge ?? ''}`;
     if (!byOutcome.has(key)) byOutcome.set(key, { ...row, via: [] });
     byOutcome.get(key).via.push(row.options);
@@ -241,9 +250,20 @@ export function digest(entries, tools, { keepLeftovers = false } = {}) {
     if (byOutcome.has(`${signature(row)}||`)) byOutcome.delete(key);
   }
   const distinct = [...byOutcome.values()];
-  // The shortest option set first, so a row is offered by the least the player
-  // has to switch on to reach it.
-  for (const row of distinct) row.via.sort((a, b) => a.length - b.length);
+  /**
+   * The shortest option set first, so a row is offered by the least the player
+   * has to switch on to reach it -- and each set once, because a row reached by
+   * four weighings of the same sources is not reached four ways.
+   */
+  for (const row of distinct) {
+    const seen = new Set();
+    row.via = row.via.filter((v) => {
+      const key = [...v].sort().join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort((a, b) => a.length - b.length);
+  }
 
   const menu = distinct.filter((row) =>
     !distinct.some((other) => other !== row && beats(other, row, want)));

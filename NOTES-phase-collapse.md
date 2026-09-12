@@ -174,7 +174,39 @@ nothing.
 
 With those three, the pair comes out as a fork rather than a winner: one row
 best on the charge, the other best on the steps and the batch, neither beating
-the other. A merge
+the other.
+
+**And a fourth, later: the order the costs are weighed in.** `weighPlan`
+settles which ore a plan starting from nothing buys, and it read atoms, then
+items, then reactors, in that order and no other -- which is how it came to pay
+twenty-five reactors to save an atom, and on Copper Oxide to buy *more items*
+for fewer atoms, atoms deciding before items are ever consulted. Sparr: it
+should be configurable and exposed to the scoreboard for optimisation.
+
+`spec.weigh` names the costs in the order they matter, riding in the URL as
+`wg`, and the sweep asks the question once per cost the menu has a column for.
+Left empty it weighs exactly what it weighed before in exactly the order it
+weighed it, so nothing moves: 194 of 194 corpus plans identical. Name one and
+that decides, with the rest of the board following as tie-breaks so two plans
+level on what was asked about are not separated by the order the ores happened
+to come up in.
+
+The reach is narrower than the complaint: it chooses between *finished* plans,
+one per ore, so it bites only where a question has more than one ore worth
+trying. Five of twelve targets measured answer differently for it, and the
+differences are not small:
+
+```
+Carbon     0.33 atoms a unit over 5 reactors   |  1 atom over 1 reactor, no charge
+Aluminum   2.5 atoms over 6 reactors           |  4 atoms over 1 reactor
+           or, weighed by the charge, 3.67 atoms over 21 reactors and nothing to lay in
+Boron Oxide 6.5 atoms over 6 reactors, charge 18 | 14 atoms over 1 reactor, charge 0
+```
+
+A weighing is a question rather than a property of the answer, so unlike the
+ore it stays out of the row key: four orders reaching the same one-reactor
+Carbon plan are one row offered four ways, and the row is named for whichever
+found it first. A merge
 that changes nothing -- Hydrofluoric Acid, on this question -- scores
 identically to the plain row and is dropped rather than offered as a choice
 between a thing and itself.

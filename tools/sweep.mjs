@@ -27,7 +27,7 @@ globalThis.fetch = async () => ({
 
 const { loadData } = await import('../src/data.js');
 const { buildProcessGraph } = await import('../src/plan-graph.js');
-const { solveFresh, SOURCES, mergeableStates } = await import('../src/plan-fresh.js');
+const { solveFresh, SOURCES, mergeableStates, WEIGH_BY } = await import('../src/plan-fresh.js');
 const { rnum } = await import('../src/rational.js');
 const { digest, optionSets, SCORES } = await import('../src/plan-menu.js');
 
@@ -55,16 +55,24 @@ const queue = optionSets([...SOURCES]).map((sources) => ({ options: sources }));
 for (const { rep } of mergeableStates(graph)) {
   queue.push({ options: [...(spec.sources || SOURCES)], merge: rep });
 }
-for (const { options: sources, merge } of queue) {
+// And one per column the menu has, which is the order the finished answers are
+// weighed in. See `sweepQueue` in plan-view.js.
+for (const id of WEIGH_BY) {
+  queue.push({ options: [...(spec.sources || SOURCES)], weigh: id });
+}
+for (const { options: sources, merge, weigh } of queue) {
   const t0 = Date.now();
   let plan = null;
   try {
-    plan = solveFresh(graph, { ...spec, targets, sources, mergeStates: merge ? [merge] : [] });
+    plan = solveFresh(graph, { ...spec, targets, sources,
+                               mergeStates: merge ? [merge] : [],
+                               weigh: weigh ? [weigh] : [] });
   } catch (e) {
-    console.error(`  ${sources.join('+')}${merge ? ` +${merge}` : ''} threw: ${e.message}`);
+    console.error(`  ${sources.join('+')}${merge ? ` +${merge}` : ''}` +
+                  `${weigh ? ` by ${weigh}` : ''} threw: ${e.message}`);
   }
   slowest = Math.max(slowest, Date.now() - t0);
-  entries.push({ options: sources, merge, plan });
+  entries.push({ options: sources, merge, weigh, plan });
 }
 const took = Date.now() - began;
 
@@ -77,7 +85,9 @@ console.log(`${entries.length} runs in ${(took / 1000).toFixed(1)}s ` +
 console.log('\n' + SCORES.map((s) => s.short.padStart(7)).join(' ') + '   sources');
 for (const row of menu) {
   console.log(SCORES.map((s) => cell(row[s.id])).join(' ') + '   ' +
-              (row.merge ? `${row.via[0].join('+')} [${row.merge} as one]` : row.via[0].join('+')) +
+              (row.merge ? `${row.via[0].join('+')} [${row.merge} as one]`
+                : row.weigh ? `${row.via[0].join('+')} [${row.weigh} first]`
+                : row.via[0].join('+')) +
               (row.via.length > 1 ? ` (+${row.via.length - 1})` : '') +
               (row.best.length ? `   best: ${row.best.join(', ')}` : ''));
 }

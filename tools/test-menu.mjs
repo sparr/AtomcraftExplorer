@@ -55,6 +55,33 @@ console.log('\n--- the ore is part of the row ---');
   check(plain.menu[0].ore === undefined, 'and carry no ore');
 }
 
+/**
+ * Which order the answers were weighed in is not part of which row this is.
+ *
+ * Unlike the ore: two plans that score alike and buy different rocks are two
+ * answers, and four weighings that reach the same one-reactor Carbon plan are
+ * one answer offered four ways. So they merge on score, and each way in is
+ * counted once.
+ */
+console.log('\n--- a weighing is a question, not an answer ---');
+{
+  // Cheap in atoms against cheap in reactors, so neither beats the other and
+  // both are on the menu to be told apart.
+  const one = plan([{ name: 'Ten', amount: 1 }], [], ['rx', 'rx', 'rx'], 1);
+  const lean = plan([{ name: 'Twenty', amount: 1 }], [], ['rx'], 1);
+  const same = digest([{ options: ['a'], plan: one },
+                       { options: ['a'], weigh: 'reactors', plan: one },
+                       { options: ['a'], weigh: 'charge', plan: one }], tools);
+  check(same.distinct === 1, 'weighings that find the same answer are one row');
+  check(same.menu.length === 1 && same.menu[0].via.length === 1,
+        'and one way in, not three');
+  const forked = digest([{ options: ['a'], plan: one },
+                         { options: ['a'], weigh: 'reactors', plan: lean }], tools);
+  check(forked.distinct === 2, 'while one that finds a different answer is its own row');
+  check(forked.menu.some((r) => r.weigh === 'reactors'),
+        'and remembers which order found it');
+}
+
 console.log('\n--- scoring is per unit of target ---');
 const two = measure(plan([{ name: 'Lepidolite', amount: 12 }], [], ['rx', 'rx', 'phase'], 6), tools);
 check(two.atoms === 44, 'twelve Lepidolite at 22 atoms over a batch of six is 44 an item');
