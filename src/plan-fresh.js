@@ -1533,35 +1533,23 @@ export function mergeableStates(graph) {
  * which keeps Carbon Dioxide from being represented by Dry Ice.
  */
 /**
- * The two families held back, and what collapsing them costs.
+ * Families the planner will not collapse on its own. Empty.
  *
- * Both pass every test here for being one substance, and both were measured
- * rather than argued about. Merged, a family's row stops saying how many of
- * each state there are, which leaves the simplex a wider face to pick its
- * corner from -- and a wider face has more corners with halves on them. The
- * run counts come back as fractions, the whole plan multiplies up by their
- * common denominator, and the reader who asked for one is told to make eight.
+ * It held Water and Hydrofluoric Acid, and the case for both was the batch:
+ * merged, the Lepidolite order came out in fours rather than twos and the
+ * Aluminum one in eights rather than fours. `TELL_STATES_APART` answers that
+ * -- the whole-numbered corners live on the finer rows, and putting the
+ * settled question again over them brings every one of those back to two, with
+ * the families collapsed or apart. Water had a second charge against it, that
+ * Lithium Hydroxide bought five units where it bought two, and that was the
+ * chamber-and-bar bug rather than the collapse.
  *
- * Water and Steam: half the game's reactions hand back steam and a great many
- * others want water, so `cond:Steam` is load-bearing nearly everywhere.
- * Merged, the Lepidolite order comes out in batches of four rather than two
- * and the Aluminum one in eights rather than fours -- the same plan per ore at
- * twice the size -- and asked for Lithium Hydroxide it buys five units where
- * it bought two. Against that, three plans lose the step the merge makes
- * unnecessary.
- *
- * Hydrofluoric Acid and its gas: merged, Aluminum out of Lepidolite finds a
- * route through the glass that is one reaction shorter than the sulfate route
- * it used to take, and offers it in batches of eight rather than four. One
- * real step against twice the batch, on one plan.
- *
- * Neither is obviously the wrong trade; both are trades nobody asked for. They
- * wait for someone to say yes, and saying yes is deleting a name from this
- * set. Everything else -- the metals, the salts, the oxides, a hundred and
- * fourteen families over two hundred and sixty-eight materials -- collapses,
- * and moves one plan in a corpus of a hundred and ninety-four.
+ * Kept as the place for the next one rather than deleted, and it is what
+ * `mergeableStates` reads, so the scoreboard's third axis offers nothing while
+ * this is empty. Put a representative's name in and the question is asked both
+ * ways again.
  */
-const HELD_BACK = new Set(['Water', 'Hydrofluoric Acid']);
+const HELD_BACK = new Set();
 
 /**
  * Whether to put the question again on the finer rows once it is settled.

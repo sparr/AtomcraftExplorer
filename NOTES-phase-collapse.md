@@ -306,9 +306,40 @@ Gravel.
 Cost: about a tenth of the wall clock, and eight of the hundred and ninety-four
 plans move. None loses an answer.
 
-Which also removes the last argument for `HELD_BACK`. The batch was the whole
-of the case against Hydrofluoric Acid, and half the case against Water; the
-other half of Water's -- that Lithium Hydroxide bought five units where it
-bought two -- was the chamber-and-bar bug, fixed separately. Both names could
-come out. Not done here: the families are offered on the scoreboard either way,
-and turning a default off is a smaller thing to ask for than to take.
+Which also removed the last argument for `HELD_BACK`, and it is now empty.
+
+## Nothing held back
+
+The batch was the whole of the case against Hydrofluoric Acid and half the case
+against Water; the other half of Water's -- that Lithium Hydroxide bought five
+units where it bought two -- was the chamber-and-bar bug. With both gone, both
+names came out: 124 families, and Water, Steam, Hydrofluoric Acid and its gas
+collapse like everything else.
+
+`npm test` green, every batch ceiling met, Aluminum out of Lepidolite still in
+twos against a ceiling of four. Over the corpus: **183 identical, 11 moved, none
+lost an answer, none gained one**, and about a tenth faster. One fewer plan
+hands back an element nothing put in.
+
+Of the eleven:
+
+```
+four gain a rehydrated crossing and nothing else -- Aqueous Ammonium Iodide,
+     Aqueous Sodium Carbonate, Aqueous Tin Sulfate, Boric Acid. A phase step
+     costs no reactor, so these are the same plan said more fully.
+Hypochlorous Acid   charge of eleven things -> nothing at all
+Limestone Gravel    buys 24 units -> 8
+Silica              buys 14 units -> 7, and a shorter charge
+Selenium            one step fewer, one charge fewer
+Aqueous Lye         same everything but the order of two steps
+Copper Oxide        same rate, one Copper a unit either way; batch 2 -> 4,
+                    charge one thing -> four, and it now leaves nothing over
+Lithium Hydroxide   1.5 units a unit -> 2.75, and stops minting hydrogen
+```
+
+The last one is the trade worth reading. It used to buy two Lithium Oxide and
+conjure the hydrogen; it now buys the hydrogen and the hydrogen sulfide as
+well. Dearer, and honest -- it is the only plan of the eleven that got more
+expensive, and it got more expensive because it stopped cheating. Copper Oxide
+is the only place the merge costs anything at all, and what it costs is a
+doubled batch on a plan that leaves nothing behind.
