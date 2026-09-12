@@ -123,6 +123,50 @@ One consequence already visible: the eleven-ore Lithium Oxide question tries
 `Lithium Sulfate` and `Aqueous Lithium Sulfate` as separate ores, and five
 aqueous lithium salts as five more candidates that yield no plan at all.
 
+## Which of them close, and so could be a family
+
+Sparr: how many of them do not mint water, with a reaction or filter splitting
+out the water in one direction and a reaction recombining it in the other?
+
+**32.** Counting only routes with nothing else involved, and treating Water,
+Steam, and Ice alike (each condenses or evaporates into the next one for one,
+so the phase collapse already holds them as one substance):
+
+| | |
+| --- | --- |
+| Carry the marker | 76 |
+| The filter will split | 69 |
+| Have a clean recombining reaction as well | 33 |
+| **Round trip closes on both the water and the dry half** | **32** |
+| Does not close | 1 |
+
+The one that does not is `Limewater`. The filter gives one `Slaked Lime` and
+one Water; the only reaction back is `Slaked Lime: 1 + Water: 2 -> Limewater:
+1`. So a cycle *leaks* a water rather than minting one, which is the safe
+direction for conservation but still means the pair cannot be a scaled family:
+there is no single ratio that describes both crossings.
+
+Worth stating because it is the thing that would have bitten: **no material's
+split routes disagree with each other.** Nowhere does evaporating an aqueous
+salt hand back more water than dissolving it consumed, so there is no
+water-minting wheel hiding in these pairs -- which is the failure mode the
+`phaseFamilies` closure test exists to catch.
+
+Of the 32 that close, 28 can be split by a reaction as well as by the filter.
+Four need the block, having only a recombining reaction and no evaporation:
+`Aqueous Manganese(II) Sulfate`, `Aqueous Sulfur Dioxide`, `Hydrobromic Acid`,
+and `Vinegar`.
+
+### The other 37, which are one-way
+
+- **36 of the 69** can have their water taken out and never put back: 9 by a
+  reaction, 27 by the filter alone. All 14 frozen aqueous salts are here, as
+  are `Milk`, `Mud`, and `Water (Carbonated)`.
+- **4 of the 7 unfilterable** are one-way the other direction, which is worse:
+  `Aqueous Silver Nitrate`, `Aqueous Sodium Metavanadate`,
+  `Aqueous Sodium Sulfate`, and `Aqueous Zinc Sulfate` each have a maker that
+  consumes water, and nothing takes it back out. Water put into those is gone.
+
 ## The 69 the filter takes
 
 | Material | Dry half | Route |
