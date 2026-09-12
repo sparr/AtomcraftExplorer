@@ -267,10 +267,28 @@ export function digest(entries, tools, { keepLeftovers = false } = {}) {
 
   const menu = distinct.filter((row) =>
     !distinct.some((other) => other !== row && beats(other, row, want)));
+  /**
+   * Every column says who leads it, the leavings among them.
+   *
+   * This was the costs only, so the leftovers column was the one column on the
+   * board with nothing marked in it and no row ever crediting it -- which
+   * reads as an oversight rather than as a decision, and Sparr read it as one.
+   *
+   * The decision it came from stands and is a different thing: leftovers must
+   * never decide which answers survive. They do not -- `beats` still treats
+   * this as a tie-break and nothing else, so a plan that buys sixty-six atoms
+   * and bins thirty-six of them cannot win a place by binning them. Saying
+   * which row leaves least is a remark about the board, not a reason.
+   *
+   * In the reader's direction, because which way they want the leavings is
+   * theirs: `want` is what `keepLeftovers` chose, and asked to pile them up it
+   * is the row that piles most that leads the column.
+   */
   for (const row of menu) {
-    row.best = COSTS.filter((s) => {
-      const mine = s.dir * row[s.id];
-      return !menu.some((other) => s.dir * other[s.id] < mine - SAME);
+    row.best = SCORES.filter((s) => {
+      const dir = s.tiebreak ? want : s.dir;
+      const mine = dir * row[s.id];
+      return !menu.some((other) => dir * other[s.id] < mine - SAME);
     }).map((s) => s.id);
   }
   menu.sort((a, b) => a.atoms - b.atoms || a.reactors - b.reactors || a.units - b.units);

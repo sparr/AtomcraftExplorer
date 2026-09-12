@@ -5744,10 +5744,28 @@ function digest(entries, tools, { keepLeftovers = false } = {}) {
 
   const menu = distinct.filter((row) =>
     !distinct.some((other) => other !== row && beats(other, row, want)));
+  /**
+   * Every column says who leads it, the leavings among them.
+   *
+   * This was the costs only, so the leftovers column was the one column on the
+   * board with nothing marked in it and no row ever crediting it -- which
+   * reads as an oversight rather than as a decision, and Sparr read it as one.
+   *
+   * The decision it came from stands and is a different thing: leftovers must
+   * never decide which answers survive. They do not -- `beats` still treats
+   * this as a tie-break and nothing else, so a plan that buys sixty-six atoms
+   * and bins thirty-six of them cannot win a place by binning them. Saying
+   * which row leaves least is a remark about the board, not a reason.
+   *
+   * In the reader's direction, because which way they want the leavings is
+   * theirs: `want` is what `keepLeftovers` chose, and asked to pile them up it
+   * is the row that piles most that leads the column.
+   */
   for (const row of menu) {
-    row.best = COSTS.filter((s) => {
-      const mine = s.dir * row[s.id];
-      return !menu.some((other) => s.dir * other[s.id] < mine - SAME);
+    row.best = SCORES.filter((s) => {
+      const dir = s.tiebreak ? want : s.dir;
+      const mine = dir * row[s.id];
+      return !menu.some((other) => dir * other[s.id] < mine - SAME);
     }).map((s) => s.id);
   }
   menu.sort((a, b) => a.atoms - b.atoms || a.reactors - b.reactors || a.units - b.units);
@@ -15254,9 +15272,23 @@ const menuTools = () => ({
  */
 function sweepQueue(ask) {
   const queue = optionSets([...SOURCES]).map((options) => ({ options }));
+  /**
+   * And the ores only where the solver would consider one at all.
+   *
+   * Buying a material that carries the answer is the one exemption the planner
+   * allows, and only when nothing in hand carries it -- `oreReach` is that
+   * condition, returning null where the question is already started. This
+   * asked `oreCandidates` outright and got the exemption's own list, which is
+   * a list of things containing what was asked for. Asked for Tantalum and
+   * Niobium out of Columbite, which carries both, the menu offered five rows
+   * buying niobic and tantalic acids: answers the planner refuses to consider
+   * and the reader never wanted, since those are the want.
+   */
   let ores = [];
   try {
-    ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
+    if (oreReach(ctx.graph, ask)) {
+      ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
+    }
   } catch { ores = []; }
   for (const ore of ores) queue.push({ options: [...ask.sources], ore });
   /**

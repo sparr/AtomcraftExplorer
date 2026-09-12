@@ -206,8 +206,23 @@ check(fewer.menu.length === 1 && fewer.menu[0].via[0][0] === 'tidy',
 const more = digest([tidy, messy], tools, { keepLeftovers: true });
 check(more.menu.length === 1 && more.menu[0].via[0][0] === 'messy',
       'and asked to keep the leavings, the one that leaves more does');
-check(!fewer.menu[0].best.includes('left') && !more.menu[0].best.includes('left'),
-      'neither is ever labelled best at leftovers, which is not a thing to win');
+/**
+ * And the column says who leads it, in the direction asked for.
+ *
+ * This asked the opposite -- that no row is ever labelled best at leftovers --
+ * which left one column on the board with nothing marked in it and no row ever
+ * crediting it. Sparr read that as an oversight, which is how it looks.
+ *
+ * The decision behind the old check stands and is a different thing: leftovers
+ * must never decide which answers survive, and `beats` still treats this as a
+ * tie-break and nothing else. A plan cannot win a place on the menu by binning
+ * what it bought. Saying which row leaves least is a remark about the board
+ * rather than a reason to prefer it.
+ */
+check(fewer.menu[0].best.includes('left'),
+      'wanting fewer leavings, the row that leaves least leads the column');
+check(more.menu[0].best.includes('left'),
+      'and wanting more, the row that leaves most does');
 
 console.log('\n--- a row can be on the menu and best at nothing ---');
 // Sparr found one: fewer reactors than the cheaper plan, fewer atoms than the

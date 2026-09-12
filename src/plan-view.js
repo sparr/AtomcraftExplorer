@@ -1483,9 +1483,23 @@ const menuTools = () => ({
  */
 function sweepQueue(ask) {
   const queue = optionSets([...SOURCES]).map((options) => ({ options }));
+  /**
+   * And the ores only where the solver would consider one at all.
+   *
+   * Buying a material that carries the answer is the one exemption the planner
+   * allows, and only when nothing in hand carries it -- `oreReach` is that
+   * condition, returning null where the question is already started. This
+   * asked `oreCandidates` outright and got the exemption's own list, which is
+   * a list of things containing what was asked for. Asked for Tantalum and
+   * Niobium out of Columbite, which carries both, the menu offered five rows
+   * buying niobic and tantalic acids: answers the planner refuses to consider
+   * and the reader never wanted, since those are the want.
+   */
   let ores = [];
   try {
-    ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
+    if (oreReach(ctx.graph, ask)) {
+      ores = oreCandidates(ctx.graph, withElements(ctx.graph, normalizeFresh(ask)));
+    }
   } catch { ores = []; }
   for (const ore of ores) queue.push({ options: [...ask.sources], ore });
   /**
