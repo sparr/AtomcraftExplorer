@@ -2989,23 +2989,34 @@ export function solveFresh(graph, rawSpec) {
 
   const barred = new Set(rawSpec.excludeProcesses || []);
   /**
-   * The best answer so far, kept because barring a wheel can bar the road.
+   * No earlier answer is kept, because there was never a good one to keep.
    *
    * Each round takes out the biggest wheel of a loop that turns for free and
-   * asks again. Sometimes the re-ask is impossible -- the barred process was
-   * also the only way to a target -- and throwing everything away then meant
-   * the Lepidolite plan reported that it could not be made at all, having
-   * already found a perfectly good answer two rounds earlier and discarded it.
+   * asks again, and sometimes the re-ask is impossible -- the barred process
+   * was also the only way to a target. This used to hand back the last plan it
+   * had seen in that case, on the grounds that throwing everything away made
+   * the Lepidolite plan report it could not be made at all "having already
+   * found a perfectly good answer two rounds earlier".
+   *
+   * It had not. The plan was kept before the wheel test ran on it, and a plan
+   * that passes the wheel test is returned on the spot -- so the only plan
+   * that could ever be sitting in that variable is one this pass had already
+   * caught turning a wheel for free. Every answer it handed back that way was
+   * a lie, and by the codebase's own account of what a free-turning wheel is,
+   * "not a cheap plan, it is a lie" is exactly what it was.
+   *
+   * Sparr: it should not be handing those back. So it does not, and a question
+   * whose every route runs through a wheel comes back with no plan and a note
+   * saying which wheel closed the last road.
    */
-  let best = null;
   for (let round = 0; round < 8; round++) {
     const plan = planOnce(graph, { ...rawSpec, excludeProcesses: [...barred] });
     if (!plan) {
       if (rawSpec.notes && round) {
         rawSpec.notes.push(`...after ${round} round${round === 1 ? '' : 's'} of ` +
-          `barring a free-turning wheel${best ? ', keeping an earlier answer' : ''}`);
+          `barring a free-turning wheel, and nothing is left that does not turn one`);
       }
-      return best;
+      return null;
     }
     /**
      * Handed back, not thrown away. Sparr: do not silently discard a bad plan,
@@ -3015,7 +3026,6 @@ export function solveFresh(graph, rawSpec) {
      * this first.
      */
     plan.shortfall = shortfallOf(plan);
-    if (!plan.shortfall) best = plan;
     const cheat = freeLunch(graph, normalizeFresh(rawSpec), plan);
     if (!cheat) return plan;
     /**

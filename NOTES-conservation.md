@@ -330,3 +330,93 @@ material reads as minting everything that material really contained. The seven
 that survived the nuclear and hydrogen-oxygen buckets were never seven real
 failures; Tellurium is one false positive found by looking, and the others were
 only confirmed by tracing the chlorine.
+
+
+## The remaining failures, counted
+
+`tools/audit-conservation.mjs` sums the element balance of every step of every
+plan -- production minus consumption over the batch -- which needs no reference
+to the shopping list, because anything bought enters as some step's input and
+is counted there. A plan creates element E exactly when that sum is positive.
+Losing matter is not creating it and is not reported.
+
+That is a sharper instrument than the presence test in the bench, which said 45
+of 96. Counted:
+
+```
+clean, counted              28
+create an element           24
+transmute (beam or decay)   25    element change is the point
+cannot say (no formula)     19
+```
+
+By element, and the shape of the tail is the whole story:
+
+```
+O   19 plans        Al  2        Cl  1
+H    6              Fe  1        S   1
+                    Co  1
+                    Cu  1
+                    Sn  1
+                    Nb  1
+```
+
+Nineteen of the twenty-four are oxygen. And the recipes fall into five kinds,
+which is what matters, because only one of them is a recipe's fault.
+
+**A recipe short of a coefficient.** Genuinely wrong, and the class
+`MINTS_INTO_WANT` exists for:
+
+```
+rx:Aluminum Oxyhydroxide Decomposition   1 AlO(OH) -> 1 Alumina + 1 Steam
+      Al+1 H+1 O+2. Alumina carries two aluminium and the input one; the
+      chemistry is 2 AlO(OH) -> Al2O3 + H2O. Two plans -- Aluminum, and
+      Aluminum Vapor.
+rx:Fluoroniobic Acid + Lye               1 acid + 5 Lye -> 1 Niobium Oxide + 5 Sodium Fluoride
+      Nb+1. Niobium Oxide is Nb2O5, so it wants two of the acid. One plan.
+rx:Hydrochloric Acid Dissolves Steel     Cl+1 H+1   -- curated
+rx:Sulfuric Acid + Granite Gravel        S+1 O+1    -- curated for the sulfur
+```
+
+**An alloy's formula read as a molecule.** Not a recipe fault at all:
+
+```
+rx:Bronze Alloy         3 Molten Copper + 1 Molten Tin -> 4 Molten Bronze     Cu+9 Sn+3
+rx:Cobalt Steel Alloy   1 Molten Cobalt + 5 Molten Steel -> 6 Molten Cobalt Steel   Fe+1 Co+5
+```
+
+The recipe conserves units exactly -- four in, four out -- and the formula for
+an alloy states its *ratio*, three copper to one tin, which the counter reads
+as a per-unit molecule. So a unit of bronze reads as three copper plus a tin
+and four of them as twelve. Every alloy in the game will read this way, and
+none of them is minting anything.
+
+**A packing formula that omits its packing.**
+
+```
+rx:Expansion of Hydrogen Gas x2   1 Hydrogen Gas x2 -> 2 Hydrogen Gas   H+2
+```
+
+Three plans. `Hydrogen Gas x2` is a container of two, and its formula counts
+the same hydrogen as one Hydrogen Gas. Exactly the shape the scaled families
+handle for Liquid Oxygen -- but the crossing here is a reaction rather than a
+phase step, so `phaseFamilies` never sees it and the row is never shared. The
+fix is either the formula or extending the family test past `kind === 'phase'`.
+
+**Air, which is not modelled.** Oxygen, and one of them says so in its own
+name:
+
+```
+rx:Hydrogen Sulfide Gas + Oxygen Gas   2 Hydrogen Sulfide Gas -> 2 Sulfur + 2 Steam   O+2
+```
+
+Four plans. The recipe is named for an oxygen it never takes in. That is the
+documented approximation, not a bug to chase.
+
+**An aqueous form that does not carry its water.** `filter:Aqueous Copper(II)
+Sulfate` and its kin, three plans, hydrogen and oxygen.
+
+So of the twenty-four, three recipes in two plans plus two singletons are
+actually wrong, and everything else is the formulas being read for something
+they are not. Which is the same conclusion the earlier measurement reached from
+the other direction, now with the recipes named.
