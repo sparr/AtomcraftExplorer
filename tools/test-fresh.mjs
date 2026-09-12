@@ -209,7 +209,21 @@ console.log('--- what comes out of the ground can be bought, recipe or no');
      !fetchable(graph, 'Limestone', kinds, world)],
     ['so Steel buys the gravel rather than Dolomite to crack it out of',
      bought.includes('Limestone Gravel') && !bought.includes('Dolomite')],
-    ['and its shopping list is lighter for it (46 atoms before)', atoms <= 26],
+    /**
+     * The weight, not the route -- the route is the check above.
+     *
+     * This read `<= 26` against "46 atoms before", and both figures were
+     * computed with a Hematite that weighed one atom. It weighs five, which is
+     * what `Fe2O3` comes to: `assignMatter` was following ore smelting
+     * backwards as though it were a phase change, and anchoring the iron group
+     * on whichever member it reached first. Six Hematite and four Limestone
+     * Gravel is the same shopping list it always was, and it comes to fifty.
+     *
+     * The 46 it was being compared against was counted the same wrong way, so
+     * there is no honest comparison to restate -- only the corrected weight of
+     * the list the plan actually buys.
+     */
+    ['and its shopping list weighs what the ore in it weighs', atoms <= 50],
   ];
   for (const [what, ok] of checks) {
     console.log(`      ${ok ? 'MET  ' : 'BROKE'} ${what}`);

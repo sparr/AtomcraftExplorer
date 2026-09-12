@@ -62,7 +62,32 @@ export function atomsIn(graph, name, element) {
     }
   };
   walk(ast, 1);
-  return ok ? total : null;
+  if (!ok) return null;
+  /**
+   * And a unit may hold several formula-units of the substance.
+   *
+   * Liquid Oxygen's formula is `O2` and a unit of it holds four Oxygen Gas, so
+   * eight oxygen. The formula describes the substance; `matter` describes the
+   * unit, having been derived by following the phase ratios, and the game
+   * writes it both ways -- Liquid Hydrogen is written `H8` and carries its own
+   * packing, Liquid Oxygen is not. Sparr: liquid oxygen should be tallied as
+   * eight atoms. So the formula gives the proportions and `matter` gives the
+   * size.
+   *
+   * Only where the two divide evenly. `Hydrofluoric Acid Gas` sums to two and
+   * weighs five, a ratio of two and a half, because its group is anchored on
+   * the aqueous form whose formula counts water the gas does not carry -- and
+   * scaling by that would invent half an atom of fluorine. A ratio that is not
+   * a whole number of formula-units means the formula is describing something
+   * other than the unit, and then the formula's own count stands.
+   *
+   * One material is scaled by this today and one is declined by it.
+   */
+  const mine = graph.db.byName.get(name);
+  const whole = mine?.atoms
+    ? [...mine.atoms.values()].reduce((a, b) => a + b, 0) : 0;
+  const times = whole && mine.matter ? mine.matter / whole : 1;
+  return Number.isInteger(times) && times > 0 ? total * times : total;
 }
 
 /**

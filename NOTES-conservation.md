@@ -488,13 +488,73 @@ The niobium and tantalum cases Sparr flagged are undamaged: both Columbite
 questions come back with the same seventeen-step plan, four Tantalum and four
 Niobium one for one out of two ore, every check met.
 
-## Still open
+## A unit's weight, and what it holds
 
-`Liquid Oxygen` carries `atoms` of two oxygen and `matter` of eight. `matter`
-is derived by following the phase ratios from the lightest formula in the group
-and is right; the formula is `O2` and does not record that a unit holds four
-gas. Nine more materials disagree the same way -- the Lead family at one
-against two, the Tin family at one against three -- and for those two I do not
-know which number is meant. Nothing reads `atoms` for conservation any more, so
-this is not currently biting; `atomsIn` reads the formula, and the formula is
-what disagrees.
+`matter` is not read off a formula. `assignMatter` follows the phase
+transitions, works out each member's weight relative to the others, and anchors
+the group on the lightest member that has a countable formula. So Liquid Oxygen
+weighs eight because one of it evaporates into four Oxygen Gas and a unit of
+the gas is `O2`: four times two. That is right, and the formula `O2` written on
+Liquid Oxygen is describing the substance rather than the unit -- Liquid
+Hydrogen is the same four-to-one ratio and *is* written `H8`, which is the
+inconsistency `data.js` warns about in as many words.
+
+**The ratio was being used both ways where the game only states it one way.**
+Ore smelting is written in the same two fields: `Galena evap -> Molten Lead`,
+`Cassiterite evap -> Molten Tin`, with nothing coming back. Followed backwards
+the ore joined the metal's group at a ratio of one, the group was anchored on
+whichever member the walk reached first, and the metal inherited the ore's
+formula. Lead weighed two atoms because galena is `PbS`; Tin three because
+cassiterite is `SnO2`; Granite Gravel five against a formula that sums to
+thirteen.
+
+A link now needs a transition stated each way, which is the test
+`phaseFamilies` already applies and for the same reason: a crossing that does
+not come back is a destruction, not a state. Every affected material lands on
+its own formula's count:
+
+```
+Lead            2 -> 1     Cuprite      1 -> 3      Liquid Oxygen  8 -> 8
+Tin             3 -> 1     Hematite     1 -> 5      (stated both ways,
+Quick Lime      5 -> 2     Sphalerite   1 -> 2       so it keeps its ratio)
+Granite Gravel  5 -> 13    Ammonium Ion 4 -> 5
+```
+
+**And the tally follows the unit.** `atomsIn` now multiplies the formula's
+counts by `matter / formula-sum` where that divides evenly, so a unit of Liquid
+Oxygen tallies eight oxygen. One material is scaled by this and one declined:
+`Hydrofluoric Acid Gas` sums to two and weighs five, a ratio of two and a half,
+because its group anchors on the aqueous form whose formula counts water the
+gas does not carry -- and scaling by that would invent half an atom of
+fluorine. A ratio that is not a whole number of formula-units means the formula
+is describing something else, and then its own count stands.
+
+### What it cost
+
+```
+create an element   20 -> 16 of 94 answered
+elements created    O 13, H 4, Cu 1, Sn 1   (Cl and S gone)
+corpus              186 identical, 7 moved, 1 lost, 0 gained
+```
+
+Three plans stop creating oxygen -- Oxygen Gas, Liquid Oxygen and Sulfur Vapor
+-- because the condensation they run now balances instead of appearing to
+destroy six oxygen a time. Sulfur Vapor pays for it: twelve units bought where
+it bought one, which is the Lithium Hydroxide trade again, a plan getting
+dearer because it stopped minting. Iron comes out better, buying one where it
+bought two. Calcium takes eight steps where it took two.
+
+**`Silica` loses its plan, and the mechanism is worth knowing.** Ore pricing is
+`matter ?? 1` -- what a unit actually weighs. Granite Gravel was sixth in
+Silica's ore ranking and is the ore that worked; corrected to thirteen it is
+dearer and falls outside the six ores tried. What displaced it is `Rhyolite`,
+which has no formula of its own and no longer inherits a weight from the group
+it was wrongly joined to -- so it prices as one, the cheapest thing there is,
+and gets tried ahead of an ore whose weight is known.
+
+That is the `oreTries` cap rather than the weighing: at twelve ores Silica
+answers in six reactors buying two Sodium Silicate, which is better than the
+twenty-six reactors and fourteen units it used to take, and the page already
+offers "Try 12" on exactly this message. But an ore nobody can weigh should
+probably not be sorted as the lightest, and `oreCandidates` is where that would
+be said. Not done here.

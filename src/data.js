@@ -337,11 +337,37 @@ function assignMatter(materials, byName) {
     return n || null;
   };
 
-  // matter(other) = ratio * matter(name), read off the two transition fields
-  // in both directions.
+  /**
+   * matter(other) = ratio * matter(name), read off the two transition fields --
+   * but only where the trip comes back.
+   *
+   * The ratio is stated one way and used both, which is fine for a real phase
+   * change and wrong for a smelt. The game writes ore smelting in the same
+   * fields: `Galena evap -> Molten Lead`, `Cassiterite evap -> Molten Tin`,
+   * one way with nothing coming back. Followed backwards, the ore lands in the
+   * metal's group at a ratio of one, the group is anchored on whichever member
+   * the walk reached first, and the metal inherits the ore's formula -- so Lead
+   * weighed two atoms because galena is PbS, and Tin three because cassiterite
+   * is SnO2. Quick Lime weighed five and Granite Gravel five against a formula
+   * that sums to thirteen.
+   *
+   * So a link needs a transition each way, which is the same test
+   * `phaseFamilies` applies and for the same reason: a crossing that does not
+   * come back is a destruction, not a state. Four Oxygen Gas to a Liquid Oxygen
+   * is stated both ways and keeps its ratio, which is what makes a unit of the
+   * liquid eight atoms.
+   */
   const links = new Map(materials.map((m) => [m.name, []]));
+  const stated = new Set();
+  for (const m of materials) {
+    for (const field of ['Evaporation', 'Condensation']) {
+      const to = m.raw[field]?.TargetMaterialName;
+      if (to) stated.add(`${m.name}|${to}`);
+    }
+  }
   const link = (a, b, ratio) => {
     if (!links.has(a) || !links.has(b)) return;
+    if (!stated.has(`${a}|${b}`) || !stated.has(`${b}|${a}`)) return;
     links.get(a).push([b, ratio]);
     links.get(b).push([a, 1 / ratio]);
   };

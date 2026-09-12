@@ -2220,11 +2220,37 @@ function assignMatter(materials, byName) {
     return n || null;
   };
 
-  // matter(other) = ratio * matter(name), read off the two transition fields
-  // in both directions.
+  /**
+   * matter(other) = ratio * matter(name), read off the two transition fields --
+   * but only where the trip comes back.
+   *
+   * The ratio is stated one way and used both, which is fine for a real phase
+   * change and wrong for a smelt. The game writes ore smelting in the same
+   * fields: `Galena evap -> Molten Lead`, `Cassiterite evap -> Molten Tin`,
+   * one way with nothing coming back. Followed backwards, the ore lands in the
+   * metal's group at a ratio of one, the group is anchored on whichever member
+   * the walk reached first, and the metal inherits the ore's formula -- so Lead
+   * weighed two atoms because galena is PbS, and Tin three because cassiterite
+   * is SnO2. Quick Lime weighed five and Granite Gravel five against a formula
+   * that sums to thirteen.
+   *
+   * So a link needs a transition each way, which is the same test
+   * `phaseFamilies` applies and for the same reason: a crossing that does not
+   * come back is a destruction, not a state. Four Oxygen Gas to a Liquid Oxygen
+   * is stated both ways and keeps its ratio, which is what makes a unit of the
+   * liquid eight atoms.
+   */
   const links = new Map(materials.map((m) => [m.name, []]));
+  const stated = new Set();
+  for (const m of materials) {
+    for (const field of ['Evaporation', 'Condensation']) {
+      const to = m.raw[field]?.TargetMaterialName;
+      if (to) stated.add(`${m.name}|${to}`);
+    }
+  }
   const link = (a, b, ratio) => {
     if (!links.has(a) || !links.has(b)) return;
+    if (!stated.has(`${a}|${b}`) || !stated.has(`${b}|${a}`)) return;
     links.get(a).push([b, ratio]);
     links.get(b).push([a, 1 / ratio]);
   };
@@ -6636,7 +6662,32 @@ function atomsIn(graph, name, element) {
     }
   };
   walk(ast, 1);
-  return ok ? total : null;
+  if (!ok) return null;
+  /**
+   * And a unit may hold several formula-units of the substance.
+   *
+   * Liquid Oxygen's formula is `O2` and a unit of it holds four Oxygen Gas, so
+   * eight oxygen. The formula describes the substance; `matter` describes the
+   * unit, having been derived by following the phase ratios, and the game
+   * writes it both ways -- Liquid Hydrogen is written `H8` and carries its own
+   * packing, Liquid Oxygen is not. Sparr: liquid oxygen should be tallied as
+   * eight atoms. So the formula gives the proportions and `matter` gives the
+   * size.
+   *
+   * Only where the two divide evenly. `Hydrofluoric Acid Gas` sums to two and
+   * weighs five, a ratio of two and a half, because its group is anchored on
+   * the aqueous form whose formula counts water the gas does not carry -- and
+   * scaling by that would invent half an atom of fluorine. A ratio that is not
+   * a whole number of formula-units means the formula is describing something
+   * other than the unit, and then the formula's own count stands.
+   *
+   * One material is scaled by this today and one is declined by it.
+   */
+  const mine = graph.db.byName.get(name);
+  const whole = mine?.atoms
+    ? [...mine.atoms.values()].reduce((a, b) => a + b, 0) : 0;
+  const times = whole && mine.matter ? mine.matter / whole : 1;
+  return Number.isInteger(times) && times > 0 ? total * times : total;
 }
 
 /**

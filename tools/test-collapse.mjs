@@ -240,11 +240,18 @@ console.log('\n--- counting the atoms in a formula ---');
       const got = atomsIn(graph, m.name, el);
       if (got === null) { declined++; continue; }
       compared++;
-      if (got !== want) off.push(`${m.name} ${el}: ${got} not ${want}`);
+      // A unit may hold several formula-units, and `matter` says how many --
+      // Liquid Oxygen is `O2` written on a unit that holds four Oxygen Gas.
+      const sum = [...m.atoms.values()].reduce((a, b) => a + b, 0);
+      const times = sum && m.matter ? m.matter / sum : 1;
+      const holds = Number.isInteger(times) && times > 0 ? times : 1;
+      if (got !== want * holds) off.push(`${m.name} ${el}: ${got} not ${want * holds}`);
     }
   }
   check(compared > 2000, `${compared} element counts to compare, ${declined} declined`);
-  check(!off.length, `every one agrees with the material's own atoms${off.length ? `: ${off[0]}` : ''}`);
+  check(!off.length,
+        `every one agrees with the material's own atoms, times what a unit holds` +
+        `${off.length ? `: ${off[0]}` : ''}`);
   check(atomsIn(graph, 'Hydrogen Gas x2', 'H') === 4,
         'a container of two hydrogen gas holds four hydrogen');
   check(atomsIn(graph, 'Aqua Regia', 'Cl') === 3 && atomsIn(graph, 'Gypsum', 'O') === 6,
@@ -257,6 +264,18 @@ console.log('\n--- counting the atoms in a formula ---');
    */
   check(atomsIn(graph, 'Molten Cobalt Steel', 'Fe') === null,
         'while 17% cobalt 83% iron is declined, not counted as one of each');
+  /**
+   * A unit of Liquid Oxygen holds four Oxygen Gas, so eight oxygen, though its
+   * formula says `O2` -- the formula describes the substance and `matter` the
+   * unit. Hydrofluoric Acid Gas weighs two and a half formula-units, which is
+   * no whole number of anything, so its own count stands rather than being
+   * scaled into half an atom of fluorine.
+   */
+  check(atomsIn(graph, 'Liquid Oxygen', 'O') === 8,
+        'a unit of Liquid Oxygen tallies eight oxygen, not two');
+  check(atomsIn(graph, 'Oxygen Gas', 'O') === 2, 'and a unit of the gas still two');
+  check(atomsIn(graph, 'Hydrofluoric Acid Gas', 'F') === 1,
+        'while a ratio that is not whole leaves the formula to speak for itself');
 }
 
 console.log('\n--- the pair gate proves them either way round ---');
