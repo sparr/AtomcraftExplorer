@@ -19,7 +19,7 @@
 import { readFileSync } from 'node:fs';
 import { loadData } from '../src/data.js';
 import { buildProcessGraph } from '../src/plan-graph.js';
-import { phaseFamilies, mergeableStates, model, subgraph, withElements,
+import { phaseFamilies, hydrationFamilies, mergeableStates, model, subgraph, withElements,
          normalizeFresh, solveFresh, unprovenBugs, WEIGH_BY } from '../src/plan-fresh.js';
 import { SCORES } from '../src/plan-menu.js';
 import { rnum, rzero } from '../src/rational.js';
@@ -120,14 +120,42 @@ console.log('\n--- what the collapse takes out of the model ---');
    * the exercise and the thing a refactor would silently undo.
    */
   const dropped = whole.procs.filter((p) => !loose.procs.some((q) => q.id === p.id));
-  check(dropped.length > 0 && dropped.every((p) => p.kind === 'phase'),
-        `and every one of the ${dropped.length} dropped is a phase change`);
-  check(dropped.every((p) => {
-          const ins = inputsOf(p);
-          return ins.length === 1 && p.produces.length === 1 &&
-                 stands(ins[0].name) === stands(p.produces[0].name);
-        }),
-        'each of them inside one family');
+  /**
+   * Two kinds now, and nothing else may be in here.
+   *
+   * This used to say every dropped column is a phase change, which stopped
+   * being true when the aqueous identities started spending rows too: the step
+   * that dissolves a salt contributes nothing to the dry row or the water row
+   * once the salt is written as the two of them, so it is as null as a melt is
+   * and goes the same way. The check is worth more stated as a partition --
+   * every dropped column is one of the two, and each is a genuine crossing of
+   * its own kind -- than it was as a single `kind === 'phase'`.
+   */
+  const inOneFamily = (p) => {
+    const ins = inputsOf(p);
+    return p.kind === 'phase' && ins.length === 1 && p.produces.length === 1 &&
+           stands(ins[0].name) === stands(p.produces[0].name);
+  };
+  const { pairs } = hydrationFamilies(graph);
+  const hydIds = new Set();
+  for (const h of pairs.values()) { hydIds.add(h.split); hydIds.add(h.join); }
+  for (const h of pairs.values()) for (const id of [...h.splits, ...h.joins]) hydIds.add(id);
+  const phased = dropped.filter(inOneFamily);
+  const wetted = dropped.filter((p) => !inOneFamily(p) && hydIds.has(p.id));
+  check(dropped.length > 0 && phased.length + wetted.length === dropped.length,
+        `and all ${dropped.length} dropped are crossings: ${phased.length} phase, ` +
+        `${wetted.length} hydration`);
+  check(phased.length > 0 && wetted.length > 0,
+        'both kinds are actually pulling their weight here');
+  /**
+   * Each hydration column that went is one whose round trip closed. Limewater
+   * is the standing counter-example: its filter gives one Water back and the
+   * only reaction in takes two, so its columns must both survive.
+   */
+  check(wetted.every((p) => [...pairs.values()].some((h) =>
+          h.splits.includes(p.id) || h.joins.includes(p.id))),
+        'each hydration column belongs to a pair whose round trip closes');
+  check(!pairs.has('Limewater'), 'and Limewater, which leaks a water, is not one of them');
   /** But a one-way melt is not a no-op, and keeps its column. */
   const sandInSet = whole.procs.some((p) => p.id === 'evap:Sand');
   check(!sandInSet || loose.procs.some((p) => p.id === 'evap:Sand'),

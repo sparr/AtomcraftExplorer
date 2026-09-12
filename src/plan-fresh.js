@@ -1804,7 +1804,134 @@ export function phaseFamilies(graph, merge = null) {
   return found;
 }
 
+const hydrationCache = new WeakMap();
+
+/**
+ * An aqueous salt is its dry half and its water, and which ones may be said so.
+ *
+ * The same trade as `phaseFamilies` and not the same relation. Melting moves
+ * quantity between two names and changes nothing else, so the two share a row.
+ * Dissolving is not that: a Water goes in and comes back out, so `Aqueous
+ * Lithium Chloride` and `Lithium Chloride` are not one substance and a family
+ * that merged them would mint matter. What is true is an identity --
+ *
+ *     1 Aqueous Lithium Chloride  ==  1 Lithium Chloride + 1 Water
+ *
+ * -- and an identity is enough to spend the aqueous row: every coefficient
+ * that named it is written onto the dry row and the water row instead. The
+ * water is then counted by the model as carefully as anything else, which is
+ * the whole difference from pretending the relation were a phase change.
+ *
+ * What has to hold for the identity to be true is that the round trip closes:
+ * the way out and the way back must agree on how much water and how much dry
+ * half a unit is, or there is no single identity to write. 32 of the game's 76
+ * aqueous materials pass. The one that fails is `Limewater`, which the filter
+ * splits into one `Slaked Lime` and one Water while the only reaction back
+ * takes two -- so a cycle leaks a water, and no one ratio describes both
+ * crossings. See `NOTES-aqueous.md` for the full census.
+ *
+ * Two ways out are counted. A reaction that evaporates the water off, and the
+ * `Water Filter` block, whose rule is in `plan-graph.js`: the composition must
+ * carry the `+H2O` marker and have exactly two entries, and then one tile in
+ * gives one tile of each half out whatever the numbers say.
+ */
+export function hydrationFamilies(graph) {
+  let found = hydrationCache.get(graph);
+  if (found) return found;
+  const WATERS = new Set(['Water', 'Steam', 'Ice']);
+  const PSEUDO = '+H2O';
+  /**
+   * The candidates, read off the composition rather than the name.
+   *
+   * The name would do nearly as well -- no material called `Aqueous ...` is
+   * missing the marker -- but it would miss `Seawater`, `Vinegar`, and
+   * `Hydrobromic Acid`, and the formula would be worse than either: eleven of
+   * these write the dry formula bare, so `Aqueous Lithium Sulfate` says
+   * `LiSO4` and says nothing about its water.
+   */
+  const dryOf = new Map();
+  for (const m of graph.db.materials) {
+    const els = m.raw?.Composition?.Elements || [];
+    if (els.length !== 2 || !els.some((e) => e.Item1 === PSEUDO)) continue;
+    const dry = els.find((e) => e.Item1 !== PSEUDO);
+    if (dry && graph.db.byName.has(dry.Item1)) dryOf.set(m.name, dry.Item1);
+  }
+  /**
+   * Crossings, and only the ones that say nothing else.
+   *
+   * A step that also makes a `Limestone Gravel` is a step in its own right,
+   * not a statement about what an aqueous salt is, and its column stays.
+   */
+  const pairs = new Map();
+  for (const [aq, dry] of dryOf) {
+    const ok = new Set([aq, dry, ...WATERS]);
+    const splits = [];
+    const joins = [];
+    for (const p of graph.processes) {
+      const ins = inputsOf(p);
+      if (![...p.produces, ...ins].every((x) => ok.has(x.name))) continue;
+      const aqIn = ins.find((x) => x.name === aq);
+      const aqOut = p.produces.find((x) => x.name === aq);
+      const dryIn = ins.find((x) => x.name === dry);
+      const dryOut = p.produces.find((x) => x.name === dry);
+      const wIn = ins.filter((x) => WATERS.has(x.name));
+      const wOut = p.produces.filter((x) => WATERS.has(x.name));
+      if (aqIn && dryOut && !aqOut && !dryIn && wOut.length === 1 && !wIn.length) {
+        splits.push({ id: p.id, per: aqIn.count, water: wOut[0].count,
+                      dry: dryOut.count, waterName: wOut[0].name });
+      }
+      if (aqOut && dryIn && !aqIn && !dryOut && wIn.length === 1 && !wOut.length) {
+        joins.push({ id: p.id, per: aqOut.count, water: wIn[0].count,
+                     dry: dryIn.count, waterName: wIn[0].name });
+      }
+    }
+    const block = graph.byId.get(`filter:${aq}`);
+    if (block) splits.push({ id: block.id, per: 1, water: 1, dry: 1, waterName: 'Water' });
+    if (!splits.length || !joins.length) continue;
+    // Closes when the two agree per unit of the salt, on both halves.
+    const agree = (a, b) => a.water * b.per === b.water * a.per &&
+                            a.dry * b.per === b.dry * a.per;
+    let out = null;
+    for (const s of splits) {
+      const j = joins.find((x) => agree(s, x));
+      if (j) { out = { s, j }; break; }
+    }
+    if (!out) continue;
+    pairs.set(aq, { dry,
+                    water: rat(out.s.water, BigInt(out.s.per)),
+                    dryPer: rat(out.s.dry, BigInt(out.s.per)),
+                    waterName: out.s.waterName,
+                    // Every way across, so `assemble` may pick the cheap one.
+                    splits: splits.map((x) => x.id),
+                    joins: joins.map((x) => x.id),
+                    split: out.s.id, join: out.j.id });
+  }
+  found = { pairs };
+  hydrationCache.set(graph, found);
+  return found;
+}
+
+/**
+ * The model, and a second go without the aqueous identities if it comes to it.
+ *
+ * Spending a salt's row deletes the step that crosses to it, and sometimes that
+ * step was the whole plan: ask for `Calcium Nitrate` and the one route is to buy
+ * the aqueous and evaporate it, so with the crossing gone there are no columns
+ * left and no answer. Naming the salt as a target is guarded against inside,
+ * but the mirror case -- the *dry* half asked for, reachable only across the
+ * crossing -- cannot be seen until the columns have been counted.
+ *
+ * So it is asked the cheap way first and the plain way if that came back with
+ * nothing. Two of the 380 corpus plans need the second go, and getting nothing
+ * at all is the only thing that triggers it, so nothing else pays for them.
+ */
 export function model(graph, spec, procs, materials, collapse = true) {
+  const out = modelOnce(graph, spec, procs, materials, collapse, true);
+  if (out || !collapse) return out;
+  return modelOnce(graph, spec, procs, materials, collapse, false);
+}
+
+function modelOnce(graph, spec, procs, materials, collapse, hydrate) {
   /**
    * One row per substance, not one per state of it.
    *
@@ -1827,6 +1954,66 @@ export function model(graph, spec, procs, materials, collapse = true) {
   // itself, which is everything at all when the states are kept apart.
   const worth = collapse ? whole.worth : (() => rat(1));
   const family = collapse ? whole.family : new Map();
+  const hyd = collapse && hydrate ? hydrationFamilies(graph) : { pairs: new Map() };
+  /**
+   * Which rows a unit of a material pays into, and how much of it.
+   *
+   * One row and one number for nearly everything, which is what `stands` and
+   * `worth` said between them. An aqueous salt pays into two: its dry half and
+   * its water, by the identity `hydrationFamilies` checked. Both halves then go
+   * through the phase collapse in their turn, so a `Water` lands on whichever
+   * row stands for water and a dry half that melts lands on its family's.
+   *
+   * Everything below asks this rather than `stands` directly, which is what
+   * spends the aqueous row: no coefficient ever names it, so it never gets one.
+   */
+  /**
+   * Keyed on the row and not on the salt, because the frozen one is on it too.
+   *
+   * `Frozen Aqueous Lithium Chloride` melts into `Aqueous Lithium Chloride`
+   * one for one both ways, so the phase collapse has already made them one
+   * row. Asking about the salt by name would spend that row for the liquid and
+   * leave the solid still paying into it, which puts the aqueous row back and
+   * undoes the exercise. So the question is asked of whatever stands for it.
+   */
+  const hydByRep = new Map();
+  /**
+   * Except the one the reader asked for by name, which keeps its row.
+   *
+   * Ask for `Aqueous Potash` and the whole plan is the crossing: the dry half
+   * and the water are both things you can go out and buy, so the candidate set
+   * is one step long and that step is the dissolving. Spend its row and the
+   * model has no columns left and no answer to give -- six questions of the
+   * seventy-one went from a plan to nothing at all. A salt that is merely on
+   * the way to something else is still spent; it is being asked for that keeps
+   * it whole.
+   */
+  const askedFor = new Set(spec.targets.map((t) => stands(t.name)));
+  for (const [aq, h] of hyd.pairs) {
+    if (askedFor.has(stands(aq))) continue;
+    hydByRep.set(stands(aq), { ...h, aq });
+  }
+  const onto = (name) => {
+    const rep = stands(name);
+    const h = hydByRep.get(rep);
+    if (!h) return [[rep, worth(name)]];
+    /**
+     * A unit of this material is `worth` of the row, and the row is the salt
+     * scaled by what the salt itself is worth on it -- one, everywhere this
+     * happens today, and written out rather than assumed.
+     */
+    const each = rdiv(worth(name), worth(h.aq));
+    return [[stands(h.dry), rmul(rmul(worth(h.dry), h.dryPer), each)],
+            [stands(h.waterName), rmul(rmul(worth(h.waterName), h.water), each)]];
+  };
+  /** The rows an aqueous salt was written onto, which now carry two things. */
+  const sharesWithHydration = new Set();
+  for (const h of hyd.pairs.values()) {
+    sharesWithHydration.add(stands(h.dry));
+    sharesWithHydration.add(stands(h.waterName));
+  }
+  const isHydrated = (n) => hyd.pairs.has(n) || sharesWithHydration.has(stands(n)) ||
+                            [...hyd.pairs.keys()].some((a) => stands(a) === stands(n));
   /**
    * And the steps whose whole effect was to move between those rows go.
    *
@@ -1844,8 +2031,9 @@ export function model(graph, spec, procs, materials, collapse = true) {
   const nulled = (p) => {
     const net = new Map();
     const bump = (name, v) => {
-      const key = stands(name);
-      net.set(key, radd(net.get(key) || R0, rmul(v, worth(name))));
+      for (const [key, w] of onto(name)) {
+        net.set(key, radd(net.get(key) || R0, rmul(v, w)));
+      }
     };
     for (const o of p.produces) bump(o.name, rat(o.count));
     for (const c of inputsOf(p)) bump(c.name, rsub(R0, rat(c.count)));
@@ -1880,13 +2068,13 @@ export function model(graph, spec, procs, materials, collapse = true) {
    * carry that. The combined factory went from two seconds to not finishing.
    */
   const eaten = new Set();
-  for (const p of procs) for (const i of inputsOf(p)) eaten.add(stands(i.name));
+  for (const p of procs) for (const i of inputsOf(p)) for (const [key] of onto(i.name)) eaten.add(key);
 
   const supply = new Map();
   let next = procs.length;
   for (const name of materials) {
     if (spec.have.has(name)) { supply.set(name, next++); continue; }
-    if (!eaten.has(stands(name))) continue;
+    if (!onto(name).some(([key]) => eaten.has(key))) continue;
     if (!fetchable(graph, name, spec.kinds, spec.sources, spec)) continue;
     if (barredAsTarget(graph, name, spec)) continue;
     if (alreadyInHand(graph, name, spec.held)) continue;
@@ -1903,9 +2091,11 @@ export function model(graph, spec, procs, materials, collapse = true) {
   };
   for (const p of procs) {
     const i = index.get(p.id);
-    for (const o of p.produces) put(stands(o.name), i, rmul(rat(o.count), worth(o.name)));
+    for (const o of p.produces) {
+      for (const [key, w] of onto(o.name)) put(key, i, rmul(rat(o.count), w));
+    }
     for (const c of inputsOf(p)) {
-      put(stands(c.name), i, rsub(R0, rmul(rat(c.count), worth(c.name))));
+      for (const [key, w] of onto(c.name)) put(key, i, rsub(R0, rmul(rat(c.count), w)));
     }
   }
   /**
@@ -1917,18 +2107,19 @@ export function model(graph, spec, procs, materials, collapse = true) {
    * something you could actually go and get, and the balance it answers is the
    * family's.
    */
-  for (const [name, i] of supply) put(stands(name), i, worth(name));
+  for (const [name, i] of supply) for (const [key, w] of onto(name)) put(key, i, w);
 
   const demand = new Map();
   for (const t of spec.targets) {
-    const key = stands(t.name);
-    demand.set(key, radd(demand.get(key) || R0, rmul(rat(t.amount), worth(t.name))));
+    for (const [key, w] of onto(t.name)) {
+      demand.set(key, radd(demand.get(key) || R0, rmul(rat(t.amount), w)));
+    }
   }
   const rows = [];
   const constrained = new Set();
   const rowed = new Set();
   for (const name of materials) {
-    const key = stands(name);
+   for (const [key] of onto(name)) {
     if (rowed.has(key)) continue;
     const coeffs = net.get(key);
     if (!coeffs || !coeffs.size) continue;
@@ -1937,6 +2128,7 @@ export function model(graph, spec, procs, materials, collapse = true) {
     // The name rides along so a later pass can weigh this row's slack -- which
     // is exactly the leftover of this material -- by what a unit of it is.
     rows.push({ name: key, coeffs, op: '>=', rhs: demand.get(key) || R0 });
+   }
   }
   if (!rows.length) return null;
 
@@ -1956,7 +2148,7 @@ export function model(graph, spec, procs, materials, collapse = true) {
    * downstream believed it.
    */
   for (const t of spec.targets) {
-    if (!constrained.has(stands(t.name)) && !spec.have.has(t.name)) return null;
+    if (!onto(t.name).some(([key]) => constrained.has(key)) && !spec.have.has(t.name)) return null;
   }
 
   const prices = fetchPrices(graph, spec.kinds);
@@ -2071,6 +2263,15 @@ export function model(graph, spec, procs, materials, collapse = true) {
        * collapse exists to grant.
        */
       if (family.has(stands(name))) continue;
+      /**
+       * And the same objection holds for a row two substances now share.
+       *
+       * An aqueous salt has no row at all any more, and the dry half and the
+       * water it was written onto are carrying more than themselves -- so "one
+       * maker, one eater, therefore weld" is false about all three for exactly
+       * the reason it is false about a collapsed family.
+       */
+      if (isHydrated(name)) continue;
       const makers = graph.producers(name).filter(loose);
       const eaters = graph.consumers(name).filter(loose);
       if (makers.length !== 1 || eaters.length !== 1) continue;
@@ -3956,6 +4157,62 @@ function assemble(graph, spec, procs, index, supply, x, fetchTotal, sub, notes) 
   const asked = new Map();
   for (const t of spec.targets) {
     asked.set(t.name, radd(asked.get(t.name) || R0, rmul(rat(t.amount), scale)));
+  }
+
+  /**
+   * The dissolving the model was never asked to choose.
+   *
+   * Same problem as the melting below and a different repair. An aqueous salt
+   * has no row: every coefficient that named it was written onto its dry half
+   * and its water instead, and the step that crosses between them contributed
+   * nothing to either and lost its column. So the solve knows it needs a
+   * `Lithium Sulfate` and a Water, and the step that wanted them wants them
+   * dissolved, and nothing in the answer says to dissolve them.
+   *
+   * Recoverable, because the recipes never forgot: net each salt against what
+   * the steps make, use, and were asked for, and put the crossing back. Short
+   * of it, dissolve; holding it spare, split it.
+   *
+   * Unlike a phase crossing this one is not free -- a Water is consumed going
+   * one way and handed back the other -- but it costs nothing *here*, because
+   * that water is exactly what the solve already paid for when it wrote the
+   * salt's coefficients onto the water row. The books were kept in the model;
+   * this only says out loud which vessel does it.
+   *
+   * Before the phase pass on purpose. Dissolving `Aqueous Potash` wants Steam
+   * where the plan may be holding Water, and settling that is the next pass's
+   * job.
+   */
+  {
+    const { pairs } = hydrationFamilies(graph);
+    const netOf = (name) =>
+      rsub(made.get(name) || R0, radd(used.get(name) || R0, asked.get(name) || R0));
+    const wetted = [];
+    for (const [aq, h] of pairs) {
+      const n = netOf(aq);
+      if (rzero(n)) continue;
+      const short = rcmp(n, R0) < 0;
+      /**
+       * The way across, and the cheap one where there is a choice: a reaction
+       * runs in a vessel the plan already has, while the filter is a block
+       * that has to be built and placed. `hydrationFamilies` lists the
+       * reactions first for that reason, so the agreeing pair it settled on
+       * is already the reaction wherever one agrees.
+       */
+      const id = short ? h.join : h.split;
+      const q = graph.byId.get(id);
+      if (!q) continue;
+      const per = short ? q.produces.find((x) => x.name === aq)
+                        : inputsOf(q).find((x) => x.name === aq);
+      if (!per || !per.count) continue;
+      runs.set(id, radd(runs.get(id) || R0,
+                        rdiv(short ? rsub(R0, n) : n, rat(per.count))));
+      wetted.push(id);
+    }
+    if (wetted.length) {
+      ({ made, used } = tally());
+      if (notes) notes.push(`hydration: put back ${[...new Set(wetted)].sort().join(', ')}`);
+    }
   }
 
   /**
